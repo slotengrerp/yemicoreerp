@@ -6,7 +6,7 @@ import { useState, useMemo } from 'react';
 import { useApp }   from '../../context/AppContext';
 import { useTheme } from '../../context/ThemeContext';
 import { canDo }    from '../../utils/auth';
-import { formatCurrency, generateId, showToast } from '../../utils/helpers';
+import { formatCurrency, formatDate, generateId, showToast } from '../../utils/helpers';
 import { saveDBLocal } from '../../utils/db';
 import { logActivity }  from '../../utils/audit';
 import { Users, DollarSign, UserCheck, UserX } from 'lucide-react';
@@ -363,6 +363,53 @@ export default function ContractStaff() {
     saveDBLocal({ ...db, nlng:next }, state.activity);
   }
 
+  // ── Payroll → General Ledger ────────────────────────────────────────────
+  // periodKey is the stable YYYY-MM dedup key; `period` (defined above) is
+  // just the human-readable label ("July 2026") used on screen and in the
+  // journal description.
+  const periodKey = `${payYear}-${String(payMonth+1).padStart(2,'0')}`;
+  const payrollRuns = db.payrollRuns || [];
+  const existingRun = payrollRuns.find(r => r.staffType==='Contract' && r.period===periodKey && !r.voided);
+
+  function runPayroll() {
+    const activeStaff = filtered.filter(s => s.status === 'Active');
+    if (!activeStaff.length) { showToast('No active staff to run payroll for', 'error'); return; }
+    const lines = activeStaff.map(s => {
+      const basic=(Number(s.basicSalary)||0), housing=(Number(s.housing)||0), transport=(Number(s.transport)||0);
+      const extraEarnings=(Number(s.bonnyAllowance)||0)+(Number(s.leaveAllowance)||0)+(Number(s.eoyBonus)||0)+(Number(s.overtimeAllowance)||0);
+      const gross=basic+housing+transport+extraEarnings;
+      const pension=Math.round((basic+housing+transport)*0.08);
+      const paye=(()=>{ const bands=[[300000,7],[300000,11],[500000,15],[500000,19],[1600000,21],[Infinity,24]]; let tax=0,rem=gross*12; for(const [lim,rate] of bands){const sl=Math.min(rem,lim);tax+=sl*(rate/100);rem-=sl;if(rem<=0)break;} return Math.round(tax/12); })();
+      const otherDeductions=(Number(s.voluntaryPension)||0)+(Number(s.salaryAdvance)||0)+(Number(s.loan)||0);
+      const netPay = gross - pension - paye - otherDeductions;
+      return { staffId:s.id, refId:s.refId, fullName:s.fullName, department:s.department, projectCode:s.projectCode||'',
+        basic, housing, transport, allowances:extraEarnings, gross, paye, pension, nhf:0, otherDeductions, netPay };
+    });
+    const run = {
+      id: generateId(), staffType:'Contract', period:periodKey, periodLabel:period,
+      runDate: new Date().toISOString().split('T')[0], runBy: currentUser?.name || '',
+      lines,
+      totalGross: lines.reduce((a,l)=>a+l.gross,0), totalPAYE: lines.reduce((a,l)=>a+l.paye,0),
+      totalPension: lines.reduce((a,l)=>a+l.pension,0), totalNHF: 0,
+      totalOtherDeductions: lines.reduce((a,l)=>a+l.otherDeductions,0), totalNetPay: lines.reduce((a,l)=>a+l.netPay,0),
+      paymentDate: '', voided: false,
+    };
+    dispatch({ type:'UPDATE_MODULE', mod:'payrollRuns', data:[...payrollRuns, run] });
+    saveDBLocal({ ...db, payrollRuns:[...payrollRuns, run] }, state.activity);
+    logActivity(dispatch, `Payroll run posted: Contract Staff — ${period} (${lines.length} staff, ${formatCurrency(run.totalGross)} gross)`, currentUser);
+    showToast(`Payroll posted for ${period}`);
+  }
+
+  function markPayrollPaid() {
+    if (!existingRun) return;
+    const paymentDate = new Date().toISOString().split('T')[0];
+    const next = payrollRuns.map(r => r.id===existingRun.id ? {...r, paymentDate} : r);
+    dispatch({ type:'UPDATE_MODULE', mod:'payrollRuns', data:next });
+    saveDBLocal({ ...db, payrollRuns:next }, state.activity);
+    logActivity(dispatch, `Payroll payment recorded: Contract Staff — ${period}`, currentUser);
+    showToast('Marked as paid — salaries disbursed');
+  }
+
   function handleSave(f) {
     const basic=Number(f.basicSalary)||0, housing=Number(f.housing)||0, transport=Number(f.transport)||0;
     const record = { ...f, basicSalary:basic, housing, transport, grossSalary:basic+housing+transport };
@@ -475,9 +522,23 @@ export default function ContractStaff() {
           {view==='payroll' && (
             <>
               {/* Period badge */}
-              <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:12, padding:'8px 14px', background:C.amberPale, border:'1px solid '+C.amberLight, borderLeft:'4px solid '+C.amber, borderRadius:8 }}>
+              <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:12, padding:'8px 14px', background:C.amberPale, border:'1px solid '+C.amberLight, borderLeft:'4px solid '+C.amber, borderRadius:8, flexWrap:'wrap' }}>
                 <span style={{ fontSize:13, fontWeight:700, color:C.amber }}>📅 Payroll Period: {period}</span>
                 <span style={{ fontSize:11, color:C.textMuted }}>· {filtered.filter(s=>s.status==='Active').length} active staff</span>
+                <div style={{ marginLeft:'auto', display:'flex', gap:8, alignItems:'center' }}>
+                  {!existingRun && perms.edit && (
+                    <Btn variant="amber" sm onClick={runPayroll}>💰 Run Payroll for {period}</Btn>
+                  )}
+                  {existingRun && !existingRun.paymentDate && (
+                    <>
+                      <span style={{ fontSize:11, color:C.success, fontWeight:700 }}>✓ Posted to GL — {formatCurrency(existingRun.totalNetPay)} net pay accrued</span>
+                      {perms.edit && <Btn variant="outline" sm onClick={markPayrollPaid}>Mark Salaries Paid</Btn>}
+                    </>
+                  )}
+                  {existingRun && existingRun.paymentDate && (
+                    <span style={{ fontSize:11, color:C.success, fontWeight:700 }}>✓ Paid {formatDate(existingRun.paymentDate)} — {formatCurrency(existingRun.totalNetPay)}</span>
+                  )}
+                </div>
               </div>
 
               <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12, minWidth:900 }}>

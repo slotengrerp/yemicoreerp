@@ -313,6 +313,163 @@ export function journalFromAPBill(bill) {
 //   Dr Trade Payables (7001)   payment × fxRate   ← clears the liability
 //   Cr Bank Account   (3xxx)   payment × fxRate   ← cash leaves the bank
 //
+// ══════════════════════════════════════════════════════════════════════════════
+// TERMINAL OPERATIONS — Clearing & terminal charges
+// ══════════════════════════════════════════════════════════════════════════════
+//
+//   Dr Direct Cost — Clearing/Duties (8002)   totalAmount   ← cost incurred
+//   Cr Bank Account                           totalAmount   ← paid out
+//
+// Only posts once `paymentDate` is set — an unpaid charge is a commitment,
+// not yet a confirmed cash movement, same principle as Petty Cash only
+// posting Approved vouchers. No separate "unpaid" liability leg is created
+// here (unlike AP bills) because this module doesn't track these clearing
+// agents as proper AP sub-ledger suppliers — if that ever changes, this
+// should be rebuilt on the AP bill/payment pattern instead.
+//
+// Tagged source:'terminal' (not 'ar'/'ap'/etc.) so Terminal Ops' entries can
+// be identified and pulled out cleanly later if/when Terminal Operations
+// gets its own separate set of books — this doesn't build that separation
+// itself, it just avoids making it harder to do later.
+export function journalFromTerminalCharge(charge) {
+  const amt  = Number(charge.totalAmount) || 0;
+  const bank = bankAcct(charge.bankCode, charge.bankName);
+
+  return {
+    id:          `JE-TERM-${charge.id}`,
+    date:        charge.paymentDate || charge.arrivalDate || new Date().toISOString().split('T')[0],
+    ref:         charge.receiptNo || charge.containerNo,
+    description: `Terminal/Clearing Charges: ${charge.containerNo} — ${charge.agentName}`,
+    source:      'terminal',
+    sourceId:    charge.id,
+    lines: [
+      jLine(
+        '8002', 'Direct Cost — Clearing / Duties',
+        bank.code, bank.name,
+        amt, 'NGN', 1, amt,
+        `Equipment ₦${Number(charge.equipmentCharge)||0} + Terminal ₦${Number(charge.terminalCharge)||0} + Storage ₦${Number(charge.storageCharge)||0} — ${charge.agentName}`,
+      ),
+    ],
+  };
+}
+
+// ── Payroll liability accounts: Staff (SLOT/Company) vs Manpower (Contract) ──
+// The real Sage COA already splits these by staff type — not something this
+// app invented, it's just not been posted to until now.
+const PAYROLL_ACCTS = {
+  Company:  { netSalary: { code:'5001', name:'Staff Net Salary Payable' },
+              paye:      { code:'5003', name:'Staff PAYE Payable' },
+              pension:   { code:'5006', name:'Staff Pension Payable' } },
+  Contract: { netSalary: { code:'5002', name:'Manpower Net Salary Payable' },
+              paye:      { code:'5004', name:'Manpower PAYE Payable' },
+              pension:   { code:'5008', name:'Manpower Pension Payable' } },
+};
+const NHF_PAYABLE     = { code: '5010', name: 'NHF Payable' };
+const OTHER_ACCRUED   = { code: '5009', name: 'Other Accrued Expenses' };
+const SALARY_EXPENSE  = { code: '8001', name: 'Direct Cost — Salaries & Wages' };
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PAYROLL RUN — Recognize the expense (accrual)
+// ══════════════════════════════════════════════════════════════════════════════
+//
+//   Dr Direct Cost — Salaries & Wages (8001)     totalGross
+//   Cr {Staff/Manpower} PAYE Payable              totalPAYE
+//   Cr {Staff/Manpower} Pension Payable           totalPension
+//   Cr NHF Payable                                totalNHF        (Company staff only)
+//   Cr Other Accrued Expenses                     totalOtherDeductions
+//   Cr {Staff/Manpower} Net Salary Payable        totalNetPay     ← owed, not yet paid
+//
+// This recognizes the cost and every withholding the moment payroll is run,
+// whether or not staff have actually been paid yet — same accrual principle
+// as an AP bill. journalFromPayrollPayment (below) is the second step that
+// clears Net Salary Payable once the money actually goes out.
+export function journalFromPayrollRun(run) {
+  const accts = PAYROLL_ACCTS[run.staffType] || PAYROLL_ACCTS.Company;
+  const gross = Number(run.totalGross) || 0;
+  const paye  = Number(run.totalPAYE) || 0;
+  const pension = Number(run.totalPension) || 0;
+  const nhf   = Number(run.totalNHF) || 0;
+  const other = Number(run.totalOtherDeductions) || 0;
+  const net   = Number(run.totalNetPay) || 0;
+
+  const lines = [
+    jLine(SALARY_EXPENSE.code, SALARY_EXPENSE.name, accts.paye.code, accts.paye.name, paye, 'NGN', 1, paye, `${run.staffType} PAYE — ${run.periodLabel}`),
+    jLine(SALARY_EXPENSE.code, SALARY_EXPENSE.name, accts.pension.code, accts.pension.name, pension, 'NGN', 1, pension, `${run.staffType} pension — ${run.periodLabel}`),
+  ];
+  if (nhf > 0)   lines.push(jLine(SALARY_EXPENSE.code, SALARY_EXPENSE.name, NHF_PAYABLE.code, NHF_PAYABLE.name, nhf, 'NGN', 1, nhf, `NHF — ${run.periodLabel}`));
+  if (other > 0) lines.push(jLine(SALARY_EXPENSE.code, SALARY_EXPENSE.name, OTHER_ACCRUED.code, OTHER_ACCRUED.name, other, 'NGN', 1, other, `Other deductions (advances/loans/voluntary pension) — ${run.periodLabel}`));
+  lines.push(jLine(SALARY_EXPENSE.code, SALARY_EXPENSE.name, accts.netSalary.code, accts.netSalary.name, net, 'NGN', 1, net, `Net pay owed to ${run.staffType.toLowerCase()} staff — ${run.periodLabel}`));
+
+  return {
+    id:          `JE-PR-${run.id}`,
+    date:        run.runDate || new Date().toISOString().split('T')[0],
+    ref:         run.periodLabel,
+    description: `Payroll Run: ${run.staffType} Staff — ${run.periodLabel} (${run.lines?.length || 0} staff)`,
+    source:      'payroll',
+    sourceId:    run.id,
+    lines,
+  };
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PAYROLL PAYMENT — Disbursement (clears the liability)
+// ══════════════════════════════════════════════════════════════════════════════
+//
+//   Dr {Staff/Manpower} Net Salary Payable   totalNetPay
+//   Cr Bank Account                          totalNetPay
+//
+// Only posts once a run has actually been marked paid — same principle as
+// an AP payment clearing Trade Payables.
+export function journalFromPayrollPayment(run) {
+  const accts = PAYROLL_ACCTS[run.staffType] || PAYROLL_ACCTS.Company;
+  const net   = Number(run.totalNetPay) || 0;
+  const bank  = bankAcct(run.bankCode, run.bankName);
+
+  return {
+    id:          `JE-PR-PAY-${run.id}`,
+    date:        run.paymentDate || new Date().toISOString().split('T')[0],
+    ref:         run.periodLabel,
+    description: `Salary Payment: ${run.staffType} Staff — ${run.periodLabel}`,
+    source:      'payroll',
+    sourceId:    run.id,
+    lines: [
+      jLine(accts.netSalary.code, accts.netSalary.name, bank.code, bank.name, net, 'NGN', 1, net, `Net salaries paid — ${run.periodLabel}`),
+    ],
+  };
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// FLEET MAINTENANCE — Vehicle repair cost
+// ══════════════════════════════════════════════════════════════════════════════
+//
+//   Dr Repairs & Maintenance — Motor Vehicle (9556)   amount
+//   Cr Bank Account                                   amount
+//
+// Only posts once explicitly marked posted (same review-gate pattern as
+// Petty Cash and Terminal Ops charges) — repairs are often entered before
+// the mechanic has actually been paid.
+export function journalFromFleetRepair(repair) {
+  const amt  = Number(repair.amount) || 0;
+  const bank = bankAcct(repair.bankCode, repair.bankName);
+
+  return {
+    id:          `JE-FLEET-${repair.id}`,
+    date:        repair.date || new Date().toISOString().split('T')[0],
+    ref:         repair.vehicleNo,
+    description: `Vehicle Repair: ${repair.vehicleNo} — ${repair.natureOfRepairs}`,
+    source:      'fleet',
+    sourceId:    repair.id,
+    lines: [
+      jLine(
+        '9556', 'Repairs & Maintenance — Motor Vehicle',
+        bank.code, bank.name,
+        amt, 'NGN', 1, amt,
+        `Parts ₦${Number(repair.costOfParts)||0} + Labour ₦${Number(repair.costOfLabour)||0} — ${repair.mechanic}`,
+      ),
+    ],
+  };
+}
+
 export function journalFromAPPayment(payment) {
   const cur  = payment.currency || 'NGN';
   const rate = Number(payment.fxRate) || 1;

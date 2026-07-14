@@ -253,7 +253,7 @@ export default function TerminalOps({ onNav }) {
 
   const termData=useMemo(()=>(db.terminal&&!Array.isArray(db.terminal))?db.terminal:SEED,[db.terminal]);
   const containers=termData.containers||[];
-  const charges   =termData.charges||[];
+  const charges   =(termData.charges||[]).filter(c=>!c.voided);
   const logistics =termData.logistics||[];
 
   // Read deep-link tab from sessionStorage (set by Dashboard alert banners)
@@ -273,6 +273,17 @@ export default function TerminalOps({ onNav }) {
     saveDBLocal({...db,terminal:next},state.activity);
   }
   function deleteItem(section,id) {
+    if (section === 'charges') {
+      // Charges can reach the GL once posted — void instead of removing, so
+      // a posted charge gets an automatic reversing entry instead of just
+      // vanishing from the ledger with no trace. Same pattern as AR/Petty
+      // Cash/Fixed Assets.
+      const next = {...termData, charges: termData.charges.map(c => c.id===id ? {...c, voided:true} : c)};
+      persist(next);
+      logActivity(dispatch,'Voided terminal charge',currentUser);
+      showToast('Voided','error');
+      return;
+    }
     const next={...termData,[section]:termData[section].filter(x=>x.id!==id)};
     persist(next);
     logActivity(dispatch,'Deleted terminal '+section.slice(0,-1),currentUser);
@@ -288,13 +299,17 @@ export default function TerminalOps({ onNav }) {
     setModal(null);
   }
   function postToAccounting(charge) {
-    const entry={id:generateId(),date:new Date().toISOString().split('T')[0],type:'Journal',reference:'TERM-'+charge.containerNo,description:'Terminal charges — '+charge.containerNo+' (Equip+Term+Storage)',debit:charge.totalAmount,credit:0,account:'Terminal Charges Payable',posted:true,createdAt:new Date().toISOString()};
-    const acctEntries=[...(db.accounting||[]),entry];
-    const updatedCharges=charges.map(c=>c.id===charge.id?{...c,postedToAccounting:true,postDate:entry.date}:c);
-    const next={...termData,charges:updatedCharges};
+    // This used to hand-build a journal entry and write it to db.accounting —
+    // a key the real Accounting module never reads, so charges marked
+    // "Posted" here never actually reached the Journal, Trial Balance, P&L,
+    // or Balance Sheet. Fixed: this now just sets the flag that the real
+    // auto-post effect in Accounting.jsx watches (the same pattern AR, AP,
+    // Petty Cash, and Fixed Assets already use) — Accounting.jsx is the
+    // single place that ever writes an actual journal entry.
+    const postDate = new Date().toISOString().split('T')[0];
+    const updatedCharges = charges.map(c => c.id===charge.id ? {...c, postedToAccounting:true, postDate} : c);
+    const next = {...termData, charges: updatedCharges};
     persist(next);
-    dispatch({type:'UPDATE_MODULE',mod:'accounting',data:acctEntries});
-    saveDBLocal({...db,terminal:next,accounting:acctEntries},state.activity);
     logActivity(dispatch,'Posted terminal charges for '+charge.containerNo+' to Accounting',currentUser);
     showToast('✓ Posted to Accounting');
   }

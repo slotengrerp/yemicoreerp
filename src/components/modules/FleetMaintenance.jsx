@@ -9,6 +9,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { canDo }    from '../../utils/auth';
 import { showToast, formatDate } from '../../utils/helpers'; // auto-patched
 import { getDeepLinkTab } from '../../utils/helpers';
+import { logActivity } from '../../utils/audit';
 import { printHeader, PRINT_CSS } from '../../utils/logo';
 
 // ── Print helpers ─────────────────────────────────────────────────────────────
@@ -302,11 +303,11 @@ function ServiceModal({ rec, fleet, onSave, onClose }) {
   );
 }
 
-function RepairModal({ rec, fleet, onSave, onClose }) {
+function RepairModal({ rec, fleet, onSave, onClose, onPostToAccounting }) {
   const { C } = useTheme();
   const inpS = { padding:'7px 10px', borderRadius:7, border:'1px solid '+C.border, background:C.bgCard, color:C.text, fontSize:12.5, width:'100%', outline:'none', fontFamily:'inherit', boxSizing:'border-box' };
   const isView = !!rec?.id;
-  const [f, setF] = useState(rec || { vehicleId:'', vehicleNo:'', vehicleType:'', date:today(), natureOfRepairs:'', feedback:'', partsUsed:'', costOfParts:'', costOfLabour:'', amount:0, mechanic:'' });
+  const [f, setF] = useState(rec || { vehicleId:'', vehicleNo:'', vehicleType:'', date:today(), natureOfRepairs:'', feedback:'', partsUsed:'', costOfParts:'', costOfLabour:'', amount:0, mechanic:'', postedToAccounting:false });
   const set = k => e => {
     const next = { ...f, [k]:e.target.value };
     if (k==='vehicleId') { const v=fleet.find(x=>x.id===e.target.value); next.vehicleNo=v?.vehicleNo||''; next.vehicleType=v?.vehicleType||''; }
@@ -322,7 +323,15 @@ function RepairModal({ rec, fleet, onSave, onClose }) {
             <div style={{ fontSize:16, fontWeight:700, color:C.text }}>🔩 {isView ? 'Repair Record — '+f.vehicleNo : 'New Maintenance / Repair Record'}</div>
             <div style={{ fontSize:11, color:C.textMuted }}>SLOT-FMA-003 · Equipment/Vehicle Repairs History</div>
           </div>
-          <button onClick={onClose} style={{ background:'none', border:'none', fontSize:22, color:C.textMuted, cursor:'pointer' }}>×</button>
+          <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+            {isView && !f.postedToAccounting && (
+              <Btn variant="outline" sm onClick={()=>{ onPostToAccounting(f); onClose(); }}>Post to Accounting</Btn>
+            )}
+            {isView && f.postedToAccounting && (
+              <span style={{ fontSize:11, color:C.green, fontWeight:700 }}>✓ Posted to Accounting</span>
+            )}
+            <button onClick={onClose} style={{ background:'none', border:'none', fontSize:22, color:C.textMuted, cursor:'pointer' }}>×</button>
+          </div>
         </div>
 
         {!isView && <div style={{ marginBottom:14 }}><FG label="Select Vehicle *"><select style={inpS} value={f.vehicleId} onChange={set('vehicleId')}><option value="">— Select —</option>{fleet.map(v=><option key={v.id} value={v.id}>{v.vehicleNo} — {v.make}</option>)}</select></FG></div>}
@@ -724,8 +733,29 @@ export default function FleetMaintenance({ onNav }) {
     setModal(null);
   }
 
+  function postRepairToAccounting(repair) {
+    // Same fix as Terminal Ops: this only sets the flag the real auto-post
+    // effect in Accounting.jsx watches — it never hand-builds a journal
+    // entry itself, so there's no dead-end data store to write to by mistake.
+    const next = repairs.map(r => r.id===repair.id ? {...r, postedToAccounting:true} : r);
+    setRepairs(next);
+    persist({ repairs: next });
+    logActivity(dispatch, `Posted repair cost for ${repair.vehicleNo} to Accounting`, currentUser);
+    showToast('✓ Posted to Accounting');
+  }
+
   function del(list, setFn, key, id) {
     if (!window.confirm('Delete this record?')) return;
+    if (key === 'repairs') {
+      // Repairs can reach the GL once posted — void instead of removing, so
+      // a posted repair gets an automatic reversing entry instead of just
+      // vanishing with no trace. Same pattern as AR/Petty Cash/Fixed
+      // Assets/Terminal Ops charges.
+      const next = list.map(x => x.id===id ? {...x, voided:true} : x);
+      setFn(next); persist({ [key]:next });
+      showToast('Voided','error');
+      return;
+    }
     const next = list.filter(x=>x.id!==id); setFn(next); persist({ [key]:next });
     showToast('Deleted','error');
   }
@@ -737,7 +767,7 @@ export default function FleetMaintenance({ onNav }) {
   }).length;
   const openBreakdowns = breakdowns.filter(b => !['Fixed','Certified'].includes(b.status)).length;
   const pendingRequests = requests.filter(r => r.status==='Pending').length;
-  const totalRepairCost = repairs.reduce((a,r)=>a+(Number(r.amount)||0),0);
+  const totalRepairCost = repairs.filter(r=>!r.voided).reduce((a,r)=>a+(Number(r.amount)||0),0);
   const overdueSchedule = facility.filter(f=>f.status==='Overdue').length;
 
   // ── Filter ──────────────────────────────────────────────────────────────
@@ -853,7 +883,7 @@ export default function FleetMaintenance({ onNav }) {
             <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12, minWidth:850 }}>
               <thead><tr>{['S/N','Date','Vehicle No.','Nature of Repairs','Parts Used','Parts Cost','Labour Cost','Total (₦)','Mechanic',''].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
               <tbody>
-                {fl(repairs,['vehicleNo','natureOfRepairs','mechanic','partsUsed']).map((r,i)=>(
+                {fl(repairs.filter(r=>!r.voided),['vehicleNo','natureOfRepairs','mechanic','partsUsed']).map((r,i)=>(
                   <tr key={r.id} onClick={()=>setModal({type:'repair_view',rec:r})} style={{ cursor:'pointer' }} onMouseEnter={e=>e.currentTarget.style.background=C.greenPale} onMouseLeave={e=>e.currentTarget.style.background=i%2===1?C.greenPale2:'transparent'}>
                     <td style={td(i)}>{i+1}</td>
                     <td style={td(i)}>{formatDate(r.date)}</td>
@@ -867,7 +897,7 @@ export default function FleetMaintenance({ onNav }) {
                     <td style={td(i)} onClick={e=>e.stopPropagation()}>{perms.del&&<Btn variant="danger" sm onClick={()=>del(repairs,setRepairs,'repairs',r.id)}>Del</Btn>}</td>
                   </tr>
                 ))}
-                {fl(repairs,['vehicleNo','natureOfRepairs','mechanic']).length===0&&<tr><td colSpan={10} style={{ textAlign:'center', padding:32, color:C.textMuted }}>No repair records</td></tr>}
+                {fl(repairs.filter(r=>!r.voided),['vehicleNo','natureOfRepairs','mechanic']).length===0&&<tr><td colSpan={10} style={{ textAlign:'center', padding:32, color:C.textMuted }}>No repair records</td></tr>}
               </tbody>
               {repairs.length>0&&<tfoot><tr style={{ background:C.greenPale, fontWeight:700 }}>
                 <td colSpan={7} style={{ ...td(0), textAlign:'right' }}>Grand Total</td>
@@ -1048,7 +1078,7 @@ export default function FleetMaintenance({ onNav }) {
       {(modal?.type==='service_create') && <ServiceModal fleet={fleet} onSave={f=>{f.requestNo=f.requestNo||nextNo('SVC',services,'requestNo');crud(services,setServices,'services',f);}} onClose={()=>setModal(null)} />}
       {(modal?.type==='service_view')   && <ServiceModal rec={modal.rec} fleet={fleet} onSave={f=>crud(services,setServices,'services',f)} onClose={()=>setModal(null)} />}
       {(modal?.type==='repair_create')  && <RepairModal fleet={fleet} onSave={f=>crud(repairs,setRepairs,'repairs',f)} onClose={()=>setModal(null)} />}
-      {(modal?.type==='repair_view')    && <RepairModal rec={modal.rec} fleet={fleet} onSave={f=>crud(repairs,setRepairs,'repairs',f)} onClose={()=>setModal(null)} />}
+      {(modal?.type==='repair_view')    && <RepairModal rec={modal.rec} fleet={fleet} onSave={f=>crud(repairs,setRepairs,'repairs',f)} onClose={()=>setModal(null)} onPostToAccounting={postRepairToAccounting} />}
       {(modal?.type==='bd_create')      && <BreakdownModal fleet={fleet} onSave={f=>crud(breakdowns,setBreakdowns,'breakdowns',f)} onClose={()=>setModal(null)} />}
       {(modal?.type==='bd_view')        && <BreakdownModal rec={modal.rec} fleet={fleet} onSave={f=>crud(breakdowns,setBreakdowns,'breakdowns',f)} onClose={()=>setModal(null)} />}
       {(modal?.type==='req_create')     && <RequestModal onSave={f=>{f.requestNo=f.requestNo||nextNo(f.type==='vehicle'?'VMR':'EMR',requests,'requestNo');crud(requests,setRequests,'requests',f);}} onClose={()=>setModal(null)} />}

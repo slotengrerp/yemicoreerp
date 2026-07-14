@@ -6,7 +6,7 @@ import { getDeepLinkTab } from "../../utils/helpers";
 import { getClients, saveClients } from "../../utils/clientMaster";
 import { getVendors, saveVendors } from "../../utils/vendorMaster";
 import { getProjects, saveProjects } from "../../utils/projectMaster";
-import { journalFromInvoice, journalFromReceipt, journalFromAPBill, journalFromAPPayment, journalFromPettyCash, journalFromFixedAsset, reverseJournal } from "../../utils/glPosting";
+import { journalFromInvoice, journalFromReceipt, journalFromAPBill, journalFromAPPayment, journalFromPettyCash, journalFromFixedAsset, journalFromTerminalCharge, journalFromPayrollRun, journalFromPayrollPayment, journalFromFleetRepair, reverseJournal } from "../../utils/glPosting";
 
 // ════════════════════════════════════════════════════════════════════
 // SLOT ENGINEERING — ACCOUNTING MODULE v3.0
@@ -206,6 +206,7 @@ const DEFAULT_COA = [
   {code:"5007", name:"Director's Loan Account",                   type:"Liability",category:"Current Liabilities",normalBal:"Cr",openingBal:0,currency:"NGN"},
   {code:"5008", name:"Manpower Pension Payable",                  type:"Liability",category:"Current Liabilities",normalBal:"Cr",openingBal:0,currency:"NGN"},
   {code:"5009", name:"Other Accrued Expenses",                    type:"Liability",category:"Current Liabilities",normalBal:"Cr",openingBal:0,currency:"NGN"},
+  {code:"5010", name:"NHF Payable",                                type:"Liability",category:"Current Liabilities",normalBal:"Cr",openingBal:0,currency:"NGN"},
   {code:"5010", name:"Purchase Accrual",                          type:"Liability",category:"Current Liabilities",normalBal:"Cr",openingBal:0,currency:"NGN"},
   {code:"5011", name:"Sales VAT Payable",                         type:"Liability",category:"Current Liabilities",normalBal:"Cr",openingBal:0,currency:"NGN"},
   {code:"5012", name:"Withholding Tax Payable",                   type:"Liability",category:"Current Liabilities",normalBal:"Cr",openingBal:0,currency:"NGN"},
@@ -2692,9 +2693,12 @@ export default function Accounting({data,setData}){
     const apPayments   = appState?.db?.ap?.payments || [];
     const pettycash    = appState?.db?.pettycash    || [];
     const fixedassets  = appState?.db?.fixedassets  || [];
+    const terminalCharges = appState?.db?.terminal?.charges || [];
+    const payrollRuns  = appState?.db?.payrollRuns  || [];
+    const fleetRepairs = appState?.db?.fleet?.repairs || [];
 
     if (!invoices.length && !receipts.length && !apBills.length && !apPayments.length
-        && !pettycash.length && !fixedassets.length) return;
+        && !pettycash.length && !fixedassets.length && !terminalCharges.length && !payrollRuns.length && !fleetRepairs.length) return;
 
     setJournals(js => {
       const byId    = new Map(js.map(j => [j.id, j]));
@@ -2790,11 +2794,59 @@ export default function Accounting({data,setData}){
         postReversalIfNeeded(asset, newId);
       });
 
+      // ── Terminal Operations charges (only once explicitly marked posted —
+      // same review-gate pattern as Petty Cash's Approved status) ──────────
+      terminalCharges.forEach(charge => {
+        const newId = `JE-TERM-${charge.id}`;
+        if (charge.postedToAccounting && !charge.voided && !ids.has(newId)) {
+          try {
+            const je = journalFromTerminalCharge(charge);
+            toAdd.push(je);
+            ids.add(newId);
+          } catch (e) { /* skip malformed records */ }
+        }
+        postReversalIfNeeded(charge, newId);
+      });
+
+      // ── Payroll (two steps, same principle as AP Bill → AP Payment) ─────
+      payrollRuns.forEach(run => {
+        const accrualId = `JE-PR-${run.id}`;
+        const paymentId = `JE-PR-PAY-${run.id}`;
+        if (!run.voided && !ids.has(accrualId)) {
+          try {
+            const je = journalFromPayrollRun(run);
+            toAdd.push(je);
+            ids.add(accrualId);
+          } catch (e) { /* skip malformed records */ }
+        }
+        if (!run.voided && run.paymentDate && ids.has(accrualId) && !ids.has(paymentId)) {
+          try {
+            const je = journalFromPayrollPayment(run);
+            toAdd.push(je);
+            ids.add(paymentId);
+          } catch (e) { /* skip malformed records */ }
+        }
+        postReversalIfNeeded(run, accrualId);
+      });
+
+      // ── Fleet repairs (only once explicitly marked posted) ──────────────
+      fleetRepairs.forEach(repair => {
+        const newId = `JE-FLEET-${repair.id}`;
+        if (repair.postedToAccounting && !repair.voided && !ids.has(newId)) {
+          try {
+            const je = journalFromFleetRepair(repair);
+            toAdd.push(je);
+            ids.add(newId);
+          } catch (e) { /* skip malformed records */ }
+        }
+        postReversalIfNeeded(repair, newId);
+      });
+
       // Only trigger re-render if something actually changed
       return toAdd.length ? [...js, ...toAdd] : js;
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [appState?.db?.invoices, appState?.db?.arReceipts, appState?.db?.ap, appState?.db?.pettycash, appState?.db?.fixedassets]);
+  }, [appState?.db?.invoices, appState?.db?.arReceipts, appState?.db?.ap, appState?.db?.pettycash, appState?.db?.fixedassets, appState?.db?.terminal, appState?.db?.payrollRuns, appState?.db?.fleet]);
 
   const TABS=[
     {id:"overview",   label:"📊 Overview"},
