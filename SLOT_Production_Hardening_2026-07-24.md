@@ -129,3 +129,21 @@ sole system of record with no fallback.
   in the database that nothing in the current codebase references — looks
   like leftover data from an earlier design iteration, not something live
   code touches today.
+- `009_flexible_user_roles.sql` — custom roles defined in Settings →
+  Permissions can now actually be assigned to a user (the UI already
+  offered them; a database CHECK constraint was silently rejecting the
+  save). Applied and verified live with a rolled-back test transaction.
+- **Sync cutover, Step 2 done, Step 3-4 next.** Users were seeing frequent
+  "someone else updated this data" / "reload and re-apply your change"
+  messages on login — confirmed in code (`App.jsx`) that this is the legacy
+  single-shared-document engine working as designed, not a bug: every
+  action (even just logging in) autosaves one shared row, and every session
+  is subscribed to every other session's saves, so it only gets noisier with
+  more concurrent users. `VITE_USE_PER_RECORD_SYNC=true` is now set in
+  `.env`, and `npm run build` was verified clean in a sandbox copy (2401
+  modules, 0 errors, 8.1s). **You still need to run `npm run build &&
+  firebase deploy` yourself** — no Firebase credentials in my sandbox, same
+  as every prior deploy this project. After that: Settings → System →
+  "Copy all current data into the new per-record Supabase tables" (Step 3,
+  one click, safe to run more than once), then spot-check a real invoice or
+  payroll run against the Supabase table editor directly (Step 4).
