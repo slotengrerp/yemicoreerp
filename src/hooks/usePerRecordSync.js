@@ -196,8 +196,28 @@ export function usePerRecordSync({ state, dispatch }) {
       }
     })();
 
-    // Listen for sign-in / sign-out — re-run the loader when a new session lands
-    const unsubAuth = supabaseAuthChange(() => { window.location.reload(); });
+    // Listen for a NEW sign-in — re-run the loader so the freshly-signed-in
+    // user's data loads cleanly.
+    //
+    // BUG FIXED 2026-07-24: this used to reload on EVERY event with no check
+    // at all, including the synthetic 'INITIAL' replay that
+    // supabaseAuthChange() fires immediately, synchronously, on subscribe
+    // whenever a session already exists (see authBridge.js). Since the
+    // Supabase session persists across a reload, that replay fired again on
+    // the very next mount, which reloaded again, forever — a same-tab
+    // infinite reload loop for anyone who was already signed in, which is
+    // everyone except a brand-new login. This is what caused the crash-loop
+    // reported immediately after this flag was first turned on in
+    // production. It would also have silently reloaded the page on every
+    // background TOKEN_REFRESHED (Supabase auto-refreshes the JWT well
+    // before it expires), interrupting active work every time, even once
+    // the startup loop was fixed.
+    //
+    // Only a genuine new sign-in should trigger this — matches the pattern
+    // App.jsx already uses correctly for its own onAuthStateChange listener.
+    const unsubAuth = supabaseAuthChange((event) => {
+      if (event === 'SIGNED_IN') window.location.reload();
+    });
 
     return () => {
       cancelled = true;
