@@ -147,3 +147,19 @@ sole system of record with no fallback.
   "Copy all current data into the new per-record Supabase tables" (Step 3,
   one click, safe to run more than once), then spot-check a real invoice or
   payroll run against the Supabase table editor directly (Step 4).
+- **Incident: crash-loop on deploy, same day.** Immediately after deploying
+  the Step 2 flag flip, the app went into an infinite reload loop for
+  anyone already signed in. Root cause: `usePerRecordSync.js`'s auth-change
+  handler reloaded the page on every event with no filtering, including a
+  synthetic replay that fires immediately whenever a session already
+  exists — and since the session survives a reload, it fired again on the
+  very next load, forever. This was a pre-existing bug, never exercised
+  before because the flag had never been on in production before. **Emergency
+  response:** `.env` flag reverted to `false` right away — this alone
+  restores service, independent of any code fix, since the buggy code path
+  only runs when the flag is on. **Real fix:** committed
+  (`e30b93e`) — the handler now only reloads on a genuine new sign-in.
+  Build verified clean with the flag back on. **Not re-enabling the flag
+  again without an explicit go-ahead this time** — a clean build alone
+  gave false confidence last time; it can't catch a runtime-only bug like
+  this one.
