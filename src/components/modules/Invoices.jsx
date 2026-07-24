@@ -212,7 +212,7 @@ export default function Invoices({ onNav }) {
   const { currentUser, db } = state;
   const perms = { add: canDo(currentUser,'canAdd'), edit: canDo(currentUser,'canEdit'), del: canDo(currentUser,'canDelete') };
 
-  const stored = db.invoices?.length ? db.invoices : SEED;
+  const stored = (db.invoices?.length || state.appSettings?.dataWiped) ? (db.invoices || []) : SEED;
   const [invoices, setInvoices] = useState(stored);
 
   // ── Master lists — replaces free-text Client/Project entry with proper
@@ -325,6 +325,28 @@ export default function Invoices({ onNav }) {
   }
 
   function handleDelete(id) {
+    // CRITICAL FIX: previously a Paid invoice could be hard-deleted, which
+    // orphaned its GL entry (the original Dr-AR / Cr-Revenue JE stayed in the
+    // GL forever) and broke Trial Balance — Trade Receivables was overstated
+    // by the invoice amount even though the invoice was gone from the AR
+    // subledger. Now Paid invoices can only be voided (which the auto-post
+    // effect at Accounting.jsx:3123-3130 reverses with a mirror-image JE).
+    const inv = invoices.find(i => i.id === id);
+    if (!inv) { setDelId(null); return; }
+    if (inv.status === 'Paid') {
+      showToast('Cannot delete a Paid invoice — void it instead (the GL reversal will be posted automatically)', 'error');
+      setDelId(null);
+      return;
+    }
+    // Also block if any JE references this invoice — defence in depth in case
+    // status field drifted out of sync with the GL.
+    const journals = state?.acctData?.journals || [];
+    const jeExists = journals.some(j => j.id && j.id.includes(`JE-AR-INV-${id}`));
+    if (jeExists) {
+      showToast('Cannot delete — GL entries exist for this invoice. Void it instead to post a reversal.', 'error');
+      setDelId(null);
+      return;
+    }
     save(invoices.filter(i => i.id !== id));
     showToast('Invoice deleted'); setDelId(null);
   }

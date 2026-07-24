@@ -1,7 +1,17 @@
 // ══════════════════════════════════════════════════════════════════════════════
-// SLOT Engineering — Client Master v2.0
-// Shared customer/client database — persisted to localStorage.
-// Used by Invoices to pick a client rather than retyping every time.
+// SLOT Engineering — Client Master v2.1
+// Shared customer/client database.
+//
+// SYNC NOTE (v2.1): this file's own localStorage key (bc_clients) stays as
+// the fast synchronous read/write path everything below already uses — that
+// part didn't need to change. What was missing is that this key was never
+// connected to the central Supabase-synced store at all, so every client
+// added/edited/deleted here only ever existed on the browser it was entered
+// on. saveClients() now also fires a 'slot:masterDataChanged' event, which
+// App.jsx listens for and folds into the central store (db.clients) — that's
+// what actually reaches the cloud. App.jsx also mirrors db.clients back into
+// bc_clients on boot/cloud-load/realtime-update, so getClients() here always
+// sees the latest data regardless of which device it came from.
 //
 // SOURCE: Accounts_Receivable_Customer_Listing_20260522_113946.xlsx (live SAGE export)
 // IMPORTANT: SAGE creates a SEPARATE customer code per currency for the same
@@ -51,6 +61,7 @@ export function getClients() {
 
 export function saveClients(clients) {
   try { localStorage.setItem(CLIENT_KEY, JSON.stringify(clients)); } catch {}
+  try { window.dispatchEvent(new CustomEvent('slot:masterDataChanged', { detail: { mod: 'clients', data: clients } })); } catch {}
 }
 
 export function addClient(client) {

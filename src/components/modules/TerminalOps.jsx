@@ -24,20 +24,37 @@ const PORT_TYPES  = ['Sea','Air'];
 
 // ── Seed data — matches actual SLOT sheet structure ───────────────────────────
 const SEED = {
+  // Bill of Lading parent records — each BoL groups one or more containers
+  // that arrived together on the same vessel/voyage. Children are linked
+  // by `bolId` on the `containers` and `logistics` rows below.
+  bols: [
+    { id:'bol1',billOfLadingNo:'MSCUB123456',shippingCompany:'MSC Mediterranean Shipping',shippingVessel:'MSC LUNA',
+      portOfLoading:'Shanghai, CN',portOfDischarge:'Onne Port, NG',voyageNo:'MSC-LUNA-2026-12',
+      etaDate:'2026-04-08',ataDate:'2026-04-10',totalContainers:1,status:'Released',freeTimeExpiry:'2026-04-30',createdAt:'2026-04-10T08:00:00Z' },
+    { id:'bol2',billOfLadingNo:'HLCU9876543',shippingCompany:'Hapag-Lloyd AG',shippingVessel:'HL DUBAI',
+      portOfLoading:'Hamburg, DE',portOfDischarge:'Lagos Port, NG',voyageNo:'HL-DXB-2026-08',
+      etaDate:'2026-05-01',ataDate:'2026-05-02',totalContainers:1,status:'Under Exam',freeTimeExpiry:'2026-05-22',createdAt:'2026-05-02T09:00:00Z' },
+    { id:'bol3',billOfLadingNo:'CMAV456123', shippingCompany:'CMA CGM',shippingVessel:'CMA ELBE',
+      portOfLoading:'Le Havre, FR',portOfDischarge:'Lagos Port, NG',voyageNo:'CMA-ELB-2026-15',
+      etaDate:'2026-05-17',ataDate:'2026-05-18',totalContainers:1,status:'Held',freeTimeExpiry:'2026-06-07',createdAt:'2026-05-18T10:00:00Z' },
+    { id:'bol4',billOfLadingNo:'ET2026-00441',shippingCompany:'Ethiopian Airlines Cargo',shippingVessel:'ET-AXQ',
+      portOfLoading:'Addis Ababa, ET',portOfDischarge:'PH Airport, NG',voyageNo:'ET-AXQ-2026-22',
+      etaDate:'2026-06-01',ataDate:'2026-06-01',totalContainers:1,status:'Transit Applied',freeTimeExpiry:'2026-06-15',createdAt:'2026-06-01T07:00:00Z' },
+  ],
   containers: [
-    { id:'c1',containerNo:'MSCU1234567',containerType:'20ft DV',size:'20ft',portType:'Sea',
+    { id:'c1',bolId:'bol1',containerNo:'MSCU1234567',containerType:'20ft DV',size:'20ft',portType:'Sea',
       shippingCompany:'MSC Mediterranean Shipping',shippingVessel:'MSC LUNA',
       consigneeName:'SLOT Engineering Nigeria Ltd',materialDescription:'Industrial Pipes & Fittings',
       billOfLading:'MSCUB123456',noOfContainers:1,status:'Released',createdAt:'2026-04-10T08:00:00Z' },
-    { id:'c2',containerNo:'TRHU9876543',containerType:'40ft HC',size:'40ft',portType:'Sea',
+    { id:'c2',bolId:'bol2',containerNo:'TRHU9876543',containerType:'40ft HC',size:'40ft',portType:'Sea',
       shippingCompany:'Hapag-Lloyd AG',shippingVessel:'HL DUBAI',
       consigneeName:'Nigerian LNG Complex',materialDescription:'Construction Equipment & Machinery',
       billOfLading:'HLCU9876543',noOfContainers:2,status:'Under Exam',createdAt:'2026-05-02T09:00:00Z' },
-    { id:'c3',containerNo:'CMAU4561230',containerType:'20ft DV',size:'20ft',portType:'Sea',
+    { id:'c3',bolId:'bol3',containerNo:'CMAU4561230',containerType:'20ft DV',size:'20ft',portType:'Sea',
       shippingCompany:'CMA CGM',shippingVessel:'CMA ELBE',
       consigneeName:'SLOT Engineering Nigeria Ltd',materialDescription:'Chemical Reagents & Lab Supplies',
       billOfLading:'CMAV456123',noOfContainers:1,status:'Held',createdAt:'2026-05-18T10:00:00Z' },
-    { id:'c4',containerNo:'APMU7654321',containerType:'40ft DV',size:'40ft',portType:'Air',
+    { id:'c4',bolId:'bol4',containerNo:'APMU7654321',containerType:'40ft DV',size:'40ft',portType:'Air',
       shippingCompany:'Ethiopian Airlines Cargo',shippingVessel:'ET-AXQ',
       consigneeName:'SLOT Engineering Nigeria Ltd',materialDescription:'Electronic Control Panels',
       billOfLading:'ET2026-00441',noOfContainers:1,status:'Transit Applied',createdAt:'2026-06-01T07:00:00Z' },
@@ -54,24 +71,39 @@ const SEED = {
       totalAmount:225000,agentName:'Adeola Clearing Agency Ltd',postedToAccounting:false,postDate:'',createdAt:'2026-05-18T10:00:00Z' },
   ],
   logistics: [
-    { id:'l1',containerNo:'MSCU1234567',transitApplicationDate:'2026-04-12',noOfContainers:1,
+    { id:'l1',bolId:'bol1',containerNo:'MSCU1234567',transitApplicationDate:'2026-04-12',noOfContainers:1,
       billOfLading:'MSCUB123456',containerSize:'20ft',materialDescription:'Industrial Pipes & Fittings',
       consigneeName:'SLOT Engineering Nigeria Ltd',shippingCompany:'MSC Mediterranean Shipping',
       shippingVessel:'MSC LUNA',warehouseReceiptDate:'2026-04-13',examDate:'2026-04-15',
       releaseDate:'2026-04-17',status:'Released',remarks:'Cleared without issues',createdAt:'2026-04-12T08:00:00Z' },
-    { id:'l2',containerNo:'TRHU9876543',transitApplicationDate:'2026-05-04',noOfContainers:2,
+    { id:'l2',bolId:'bol2',containerNo:'TRHU9876543',transitApplicationDate:'2026-05-04',noOfContainers:2,
       billOfLading:'HLCU9876543',containerSize:'40ft',materialDescription:'Construction Equipment & Machinery',
       consigneeName:'Nigerian LNG Complex',shippingCompany:'Hapag-Lloyd AG',shippingVessel:'HL DUBAI',
       warehouseReceiptDate:'2026-05-06',examDate:'',releaseDate:'',
       status:'Under Exam',remarks:'NCS scanning in progress',createdAt:'2026-05-04T09:00:00Z' },
   ],
+  // Advance payments — money received IN ADVANCE from a consignee/shipping
+  // line for clearing of a list of containers. `containersCovered` carries
+  // the per-container allocation; `applications` tracks how the advance
+  // was spent against each container (Dr 2099 / Cr 4005 on each application).
+  advances: [
+    { id:'adv1',payerName:'Nigerian LNG Complex',payerType:'Consignee',
+      paymentDate:'2026-04-25',amount:2500000,currency:'NGN',bankCode:'3003',bankName:'Access Bank (Naira)',
+      receiptNo:'ADV-2026-001',purpose:'Clearing',
+      containersCovered:[{ containerNo:'TRHU9876543', amountAllocated:2500000 }],
+      applications:[],balanceRemaining:2500000,status:'Open',notes:'Pre-paid clearing for NLNG cargo',
+      linkToBillOfLadingId:'bol2',createdAt:'2026-04-25T08:00:00Z' },
+  ],
 };
 
 const TABS = [
   { key:'containers', label:'📦  Container Registry' },
-  { key:'charges',    label:'💰  Clearing & Charges'  },
-  { key:'logistics',  label:'🚢  Logistics & Transit'  },
-  { key:'reports',    label:'📊  Reports'              },
+  { key:'bols',       label:'📄  Bill of Lading'     },
+  { key:'charges',    label:'💰  Clearing & Charges' },
+  { key:'logistics',  label:'🚢  Logistics & Transit'},
+  { key:'advances',   label:'💵  Advance Payments'    },
+  { key:'statements', label:'📈  Standalone P&L/BS'  },
+  { key:'reports',    label:'📊  Reports'             },
 ];
 
 // ── Print: Slot Terminal Sheet (matches Image 1) ────────────────────────────
@@ -252,35 +284,37 @@ export default function TerminalOps({ onNav }) {
   const {currentUser,db}=state;
 
   const termData=useMemo(()=>(db.terminal&&!Array.isArray(db.terminal))?db.terminal:SEED,[db.terminal]);
-  const containers=termData.containers||[];
+  const containers=(termData.containers||[]).filter(c=>!c.voided);
+  const bols      =(termData.bols||[]).filter(b=>!b.voided);
   const charges   =(termData.charges||[]).filter(c=>!c.voided);
-  const logistics =termData.logistics||[];
+  const logistics =(termData.logistics||[]).filter(l=>!l.voided);
+  const advances  =(termData.advances||[]).filter(a=>!a.voided);
 
   // Read deep-link tab from sessionStorage (set by Dashboard alert banners)
   const [tab,setTab] = useState(() => {
-    const stored = sessionStorage.getItem('bizcore_nav_tab_terminal');
-    if (stored) { sessionStorage.removeItem('bizcore_nav_tab_terminal'); return stored; }
+    const stored = sessionStorage.getItem('slot_erp_nav_tab_terminal');
+    if (stored) { sessionStorage.removeItem('slot_erp_nav_tab_terminal'); return stored; }
     return 'containers';
   });
   const [containerFilter,setContainerFilter]=useState('');
   const [search,setSearch]=useState('');
   const [modal,setModal]  =useState(null);
 
-  const perms={add:canDo(currentUser,'canAdd'),edit:canDo(currentUser,'canEdit'),del:canDo(currentUser,'canDelete')};
+  const perms={add:canDo(currentUser,'canAdd','terminal',state.appSettings),edit:canDo(currentUser,'canEdit','terminal',state.appSettings),del:canDo(currentUser,'canDelete','terminal',state.appSettings)};
 
   function persist(next) {
     dispatch({type:'UPDATE_MODULE',mod:'terminal',data:next});
     saveDBLocal({...db,terminal:next},state.activity);
   }
   function deleteItem(section,id) {
-    if (section === 'charges') {
-      // Charges can reach the GL once posted — void instead of removing, so
-      // a posted charge gets an automatic reversing entry instead of just
+    if (section === 'charges' || section === 'advances') {
+      // Charges/advances can reach the GL once posted — void instead of removing, so
+      // a posted entry gets an automatic reversing entry instead of just
       // vanishing from the ledger with no trace. Same pattern as AR/Petty
       // Cash/Fixed Assets.
-      const next = {...termData, charges: termData.charges.map(c => c.id===id ? {...c, voided:true} : c)};
+      const next = {...termData, [section]: termData[section].map(c => c.id===id ? {...c, voided:true} : c)};
       persist(next);
-      logActivity(dispatch,'Voided terminal charge',currentUser);
+      logActivity(dispatch,'Voided terminal '+(section==='charges'?'charge':'advance payment'),currentUser);
       showToast('Voided','error');
       return;
     }
@@ -354,8 +388,10 @@ export default function TerminalOps({ onNav }) {
         <div style={{padding:'14px 20px',display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
           {tab!=='reports'&&<input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search…" style={inpSt}/>}
           {perms.add&&tab==='containers'&&<Btn onClick={()=>setModal({type:'cont_add',data:{id:generateId(),status:'Arrived',portType:'Sea',noOfContainers:1,createdAt:new Date().toISOString()}})}>+ Add Container</Btn>}
+          {perms.add&&tab==='bols'      &&<Btn onClick={()=>setModal({type:'bol_add',data:{id:generateId(),status:'In Transit',totalContainers:1,createdAt:new Date().toISOString()}})}>+ Add Bill of Lading</Btn>}
           {perms.add&&tab==='charges'   &&<Btn onClick={()=>setModal({type:'chg_add',data:{id:generateId(),postedToAccounting:false,createdAt:new Date().toISOString()}})}>+ Add Charge Record</Btn>}
           {perms.add&&tab==='logistics' &&<Btn onClick={()=>setModal({type:'log_add',data:{id:generateId(),noOfContainers:1,status:'Transit Applied',createdAt:new Date().toISOString()}})}>+ Add Transit Record</Btn>}
+          {perms.add&&tab==='advances'  &&<Btn onClick={()=>setModal({type:'adv_add',data:{id:generateId(),currency:'NGN',amount:0,containersCovered:[],applications:[],status:'Open',createdAt:new Date().toISOString()}})}>+ Record Advance Payment</Btn>}
           {tab==='containers'&&<Btn variant="ghost" onClick={()=>printContainerRegistry(fl(containers,['containerNo','consigneeName','shippingCompany','materialDescription','status'],containerFilter))}>🖨 Print Registry</Btn>}
           {tab==='charges'   &&<Btn variant="ghost" onClick={()=>printSlotTerminalSheet(fl(charges,['containerNo','agentName','receiptNo']),containers)}>🖨 Print Slot Terminal Sheet</Btn>}
           {tab==='logistics' &&<Btn variant="ghost" onClick={()=>printFlopingLogisticsSheet(fl(logistics,['containerNo','billOfLading','consigneeName','shippingCompany','status']))}>🖨 Print Floping Logistics Sheet</Btn>}
@@ -426,7 +462,7 @@ export default function TerminalOps({ onNav }) {
                       </td>
                       <td style={td(i)}>
                         <div style={{display:'flex',gap:4,flexWrap:'nowrap'}}>
-                          {!c.postedToAccounting&&perms.edit&&<Btn variant="amber" sm onClick={()=>postToAccounting(c)}>Post →</Btn>}
+                          {!c.postedToAccounting&&canDo(currentUser,'canApprove','terminal',state.appSettings)&&<Btn variant="amber" sm onClick={()=>postToAccounting(c)}>Post →</Btn>}
                           {perms.edit&&<Btn variant="outline" sm onClick={()=>setModal({type:'chg_edit',data:{...c}})}>Edit</Btn>}
                           {perms.del &&<Btn variant="danger"  sm onClick={()=>deleteItem('charges',c.id)}>Del</Btn>}
                         </div>
@@ -482,6 +518,162 @@ export default function TerminalOps({ onNav }) {
                 ))}
               </tbody>
             </table>
+          )}
+
+          {/* ── TAB: BILL OF LADING (parent rows with serial containers) ── */}
+          {tab==='bols'&&(
+            <div style={{display:'flex',flexDirection:'column',gap:14}}>
+              <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(200px,1fr))',gap:10,marginBottom:4}}>
+                <KPI label="Total BoLs"      value={bols.length} accent={C.green}/>
+                <KPI label="In Transit"      value={bols.filter(b=>b.status==='In Transit').length} accent={C.info}/>
+                <KPI label="Under Exam"      value={bols.filter(b=>b.status==='Under Exam').length} accent={C.amber}/>
+                <KPI label="Released"        value={bols.filter(b=>b.status==='Released').length} accent={C.success}/>
+                <KPI label="Containers"      value={containers.length} sub="across all BoLs"/>
+              </div>
+              {fl(bols,['billOfLadingNo','shippingCompany','shippingVessel','portOfDischarge','status']).length===0
+                ? <div style={{textAlign:'center',padding:40,color:C.textMuted,background:C.bgCard,borderRadius:10,border:'1px dashed '+C.border}}>No Bills of Lading recorded yet. Add one above to start grouping containers under a parent BoL.</div>
+                : fl(bols,['billOfLadingNo','shippingCompany','shippingVessel','portOfDischarge','status']).map((bol, i) => {
+                  const childContainers = containers.filter(c => c.bolId === bol.id);
+                  const childLogistics  = logistics.filter(l => l.bolId === bol.id);
+                  const totalCharges    = charges.filter(c => childContainers.some(cc => cc.containerNo === c.containerNo)).reduce((s,c)=>s+(Number(c.totalAmount)||0),0);
+                  const distinctConsignees = Array.from(new Set(childContainers.map(c => c.consigneeName).filter(Boolean)));
+                  const allReleased = childContainers.length > 0 && childContainers.every(c => c.status === 'Released');
+                  const anyHeld = childContainers.some(c => c.status === 'Held');
+                  return (
+                    <div key={bol.id} style={{background:C.bgCard,border:'1px solid '+C.border,borderRadius:10,overflow:'hidden'}}>
+                      <div style={{padding:'12px 16px',background:'linear-gradient(135deg,#0F3A1A,#1A5C2A)',display:'flex',alignItems:'center',gap:12,flexWrap:'wrap'}}>
+                        <div style={{flex:1,minWidth:200}}>
+                          <div style={{fontSize:14,fontWeight:700,color:'#fff'}}>📄 BoL: {bol.billOfLadingNo}</div>
+                          <div style={{fontSize:11,color:'rgba(255,255,255,0.7)',marginTop:2}}>{bol.shippingCompany} · {bol.shippingVessel}{bol.voyageNo?' · Voyage '+bol.voyageNo:''}</div>
+                        </div>
+                        <div style={{fontSize:11,color:'rgba(255,255,255,0.8)'}}>POL: {bol.portOfLoading||'—'} → POD: {bol.portOfDischarge||'—'}</div>
+                        <div style={{fontSize:11,color:'rgba(255,255,255,0.8)'}}>ETA: {formatDate(bol.etaDate)||'—'} · ATA: {formatDate(bol.ataDate)||'—'}</div>
+                        <div style={{display:'flex',gap:4}} onClick={e=>e.stopPropagation()}>
+                          {perms.edit&&<Btn variant="outline" sm style={{background:'rgba(255,255,255,0.1)',borderColor:'rgba(255,255,255,0.3)',color:'#fff'}} onClick={()=>setModal({type:'bol_edit',data:{...bol}})}>Edit BoL</Btn>}
+                          {perms.del &&<Btn variant="danger"  sm onClick={()=>deleteItem('bols',bol.id)}>Del</Btn>}
+                        </div>
+                      </div>
+                      <div style={{padding:'10px 16px',display:'flex',gap:18,flexWrap:'wrap',fontSize:11.5,color:C.textMid,borderBottom:'1px solid '+C.borderLight,background:C.greenPale}}>
+                        <span>Containers: <strong style={{color:C.text}}>{childContainers.length}</strong></span>
+                        <span>Distinct Consignees: <strong style={{color:C.text}}>{distinctConsignees.length}</strong></span>
+                        <span>Total Charges: <strong style={{color:C.amber}}>₦{totalCharges.toLocaleString('en-NG')}</strong></span>
+                        <span>Free Time Expiry: <strong style={{color:bol.freeTimeExpiry && new Date(bol.freeTimeExpiry) < new Date() ? C.danger : C.text}}>{formatDate(bol.freeTimeExpiry)||'—'}</strong></span>
+                        <span>Status: <strong style={{color: anyHeld ? C.danger : allReleased ? C.success : C.amber}}>{bol.status||'—'}</strong></span>
+                      </div>
+                      <table style={{width:'100%',borderCollapse:'collapse',fontSize:11.5}}>
+                        <thead><tr style={{background:C.bgAlt}}>
+                          {['S/N','Container No','Type','Consignee','Material','Status',''].map(h=><th key={h} style={th}>{h}</th>)}
+                        </tr></thead>
+                        <tbody>
+                          {childContainers.length === 0 && (
+                            <tr><td colSpan={7} style={{textAlign:'center',padding:16,color:C.textMuted,fontStyle:'italic'}}>No containers linked to this BoL yet. Add a container with this BoL number, or edit a container to set its bolId.</td></tr>
+                          )}
+                          {childContainers.map((c, idx) => (
+                            <tr key={c.id}>
+                              <td style={td(idx)}>{idx+1}</td>
+                              <td style={{...td(idx),color:C.green,fontFamily:'monospace',fontWeight:700}}>{c.containerNo}</td>
+                              <td style={{...td(idx),fontSize:10.5,color:C.textMuted}}>{c.containerType}</td>
+                              <td style={td(idx)}>{c.consigneeName}</td>
+                              <td style={{...td(idx),color:C.textMuted,maxWidth:200,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{c.materialDescription}</td>
+                              <td style={td(idx)}><StatusBadge status={c.status}/></td>
+                              <td style={td(idx)} onClick={e=>e.stopPropagation()}>
+                                {perms.edit&&<Btn variant="outline" sm onClick={()=>setModal({type:'cont_edit',data:{...c}})}>Edit</Btn>}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      {childLogistics.length > 0 && (
+                        <div style={{padding:'8px 16px',fontSize:10.5,color:C.textMuted,background:C.bgAlt,borderTop:'1px solid '+C.borderLight}}>
+                          📋 Linked Transit Records: {childLogistics.map(l => l.containerNo).join(', ')}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              }
+            </div>
+          )}
+
+          {/* ── TAB: ADVANCE PAYMENTS (consignee pre-paid for containers) ── */}
+          {tab==='advances'&&(
+            <div style={{display:'flex',flexDirection:'column',gap:14}}>
+              <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(200px,1fr))',gap:10}}>
+                <KPI label="Total Advances"      value={advances.length} accent={C.green}/>
+                <KPI label="Open"                value={advances.filter(a=>a.status==='Open').length} accent={C.info}/>
+                <KPI label="Fully Utilised"      value={advances.filter(a=>a.status==='Fully Utilised').length} accent={C.success}/>
+                <KPI label="Total Received"      value={'₦'+advances.reduce((s,a)=>s+(Number(a.amount)||0),0).toLocaleString('en-NG')} accent={C.amber}/>
+                <KPI label="Total Outstanding"   value={'₦'+advances.reduce((s,a)=>s+(Number(a.balanceRemaining)||0),0).toLocaleString('en-NG')} alert={advances.reduce((s,a)=>s+(Number(a.balanceRemaining)||0),0)>0} accent={C.amber}/>
+              </div>
+              {fl(advances,['payerName','receiptNo','purpose','status']).length===0
+                ? <div style={{textAlign:'center',padding:40,color:C.textMuted,background:C.bgCard,borderRadius:10,border:'1px dashed '+C.border}}>No advance payments recorded yet. Click <strong>Record Advance Payment</strong> to add one.</div>
+                : (
+                  <table style={{width:'100%',borderCollapse:'collapse',fontSize:12,minWidth:900}}>
+                    <thead><tr style={{background:C.tableHeaderBg||C.greenPale}}>
+                      {['S/N','Date','Payer','Purpose','Receipt No','Amount','Containers Covered','Applied','Balance','Status',''].map(h=><th key={h} style={th}>{h}</th>)}
+                    </tr></thead>
+                    <tbody>
+                      {fl(advances,['payerName','receiptNo','purpose','status']).map((a, i) => (
+                        <tr key={a.id}>
+                          <td style={td(i)}>{i+1}</td>
+                          <td style={td(i)}>{formatDate(a.paymentDate)||'—'}</td>
+                          <td style={td(i)}><strong>{a.payerName}</strong>{a.payerType && <div style={{fontSize:10,color:C.textMuted}}>{a.payerType}</div>}</td>
+                          <td style={td(i)}>{a.purpose||'—'}</td>
+                          <td style={{...td(i),fontFamily:'monospace',fontSize:11}}>{a.receiptNo||'—'}</td>
+                          <td style={{...td(i),textAlign:'right',fontWeight:700,color:C.amber}}>₦{Number(a.amount||0).toLocaleString('en-NG')}</td>
+                          <td style={td(i)}>
+                            <div style={{display:'flex',flexDirection:'column',gap:2}}>
+                              {(a.containersCovered||[]).map((c, ci) => (
+                                <span key={ci} style={{fontFamily:'monospace',fontSize:11,color:C.green}}>{c.containerNo} <span style={{color:C.textMuted,fontFamily:'inherit'}}>· ₦{Number(c.amountAllocated||0).toLocaleString('en-NG')}</span></span>
+                              ))}
+                              {(!a.containersCovered || a.containersCovered.length === 0) && <span style={{color:C.textMuted,fontSize:11}}>—</span>}
+                            </div>
+                          </td>
+                          <td style={{...td(i),textAlign:'right',color:C.success}}>₦{((a.applications||[]).reduce((s,ap)=>s+(Number(ap.amount)||0),0)).toLocaleString('en-NG')}</td>
+                          <td style={{...td(i),textAlign:'right',fontWeight:700,color: (a.balanceRemaining||0)>0 ? C.amber : C.success}}>₦{Number(a.balanceRemaining||0).toLocaleString('en-NG')}</td>
+                          <td style={td(i)}>
+                            <span style={{padding:'2px 9px',borderRadius:20,fontSize:11,fontWeight:600,color: a.status==='Fully Utilised' ? C.success : a.status==='Partially Utilised' ? C.amber : a.status==='Refunded' ? C.info : C.textMid, background: a.status==='Fully Utilised' ? 'rgba(26,122,74,.12)' : a.status==='Partially Utilised' ? 'rgba(201,122,10,.12)' : 'rgba(107,114,128,.1)'}}>
+                              {a.status}
+                            </span>
+                          </td>
+                          <td style={td(i)} onClick={e=>e.stopPropagation()}>
+                            <div style={{display:'flex',gap:4}}>
+                              {perms.edit&&<Btn variant="outline" sm onClick={()=>setModal({type:'adv_view',data:{...a}})}>View</Btn>}
+                              {perms.edit&&<Btn variant="outline" sm onClick={()=>setModal({type:'adv_edit',data:{...a}})}>Edit</Btn>}
+                              {perms.del &&<Btn variant="danger"  sm onClick={()=>deleteItem('advances',a.id)}>Del</Btn>}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )
+              }
+              <div style={{padding:'10px 14px',background:'rgba(26,92,138,.08)',border:'1px solid rgba(26,92,138,.2)',borderLeft:'4px solid '+C.info,borderRadius:8,fontSize:11.5,color:C.info,lineHeight:1.6}}>
+                💡 <strong>How advance payments work:</strong> When a consignee/shipping line pays us
+                upfront for clearing a list of containers, we record the receipt as
+                <code style={{fontFamily:'monospace',background:C.greenPale,padding:'1px 5px',borderRadius:4,marginLeft:4,marginRight:4}}>Dr Bank / Cr 2099 Advance from Customer (Terminal)</code>.
+                As each container is processed, the advance is applied against it
+                (<code style={{fontFamily:'monospace',background:C.greenPale,padding:'1px 5px',borderRadius:4}}>Dr 2099 / Cr 4005 Logistics Income</code>) —
+                one click per container, recorded in the advance's Applications list. Auto-post
+                happens via the central sync effect in Accounting.jsx.
+              </div>
+            </div>
+          )}
+
+          {/* ── TAB: STAND-ALONE FINANCIAL STATEMENTS (Terminal-as-entity) ── */}
+          {tab==='statements'&&(
+            <div style={{display:'flex',flexDirection:'column',gap:14}}>
+              <div style={{padding:'12px 16px',background:'linear-gradient(135deg,#0F3A1A,#1A5C2A)',borderRadius:10,color:'#fff'}}>
+                <div style={{fontSize:14,fontWeight:700}}>📈 Terminal — Stand-alone Financial Statements</div>
+                <div style={{fontSize:11.5,opacity:0.75,marginTop:2}}>P&L and Balance Sheet for the Terminal entity, derived from journals with source = 'terminal' or 'terminal-advance'.</div>
+              </div>
+              <TerminalStatements
+                journals={state?.acctData?.journals || []}
+                coa={state?.acctData?.coa || []}
+                C={C}
+              />
+            </div>
           )}
 
           {/* ── TAB 4: REPORTS ─────────────────────────────────────────── */}
@@ -558,14 +750,20 @@ export default function TerminalOps({ onNav }) {
       {modal&&(
         <Overlay onClose={()=>setModal(null)}>
           {['cont_add','cont_edit','cont_view'].includes(modal.type)&&
-            <ContainerModal data={modal.data} readonly={modal.type==='cont_view'} containers={containers}
+            <ContainerModal data={modal.data} readonly={modal.type==='cont_view'} containers={containers} bols={bols}
               onSave={d=>saveItem('containers',d)} onClose={()=>setModal(null)}/>}
+          {['bol_add','bol_edit','bol_view'].includes(modal.type)&&
+            <BoLModal data={modal.data} readonly={modal.type==='bol_view'} containers={containers}
+              onSave={d=>saveItem('bols',d)} onClose={()=>setModal(null)}/>}
           {['chg_add','chg_edit'].includes(modal.type)&&
             <ChargeModal data={modal.data} containers={containers}
               onSave={d=>saveItem('charges',d)} onClose={()=>setModal(null)}/>}
           {['log_add','log_edit'].includes(modal.type)&&
             <LogisticsModal data={modal.data} containers={containers}
               onSave={d=>saveItem('logistics',d)} onClose={()=>setModal(null)}/>}
+          {['adv_add','adv_edit','adv_view'].includes(modal.type)&&
+            <AdvanceModal data={modal.data} readonly={modal.type==='adv_view'} containers={containers}
+              onSave={d=>saveItem('advances',d)} onClose={()=>setModal(null)}/>}
         </Overlay>
       )}
     </div>
@@ -573,7 +771,7 @@ export default function TerminalOps({ onNav }) {
 }
 
 // ── Container Modal ─────────────────────────────────────────────────────────
-function ContainerModal({data,readonly,containers,onSave,onClose}) {
+function ContainerModal({data,readonly,containers,bols,onSave,onClose}) {
   const {C}=useTheme();
   const [f,setF]=useState({...data});
   const set=k=>e=>setF(p=>({...p,[k]:e.target.value}));
@@ -583,7 +781,7 @@ function ContainerModal({data,readonly,containers,onSave,onClose}) {
     <div style={{background:C.bgCard,borderRadius:12,border:'1px solid '+C.border,overflow:'hidden'}}>
       <div style={{padding:'14px 20px',background:'linear-gradient(135deg,#0F3A1A,#1A5C2A)',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
         <div style={{fontSize:14,fontWeight:700,color:'#fff'}}>📦 {readonly?'Container Details · ':''}{f.containerNo||'New Container'}</div>
-        <button onClick={onClose} style={{background:'rgba(255,255,255,.15)',border:'none',borderRadius:'50%',width:28,height:28,color:'#fff',fontSize:16,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
+        <button onClick={onClose} aria-label="Close dialog" style={{background:'rgba(255,255,255,.15)',border:'none',borderRadius:'50%',width:28,height:28,color:'#fff',fontSize:16,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
       </div>
       <div style={{padding:20,display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
         <div style={{display:'flex',flexDirection:'column',gap:4,gridColumn:'1/-1'}}><label style={{fontSize:11,fontWeight:600,color:C.textMid}}>Container No (Primary Key)</label><input style={{...inp,fontFamily:'monospace',fontWeight:700,color:C.green}} value={f.containerNo||''} onChange={set('containerNo')} placeholder="e.g. MSCU1234567" readOnly={readonly}/></div>
@@ -591,7 +789,13 @@ function ContainerModal({data,readonly,containers,onSave,onClose}) {
         <LBL t="Size"><select style={inp} value={f.size||''} onChange={set('size')} disabled={readonly}>{CONT_SIZES.map(s=><option key={s}>{s}</option>)}</select></LBL>
         <LBL t="Port Type (Air / Sea)"><select style={inp} value={f.portType||'Sea'} onChange={set('portType')} disabled={readonly}>{PORT_TYPES.map(p=><option key={p}>{p}</option>)}</select></LBL>
         <LBL t="No. of Containers"><input style={inp} type="number" value={f.noOfContainers||1} onChange={set('noOfContainers')} readOnly={readonly}/></LBL>
-        <LBL t="Bill of Lading No"><input style={{...inp,fontFamily:'monospace'}} value={f.billOfLading||''} onChange={set('billOfLading')} readOnly={readonly}/></LBL>
+        <LBL t="Bill of Lading (link to BoL)">
+          <select style={inp} value={f.bolId||''} onChange={e=>{const bolId=e.target.value;const bol=(bols||[]).find(b=>b.id===bolId);setF(p=>({...p,bolId,billOfLading:bol?.billOfLadingNo||p.billOfLading,shippingCompany:bol?.shippingCompany||p.shippingCompany,shippingVessel:bol?.shippingVessel||p.shippingVessel,portOfDischarge:bol?.portOfDischarge||p.portOfDischarge,portOfLoading:bol?.portOfLoading||p.portOfLoading}));}} disabled={readonly}>
+            <option value="">— Not linked —</option>
+            {(bols||[]).map(b=><option key={b.id} value={b.id}>{b.billOfLadingNo} · {b.shippingCompany}</option>)}
+          </select>
+        </LBL>
+        <LBL t="Bill of Lading No (free-text)"><input style={{...inp,fontFamily:'monospace'}} value={f.billOfLading||''} onChange={set('billOfLading')} readOnly={readonly}/></LBL>
         <LBL t="Status"><select style={inp} value={f.status||'Arrived'} onChange={set('status')} disabled={readonly}>{STATUS_ALL.map(s=><option key={s}>{s}</option>)}</select></LBL>
         <LBL t="Shipping Company" ><input style={inp} value={f.shippingCompany||''} onChange={set('shippingCompany')} readOnly={readonly}/></LBL>
         <LBL t="Shipping Vessel"  ><input style={inp} value={f.shippingVessel||''} onChange={set('shippingVessel')} readOnly={readonly}/></LBL>
@@ -616,7 +820,7 @@ function ChargeModal({data,containers,onSave,onClose}) {
     <div style={{background:C.bgCard,borderRadius:12,border:'1px solid '+C.border,overflow:'hidden'}}>
       <div style={{padding:'14px 20px',background:'linear-gradient(135deg,#0F3A1A,#1A5C2A)',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
         <div style={{fontSize:14,fontWeight:700,color:'#fff'}}>💰 Clearing & Charge Record — Slot Terminal Sheet</div>
-        <button onClick={onClose} style={{background:'rgba(255,255,255,.15)',border:'none',borderRadius:'50%',width:28,height:28,color:'#fff',fontSize:16,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
+        <button onClick={onClose} aria-label="Close dialog" style={{background:'rgba(255,255,255,.15)',border:'none',borderRadius:'50%',width:28,height:28,color:'#fff',fontSize:16,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
       </div>
       <div style={{padding:20,display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
         <LBL t="Container No" full>
@@ -669,7 +873,7 @@ function LogisticsModal({data,containers,onSave,onClose}) {
     <div style={{background:C.bgCard,borderRadius:12,border:'1px solid '+C.border,overflow:'hidden'}}>
       <div style={{padding:'14px 20px',background:'linear-gradient(135deg,#0F3A1A,#1A5C2A)',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
         <div style={{fontSize:14,fontWeight:700,color:'#fff'}}>🚢 Logistics & Transit Record — Floping Logistics Sheet</div>
-        <button onClick={onClose} style={{background:'rgba(255,255,255,.15)',border:'none',borderRadius:'50%',width:28,height:28,color:'#fff',fontSize:16,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
+        <button onClick={onClose} aria-label="Close dialog" style={{background:'rgba(255,255,255,.15)',border:'none',borderRadius:'50%',width:28,height:28,color:'#fff',fontSize:16,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
       </div>
       <div style={{padding:20,display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
         <LBL t="Container No (auto-fills from registry)" full>
@@ -696,6 +900,382 @@ function LogisticsModal({data,containers,onSave,onClose}) {
         <button onClick={onClose} style={{padding:'7px 16px',borderRadius:7,background:'transparent',border:'1px solid '+C.border,color:C.textMid,fontSize:13,cursor:'pointer'}}>Cancel</button>
         <button onClick={()=>printFlopingLogisticsSheet([f])} style={{padding:'7px 16px',borderRadius:7,background:'transparent',border:'1px solid '+C.border,color:C.textMid,fontSize:13,cursor:'pointer'}}>🖨 Print This Record</button>
         <button onClick={()=>onSave(f)} style={{padding:'7px 18px',borderRadius:7,background:C.green,border:'none',color:'#fff',fontSize:13,fontWeight:600,cursor:'pointer'}}>Save Transit Record</button>
+      </div>
+    </div>
+  );
+}
+
+// ── Bill of Lading Modal ────────────────────────────────────────────────────
+function BoLModal({data,readonly,containers,onSave,onClose}) {
+  const {C}=useTheme();
+  const [f,setF]=useState({...data});
+  const set=k=>e=>setF(p=>({...p,[k]:e.target.value}));
+  const inp={padding:'7px 10px',borderRadius:7,border:'1px solid '+C.border,background:readonly?C.bgAlt:C.bgCard,color:C.text,fontSize:13,outline:'none',fontFamily:'inherit',width:'100%'};
+  const LBL=({t,full,children})=><div style={{display:'flex',flexDirection:'column',gap:4,gridColumn:full?'1/-1':undefined}}><label style={{fontSize:11,fontWeight:600,color:C.textMid}}>{t}</label>{children}</div>;
+  const childContainers = containers.filter(c => c.bolId === f.id || c.billOfLading === f.billOfLadingNo);
+  return (
+    <div style={{background:C.bgCard,borderRadius:12,border:'1px solid '+C.border,overflow:'hidden'}}>
+      <div style={{padding:'14px 20px',background:'linear-gradient(135deg,#0F3A1A,#1A5C2A)',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+        <div style={{fontSize:14,fontWeight:700,color:'#fff'}}>📄 {readonly?'Bill of Lading · ':''}{f.billOfLadingNo||'New Bill of Lading'}</div>
+        <button onClick={onClose} aria-label="Close dialog" style={{background:'rgba(255,255,255,.15)',border:'none',borderRadius:'50%',width:28,height:28,color:'#fff',fontSize:16,cursor:'pointer'}}>✕</button>
+      </div>
+      <div style={{padding:20,display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
+        <LBL t="Bill of Lading No *" full>
+          <input style={{...inp,fontFamily:'monospace',fontWeight:700,color:C.green}} value={f.billOfLadingNo||''} onChange={set('billOfLadingNo')} placeholder="e.g. MSCUB123456" readOnly={readonly}/>
+        </LBL>
+        <LBL t="Shipping Company"><input style={inp} value={f.shippingCompany||''} onChange={set('shippingCompany')} readOnly={readonly}/></LBL>
+        <LBL t="Shipping Vessel"><input style={inp} value={f.shippingVessel||''} onChange={set('shippingVessel')} readOnly={readonly}/></LBL>
+        <LBL t="Voyage No"><input style={inp} value={f.voyageNo||''} onChange={set('voyageNo')} readOnly={readonly}/></LBL>
+        <LBL t="Port of Loading"><input style={inp} value={f.portOfLoading||''} onChange={set('portOfLoading')} readOnly={readonly}/></LBL>
+        <LBL t="Port of Discharge"><input style={inp} value={f.portOfDischarge||''} onChange={set('portOfDischarge')} readOnly={readonly}/></LBL>
+        <LBL t="ETA Date"><input style={inp} type="date" value={f.etaDate||''} onChange={set('etaDate')} readOnly={readonly}/></LBL>
+        <LBL t="ATA Date"><input style={inp} type="date" value={f.ataDate||''} onChange={set('ataDate')} readOnly={readonly}/></LBL>
+        <LBL t="Total Containers (on BoL)"><input style={inp} type="number" value={f.totalContainers||1} onChange={set('totalContainers')} readOnly={readonly}/></LBL>
+        <LBL t="Free Time Expiry"><input style={inp} type="date" value={f.freeTimeExpiry||''} onChange={set('freeTimeExpiry')} readOnly={readonly}/></LBL>
+        <LBL t="Status"><select style={inp} value={f.status||'In Transit'} onChange={set('status')} disabled={readonly}>
+          {['In Transit','Arrived','Under Exam','Released','Held','Completed'].map(s=><option key={s}>{s}</option>)}
+        </select></LBL>
+      </div>
+      {!readonly && childContainers.length > 0 && (
+        <div style={{padding:'0 20px 12px'}}>
+          <div style={{fontSize:11,fontWeight:600,color:C.textMid,marginBottom:6}}>Containers linked to this BoL (by BoL number match — auto-detected):</div>
+          <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
+            {childContainers.map(c => (
+              <span key={c.id} style={{padding:'3px 9px',borderRadius:20,background:C.greenPale,color:C.green,fontFamily:'monospace',fontSize:11,fontWeight:600}}>
+                {c.containerNo} · {c.consigneeName}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+      {!readonly&&<div style={{padding:'0 20px 20px',display:'flex',gap:8,justifyContent:'flex-end',borderTop:'1px solid '+C.borderLight,paddingTop:14}}>
+        <button onClick={onClose} style={{padding:'7px 16px',borderRadius:7,background:'transparent',border:'1px solid '+C.border,color:C.textMid,fontSize:13,cursor:'pointer'}}>Cancel</button>
+        <button onClick={()=>onSave(f)} style={{padding:'7px 18px',borderRadius:7,background:C.green,border:'none',color:'#fff',fontSize:13,fontWeight:600,cursor:'pointer'}}>Save BoL</button>
+      </div>}
+    </div>
+  );
+}
+
+// ── Advance Payment Modal ────────────────────────────────────────────────────
+function AdvanceModal({data,readonly,containers,onSave,onClose}) {
+  const {C}=useTheme();
+  const [f,setF]=useState({
+    ...data,
+    containersCovered: data.containersCovered || [],
+    applications:      data.applications || [],
+  });
+  const [newContainerNo, setNewContainerNo] = useState('');
+  const [newAllocation,  setNewAllocation]  = useState('');
+  const [newAppContainer, setNewAppContainer] = useState('');
+  const [newAppAmount,    setNewAppAmount]   = useState('');
+
+  const set=k=>e=>setF(p=>({...p,[k]:e.target.value}));
+  const inp={padding:'7px 10px',borderRadius:7,border:'1px solid '+C.border,background:readonly?C.bgAlt:C.bgCard,color:C.text,fontSize:13,outline:'none',fontFamily:'inherit',width:'100%'};
+  const LBL=({t,full,children})=><div style={{display:'flex',flexDirection:'column',gap:4,gridColumn:full?'1/-1':undefined}}><label style={{fontSize:11,fontWeight:600,color:C.textMid}}>{t}</label>{children}</div>;
+
+  // Live recompute balanceRemaining
+  const totalApplied = (f.applications||[]).reduce((s,a)=>s+(Number(a.amount)||0),0);
+  const balanceRemaining = Math.max(0, (Number(f.amount)||0) - totalApplied);
+  const status = balanceRemaining === 0 ? 'Fully Utilised' : totalApplied > 0 ? 'Partially Utilised' : 'Open';
+
+  function addContainerCovered() {
+    if (!newContainerNo || !newAllocation) return;
+    if ((f.containersCovered||[]).some(c => c.containerNo === newContainerNo)) {
+      showToast('Container already added', 'error'); return;
+    }
+    setF(p => ({ ...p, containersCovered: [...(p.containersCovered||[]), { containerNo: newContainerNo, amountAllocated: Number(newAllocation)||0 }] }));
+    setNewContainerNo(''); setNewAllocation('');
+  }
+  function removeContainerCovered(idx) {
+    setF(p => ({ ...p, containersCovered: (p.containersCovered||[]).filter((_,i)=>i!==idx) }));
+  }
+  function addApplication() {
+    if (!newAppContainer || !newAppAmount) return;
+    const amt = Number(newAppAmount);
+    if (amt > balanceRemaining) { showToast(`Cannot apply more than outstanding balance (₦${balanceRemaining.toLocaleString('en-NG')})`, 'error'); return; }
+    setF(p => ({ ...p, applications: [...(p.applications||[]), { containerNo: newAppContainer, amount: amt, date: new Date().toISOString().split('T')[0], by: 'system' }] }));
+    setNewAppContainer(''); setNewAppAmount('');
+  }
+  function removeApplication(idx) {
+    setF(p => ({ ...p, applications: (p.applications||[]).filter((_,i)=>i!==idx) }));
+  }
+  function handleSave() {
+    if (!f.payerName) { showToast('Payer name is required', 'error'); return; }
+    if (!f.amount || Number(f.amount) <= 0) { showToast('Amount is required', 'error'); return; }
+    onSave({ ...f, balanceRemaining, status });
+  }
+
+  return (
+    <div style={{background:C.bgCard,borderRadius:12,border:'1px solid '+C.border,overflow:'hidden',maxWidth:780}}>
+      <div style={{padding:'14px 20px',background:'linear-gradient(135deg,#0F3A1A,#1A5C2A)',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+        <div style={{fontSize:14,fontWeight:700,color:'#fff'}}>💵 {readonly?'Advance Payment · ':''}{f.payerName||'New Advance'} {f.receiptNo?`· ${f.receiptNo}`:''}</div>
+        <button onClick={onClose} aria-label="Close dialog" style={{background:'rgba(255,255,255,.15)',border:'none',borderRadius:'50%',width:28,height:28,color:'#fff',fontSize:16,cursor:'pointer'}}>✕</button>
+      </div>
+      <div style={{padding:20,display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
+        <LBL t="Payer Name *"><input style={inp} value={f.payerName||''} onChange={set('payerName')} placeholder="e.g. Nigerian LNG Complex" readOnly={readonly}/></LBL>
+        <LBL t="Payer Type">
+          <select style={inp} value={f.payerType||''} onChange={set('payerType')} disabled={readonly}>
+            <option value="">—</option>
+            <option>Consignee</option><option>Shipping Line</option><option>Clearing Agent</option><option>Importer</option><option>Other</option>
+          </select>
+        </LBL>
+        <LBL t="Payment Date *"><input style={inp} type="date" value={f.paymentDate||''} onChange={set('paymentDate')} readOnly={readonly}/></LBL>
+        <LBL t="Amount (₦) *"><input style={inp} type="number" value={f.amount||''} onChange={set('amount')} placeholder="0" readOnly={readonly}/></LBL>
+        <LBL t="Receipt No"><input style={{...inp,fontFamily:'monospace'}} value={f.receiptNo||''} onChange={set('receiptNo')} placeholder="e.g. ADV-2026-001" readOnly={readonly}/></LBL>
+        <LBL t="Purpose">
+          <select style={inp} value={f.purpose||''} onChange={set('purpose')} disabled={readonly}>
+            <option value="">—</option>
+            <option>Clearing</option><option>Forwarding</option><option>Demurrage</option><option>Storage</option><option>Other</option>
+          </select>
+        </LBL>
+        <LBL t="Bank Account">
+          <select style={inp} value={f.bankCode||''} onChange={e=>setF(p=>({...p,bankCode:e.target.value,bankName:''}))} disabled={readonly}>
+            <option value="">—</option>
+            <option value="3003">Access Bank (Naira A/C 0002238013)</option>
+            <option value="3005">Zenith Bank (A/C 1011010033)</option>
+            <option value="3007">First Bank (A/C 2008176695)</option>
+            <option value="3011">UBA Bank (A/C 1015363537)</option>
+          </select>
+        </LBL>
+        <LBL t="Link to BoL (optional)">
+          <select style={inp} value={f.linkToBillOfLadingId||''} onChange={set('linkToBillOfLadingId')} disabled={readonly}>
+            <option value="">—</option>
+            {(containers || []).map(c => c.billOfLading).filter(Boolean).filter((v,i,a)=>a.indexOf(v)===i).map(bol => <option key={bol} value={bol}>{bol}</option>)}
+          </select>
+        </LBL>
+        <LBL t="Notes" full><input style={inp} value={f.notes||''} onChange={set('notes')} readOnly={readonly}/></LBL>
+      </div>
+
+      {/* Containers covered — the key feature SLOT asked for */}
+      <div style={{padding:'0 20px 12px'}}>
+        <div style={{fontSize:12,fontWeight:700,color:C.text,marginBottom:6}}>📦 Containers Covered by this Advance</div>
+        <div style={{fontSize:10.5,color:C.textMuted,marginBottom:8}}>List the specific containers this advance payment is intended to clear, and how much of the advance is allocated to each.</div>
+        {(f.containersCovered||[]).length > 0 && (
+          <table style={{width:'100%',borderCollapse:'collapse',fontSize:12,marginBottom:8}}>
+            <thead><tr style={{background:C.greenPale}}>
+              {['Container No','Consignee','Allocated','% of Advance',''].map(h=><th key={h} style={{padding:'6px 8px',textAlign:'left',fontSize:10,fontWeight:700,color:C.textMid,textTransform:'uppercase'}}>{h}</th>)}
+            </tr></thead>
+            <tbody>
+              {(f.containersCovered||[]).map((c, i) => {
+                const cont = containers.find(x => x.containerNo === c.containerNo);
+                const pct = f.amount > 0 ? Math.round((c.amountAllocated / f.amount) * 100) : 0;
+                return (
+                  <tr key={i}>
+                    <td style={{padding:'5px 8px',fontFamily:'monospace',color:C.green,fontWeight:700}}>{c.containerNo}</td>
+                    <td style={{padding:'5px 8px',color:C.textMid}}>{cont?.consigneeName||'—'}</td>
+                    <td style={{padding:'5px 8px',textAlign:'right',fontWeight:600,color:C.amber}}>₦{Number(c.amountAllocated||0).toLocaleString('en-NG')}</td>
+                    <td style={{padding:'5px 8px',color:C.textMuted}}>{pct}%</td>
+                    <td style={{padding:'5px 8px',textAlign:'right'}}>{!readonly&&<button onClick={()=>removeContainerCovered(i)} style={{background:'transparent',border:'none',color:C.danger,cursor:'pointer',fontSize:14}}>✕</button>}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+        {!readonly && (
+          <div style={{display:'flex',gap:6,alignItems:'end'}}>
+            <div style={{flex:1}}>
+              <div style={{fontSize:10,fontWeight:600,color:C.textMid,marginBottom:3}}>Container No</div>
+              <select style={inp} value={newContainerNo} onChange={e=>setNewContainerNo(e.target.value)}>
+                <option value="">— Select container —</option>
+                {containers.map(c => <option key={c.id} value={c.containerNo}>{c.containerNo} — {c.consigneeName}</option>)}
+              </select>
+            </div>
+            <div style={{width:180}}>
+              <div style={{fontSize:10,fontWeight:600,color:C.textMid,marginBottom:3}}>Allocation (₦)</div>
+              <input style={inp} type="number" value={newAllocation} onChange={e=>setNewAllocation(e.target.value)} placeholder="0"/>
+            </div>
+            <button onClick={addContainerCovered} style={{padding:'7px 14px',borderRadius:7,background:C.green,border:'none',color:'#fff',fontSize:12,fontWeight:600,cursor:'pointer',whiteSpace:'nowrap'}}>+ Add</button>
+          </div>
+        )}
+      </div>
+
+      {/* Applications — money applied against the advance as containers clear */}
+      {!readonly && (f.applications||[]).length > 0 && (
+        <div style={{padding:'0 20px 12px'}}>
+          <div style={{fontSize:12,fontWeight:700,color:C.text,marginBottom:6}}>✓ Applications (money applied against this advance as containers clear)</div>
+          <table style={{width:'100%',borderCollapse:'collapse',fontSize:12,marginBottom:8}}>
+            <thead><tr style={{background:C.greenPale}}>
+              {['Container No','Date','Amount',''].map(h=><th key={h} style={{padding:'6px 8px',textAlign:'left',fontSize:10,fontWeight:700,color:C.textMid,textTransform:'uppercase'}}>{h}</th>)}
+            </tr></thead>
+            <tbody>
+              {(f.applications||[]).map((a, i) => (
+                <tr key={i}>
+                  <td style={{padding:'5px 8px',fontFamily:'monospace',color:C.green,fontWeight:700}}>{a.containerNo}</td>
+                  <td style={{padding:'5px 8px',color:C.textMid}}>{a.date}</td>
+                  <td style={{padding:'5px 8px',textAlign:'right',fontWeight:600,color:C.success}}>₦{Number(a.amount||0).toLocaleString('en-NG')}</td>
+                  <td style={{padding:'5px 8px',textAlign:'right'}}><button onClick={()=>removeApplication(i)} style={{background:'transparent',border:'none',color:C.danger,cursor:'pointer',fontSize:14}}>✕</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {!readonly && (
+        <div style={{padding:'0 20px 12px'}}>
+          <div style={{fontSize:10,fontWeight:600,color:C.textMid,marginBottom:3}}>Apply Advance Against Container</div>
+          <div style={{display:'flex',gap:6,alignItems:'end'}}>
+            <div style={{flex:1}}>
+              <select style={inp} value={newAppContainer} onChange={e=>setNewAppContainer(e.target.value)}>
+                <option value="">— Container to apply against —</option>
+                {(f.containersCovered||[]).map((c, i) => <option key={i} value={c.containerNo}>{c.containerNo}</option>)}
+              </select>
+            </div>
+            <div style={{width:180}}>
+              <input style={inp} type="number" value={newAppAmount} onChange={e=>setNewAppAmount(e.target.value)} placeholder={`Max ₦${balanceRemaining.toLocaleString('en-NG')}`}/>
+            </div>
+            <button onClick={addApplication} style={{padding:'7px 14px',borderRadius:7,background:C.amber,border:'none',color:'#fff',fontSize:12,fontWeight:600,cursor:'pointer',whiteSpace:'nowrap'}}>Apply</button>
+          </div>
+        </div>
+      )}
+
+      <div style={{padding:'0 20px 16px',display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10}}>
+        <div style={{padding:'10px 14px',background:C.greenPale,borderRadius:8,borderLeft:'4px solid '+C.amber}}>
+          <div style={{fontSize:10,color:C.textMuted,fontWeight:600,textTransform:'uppercase'}}>Total Advance</div>
+          <div style={{fontSize:16,fontWeight:700,color:C.amber}}>₦{Number(f.amount||0).toLocaleString('en-NG')}</div>
+        </div>
+        <div style={{padding:'10px 14px',background:C.greenPale,borderRadius:8,borderLeft:'4px solid '+C.success}}>
+          <div style={{fontSize:10,color:C.textMuted,fontWeight:600,textTransform:'uppercase'}}>Applied</div>
+          <div style={{fontSize:16,fontWeight:700,color:C.success}}>₦{totalApplied.toLocaleString('en-NG')}</div>
+        </div>
+        <div style={{padding:'10px 14px',background:C.bgAlt,borderRadius:8,borderLeft:'4px solid '+(balanceRemaining>0?C.amber:C.success)}}>
+          <div style={{fontSize:10,color:C.textMuted,fontWeight:600,textTransform:'uppercase'}}>Balance / Status</div>
+          <div style={{fontSize:16,fontWeight:700,color:balanceRemaining>0?C.amber:C.success}}>₦{balanceRemaining.toLocaleString('en-NG')}</div>
+          <div style={{fontSize:10,color:C.textMuted,marginTop:2}}>Status: <strong style={{color:C.text}}>{status}</strong></div>
+        </div>
+      </div>
+
+      <div style={{padding:'0 20px 20px',display:'flex',gap:8,justifyContent:'flex-end',borderTop:'1px solid '+C.borderLight,paddingTop:14}}>
+        <button onClick={onClose} style={{padding:'7px 16px',borderRadius:7,background:'transparent',border:'1px solid '+C.border,color:C.textMid,fontSize:13,cursor:'pointer'}}>Cancel</button>
+        {!readonly&&<button onClick={handleSave} style={{padding:'7px 18px',borderRadius:7,background:C.green,border:'none',color:'#fff',fontSize:13,fontWeight:600,cursor:'pointer'}}>Save Advance</button>}
+      </div>
+    </div>
+  );
+}
+
+// ── Stand-alone Terminal Financial Statements ───────────────────────────────
+//
+// Builds Terminal-only P&L and Balance Sheet by filtering the global journals
+// down to `source` in ('terminal', 'terminal-advance'). Same line grouping
+// logic as the main Accounting module's PLTab / BalanceSheetTab, but scoped
+// to the Terminal entity so SLOT can answer "what did Terminal Operations
+// make this period?" without any other entity's numbers mixed in.
+//
+// The "entity dimension" is the `source` tag on each journal — that's the
+// extension point: when SLOT asks for further entity isolation (Flopeng
+// Logistics as a separate sub-ledger, etc.), the same shape adds a
+// `bolId` / `entityId` filter without changing the engine.
+function TerminalStatements({ journals, coa, C }) {
+  const terminalJournals = (journals || []).filter(j => j.source === 'terminal' || j.source === 'terminal-advance');
+  const fmt = n => '₦' + (Number(n)||0).toLocaleString('en-NG', { maximumFractionDigits: 0 });
+
+  // Aggregate by account code
+  const balByCode = {};
+  terminalJournals.forEach(j => {
+    (j.lines || []).forEach(l => {
+      balByCode[l.drCode] = (balByCode[l.drCode] || 0) + (Number(l.amount) || 0);
+      balByCode[l.crCode] = (balByCode[l.crCode] || 0) - (Number(l.amount) || 0);
+    });
+  });
+
+  // P&L: revenue (4xxx, Cr normal) and expense (8xxx/9xxx, Dr normal)
+  const revenue = coa.filter(a => /^4/.test(a.code) && (balByCode[a.code] !== undefined)).map(a => ({
+    ...a, balance: -balByCode[a.code],  // Cr balances shown as positive revenue
+  })).filter(a => Math.abs(a.balance) >= 1);
+  const expenses = coa.filter(a => (/^8/.test(a.code) || /^9/.test(a.code)) && (balByCode[a.code] !== undefined)).map(a => ({
+    ...a, balance: balByCode[a.code],
+  })).filter(a => Math.abs(a.balance) >= 1);
+  const totalRev = revenue.reduce((s,a) => s + Math.abs(a.balance), 0);
+  const totalExp = expenses.reduce((s,a) => s + Math.abs(a.balance), 0);
+  const netPnL   = totalRev - totalExp;
+
+  // BS: assets (2xxx, 3xxx) and liabilities (5xxx, 7xxx)
+  const assets = coa.filter(a => /^2/.test(a.code) || /^3/.test(a.code)).map(a => ({
+    ...a, balance: a.normalBal === 'Dr' ? balByCode[a.code] || 0 : -(balByCode[a.code] || 0),
+  })).filter(a => Math.abs(a.balance) >= 1);
+  const liabilities = coa.filter(a => /^5/.test(a.code) || /^7/.test(a.code)).map(a => ({
+    ...a, balance: a.normalBal === 'Cr' ? -(balByCode[a.code] || 0) : (balByCode[a.code] || 0),
+  })).filter(a => Math.abs(a.balance) >= 1);
+  const totalAssets = assets.reduce((s,a) => s + Math.abs(a.balance), 0);
+  const totalLiab   = liabilities.reduce((s,a) => s + Math.abs(a.balance), 0);
+  const equity      = totalAssets - totalLiab;
+
+  const cellStyle = { padding:'5px 8px', borderBottom:'1px solid '+C.borderLight, fontSize:12 };
+  const headStyle = { padding:'6px 8px', textAlign:'left', fontSize:10, fontWeight:700, color:C.textMid, textTransform:'uppercase', background:C.bgAlt, borderBottom:'1px solid '+C.border };
+
+  return (
+    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
+      {/* P&L */}
+      <div style={{background:C.bgCard,border:'1px solid '+C.border,borderRadius:10,overflow:'hidden'}}>
+        <div style={{padding:'10px 14px',background:C.greenPale,borderBottom:'1px solid '+C.border}}>
+          <div style={{fontSize:13,fontWeight:700,color:C.text}}>📈 Terminal P&L (cumulative to date)</div>
+          <div style={{fontSize:10,color:C.textMuted,marginTop:2}}>{terminalJournals.length} journal entries tagged source=terminal*</div>
+        </div>
+        <table style={{width:'100%',borderCollapse:'collapse'}}>
+          <thead><tr><th style={headStyle}>Account</th><th style={{...headStyle,textAlign:'right'}}>Amount</th></tr></thead>
+          <tbody>
+            <tr><td colSpan={2} style={{...cellStyle,fontWeight:700,color:C.success,background:C.greenPale2,fontSize:11,textTransform:'uppercase'}}>Revenue</td></tr>
+            {revenue.length === 0 && <tr><td colSpan={2} style={{...cellStyle,color:C.textMuted,fontStyle:'italic'}}>No revenue posted yet</td></tr>}
+            {revenue.map(a => (
+              <tr key={a.code}>
+                <td style={{...cellStyle,paddingLeft:18}}><span style={{fontFamily:'monospace',color:C.textMuted,fontSize:11,marginRight:6}}>{a.code}</span>{a.name}</td>
+                <td style={{...cellStyle,textAlign:'right',color:C.success}}>{fmt(Math.abs(a.balance))}</td>
+              </tr>
+            ))}
+            {revenue.length > 0 && <tr style={{background:C.greenPale,fontWeight:700}}><td style={cellStyle}>Total Revenue</td><td style={{...cellStyle,textAlign:'right',color:C.success}}>{fmt(totalRev)}</td></tr>}
+            <tr><td colSpan={2} style={{...cellStyle,fontWeight:700,color:C.danger,background:C.greenPale2,fontSize:11,textTransform:'uppercase'}}>Expenses (Direct Costs)</td></tr>
+            {expenses.length === 0 && <tr><td colSpan={2} style={{...cellStyle,color:C.textMuted,fontStyle:'italic'}}>No expenses posted yet</td></tr>}
+            {expenses.map(a => (
+              <tr key={a.code}>
+                <td style={{...cellStyle,paddingLeft:18}}><span style={{fontFamily:'monospace',color:C.textMuted,fontSize:11,marginRight:6}}>{a.code}</span>{a.name}</td>
+                <td style={{...cellStyle,textAlign:'right',color:C.danger}}>{fmt(Math.abs(a.balance))}</td>
+              </tr>
+            ))}
+            {expenses.length > 0 && <tr style={{background:C.greenPale,fontWeight:700}}><td style={cellStyle}>Total Expenses</td><td style={{...cellStyle,textAlign:'right',color:C.danger}}>{fmt(totalExp)}</td></tr>}
+            <tr style={{background: netPnL>=0 ? C.greenPale : 'rgba(192,57,43,.1)'}}>
+              <td style={{...cellStyle,fontWeight:800,fontSize:13}}>Net P&L (Terminal)</td>
+              <td style={{...cellStyle,textAlign:'right',fontWeight:800,fontSize:13,color: netPnL>=0?C.success:C.danger}}>{fmt(netPnL)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      {/* Balance Sheet */}
+      <div style={{background:C.bgCard,border:'1px solid '+C.border,borderRadius:10,overflow:'hidden'}}>
+        <div style={{padding:'10px 14px',background:C.greenPale,borderBottom:'1px solid '+C.border}}>
+          <div style={{fontSize:13,fontWeight:700,color:C.text}}>🏛️ Terminal Balance Sheet (cumulative to date)</div>
+          <div style={{fontSize:10,color:C.textMuted,marginTop:2}}>Filtered to Terminal entity only</div>
+        </div>
+        <table style={{width:'100%',borderCollapse:'collapse'}}>
+          <thead><tr><th style={headStyle}>Account</th><th style={{...headStyle,textAlign:'right'}}>Balance</th></tr></thead>
+          <tbody>
+            <tr><td colSpan={2} style={{...cellStyle,fontWeight:700,color:C.success,background:C.greenPale2,fontSize:11,textTransform:'uppercase'}}>Assets</td></tr>
+            {assets.length === 0 && <tr><td colSpan={2} style={{...cellStyle,color:C.textMuted,fontStyle:'italic'}}>No Terminal asset movements yet</td></tr>}
+            {assets.map(a => (
+              <tr key={a.code}>
+                <td style={{...cellStyle,paddingLeft:18}}><span style={{fontFamily:'monospace',color:C.textMuted,fontSize:11,marginRight:6}}>{a.code}</span>{a.name}</td>
+                <td style={{...cellStyle,textAlign:'right',color: a.balance>=0?C.text:C.danger}}>{fmt(a.balance)}</td>
+              </tr>
+            ))}
+            {assets.length > 0 && <tr style={{background:C.greenPale,fontWeight:700}}><td style={cellStyle}>Total Assets</td><td style={{...cellStyle,textAlign:'right'}}>{fmt(totalAssets)}</td></tr>}
+            <tr><td colSpan={2} style={{...cellStyle,fontWeight:700,color:C.danger,background:C.greenPale2,fontSize:11,textTransform:'uppercase'}}>Liabilities</td></tr>
+            {liabilities.length === 0 && <tr><td colSpan={2} style={{...cellStyle,color:C.textMuted,fontStyle:'italic'}}>No Terminal liability movements yet</td></tr>}
+            {liabilities.map(a => (
+              <tr key={a.code}>
+                <td style={{...cellStyle,paddingLeft:18}}><span style={{fontFamily:'monospace',color:C.textMuted,fontSize:11,marginRight:6}}>{a.code}</span>{a.name}</td>
+                <td style={{...cellStyle,textAlign:'right',color: a.balance>=0?C.text:C.danger}}>{fmt(a.balance)}</td>
+              </tr>
+            ))}
+            {liabilities.length > 0 && <tr style={{background:C.greenPale,fontWeight:700}}><td style={cellStyle}>Total Liabilities</td><td style={{...cellStyle,textAlign:'right'}}>{fmt(totalLiab)}</td></tr>}
+            <tr style={{background:C.greenPale}}>
+              <td style={{...cellStyle,fontWeight:800,fontSize:13}}>Equity (Assets − Liabilities)</td>
+              <td style={{...cellStyle,textAlign:'right',fontWeight:800,fontSize:13,color: equity>=0?C.success:C.danger}}>{fmt(equity)}</td>
+            </tr>
+          </tbody>
+        </table>
+        <div style={{padding:'8px 14px',background:C.bgAlt,fontSize:10,color:C.textMuted,lineHeight:1.5,borderTop:'1px solid '+C.border}}>
+          Equity is implied (Assets − Liabilities). For a true year-end close, run <strong>Settings → Accounting → Year-End Close</strong> to post an explicit Retained Earnings roll-up.
+        </div>
       </div>
     </div>
   );

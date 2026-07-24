@@ -1,17 +1,35 @@
 // ══════════════════════════════════════════════════════════════════════════════
-// SLOT ENGINEERING — USERS MODULE v1.0
-// Admin-only · create / edit / deactivate system users · assign roles & modules
+// SLOT Engineering — Users Module v2.0 (Supabase-backed)
+//
+// As of v1.2, the user list is the source of truth in the `app_users`
+// Postgres table (linked to Supabase Auth via auth_user_id). There is no
+// longer a local users store in localStorage. All auth lifecycle (create,
+// update, deactivate) goes through this module which talks to Supabase.
+//
+// What this means for the form:
+//   • "Add User" creates BOTH the Supabase Auth account (email+password)
+//     AND the linked app_users row in one atomic call (createSupabaseUser).
+//   • "Edit User" updates the app_users row only (role, modules, status).
+//   • "Deactivate" sets app_users.status = 'Inactive' — Supabase Auth
+//     signInWithPassword is then rejected by the linked profile check in
+//     supabase/auth.js (see status !== 'Active' guard there).
+//   • Password changes go through Supabase's resetPasswordForEmail flow,
+//     not through this form — keeps the bcrypt hashing on the server.
 // ══════════════════════════════════════════════════════════════════════════════
-import { useState, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useApp }   from '../../context/AppContext';
 import { useTheme } from '../../context/ThemeContext';
-import { showToast, generateId } from '../../utils/helpers';
-import { hashPassword, getUsers, saveUsers } from '../../utils/auth';
+import { showToast } from '../../utils/helpers';
+import { validatePassword, getAllRoles, getRoleLabel } from '../../utils/auth';
 import { logActivity } from '../../utils/audit';
-import { supabaseReady } from '../../supabase/client';
+import { supabase, supabaseReady } from '../../supabase/client';
+import { createSupabaseUser, updateSupabaseUser, disableSupabaseUser, enableSupabaseUser, adminResetPassword, requestPasswordReset } from '../../supabase/auth';
+import { SLOT_BRAND } from '../../utils/logo';
 
 // ── Roles & Module Access ────────────────────────────────────────────────────
-const ROLES = ['admin','manager','accountant','cashier','viewer'];
+// ROLES list is now dynamic — see getAllRoles(appSettings) from utils/auth,
+// which returns the 5 built-ins plus any custom roles an admin has defined
+// in Settings → Permissions.
 const ALL_MODULES = [
   { id:'nlng',        label:'Contract Staff (NLNG)' },
   { id:'slot',        label:'Company Staff (SLOT)'  },
@@ -29,20 +47,6 @@ const ALL_MODULES = [
 ];
 
 const ROLE_COLORS = { admin:'#1A5C2A', manager:'#C97A0A', accountant:'#1A5C8A', cashier:'#6A3A8A', viewer:'#4A6060' };
-
-const SEED_USERS = [
-  { id:'u1', name:'Admin User', email:'admin@slotengineering.com', role:'admin',
-    modules: ALL_MODULES.map(m=>m.id), status:'Active', createdAt:'2026-01-01T00:00:00Z', phone:'08000000001' },
-  { id:'u2', name:'Tunde Adeyemi', email:'tadeyemi@slotengineering.com', role:'manager',
-    modules:['procurement','inventory','request','grn'], status:'Active', createdAt:'2026-02-01T00:00:00Z', phone:'08031234567' },
-  { id:'u3', name:'Ngozi Okafor', email:'nokafor@slotengineering.com', role:'accountant',
-    modules:['invoices','pettycash','grn'], status:'Active', createdAt:'2026-02-15T00:00:00Z', phone:'08041234567' },
-  { id:'u4', name:'Samuel Ekwueme', email:'sekwueme@slotengineering.com', role:'viewer',
-    modules:['procurement','inventory'], status:'Active', createdAt:'2026-03-01T00:00:00Z', phone:'08051234567' },
-];
-
-// Users are stored via auth.js getUsers()/saveUsers() — single source of truth
-// that matches exactly what login() reads from.
 
 const EMPTY = { name:'', email:'', phone:'', username:'', role:'viewer', modules:[], status:'Active', password:'' };
 
@@ -67,13 +71,13 @@ function Btn({ children, onClick, variant='primary', sm, disabled, style={} }) {
   );
 }
 
-function Tag({ role }) {
-  const bg = ROLE_COLORS[role]+'22';
+function Tag({ role, appSettings }) {
   const co = ROLE_COLORS[role] || '#4A6060';
+  const bg = co + '22';
   return (
     <span style={{ display:'inline-block', padding:'2px 9px', borderRadius:20,
-      fontSize:11, fontWeight:600, color:co, background:bg, border:`1px solid ${co}30`, textTransform:'capitalize' }}>
-      {role}
+      fontSize:11, fontWeight:600, color:co, background:bg, border:`1px solid ${co}30` }}>
+      {getRoleLabel(role, appSettings)}
     </span>
   );
 }
@@ -123,21 +127,48 @@ export default function Users() {
   const { C } = useTheme();
   const { currentUser } = state;
 
-  // Single source of truth: same getUsers() that login() reads from
-  const [users, setUsers] = useState(() => {
-    const stored = getUsers();
-    // If only DEFAULT_ADMIN exists (fresh install), seed with SLOT staff placeholders
-    if (stored.length === 1 && stored[0].id === 'admin_default') {
-      const seeded = [...stored, ...SEED_USERS];
-      saveUsers(seeded);
-      return seeded;
-    }
-    return stored;
-  });
-  const [search, setSearch] = useState('');
+  const [users, setUsers]       = useState([]);
+  const [loading, setLoading]   = useState(false);
+  const [search, setSearch]     = useState('');
   const [roleFilter, setRoleFilter] = useState('');
-  const [modal, setModal]   = useState(null); // null | {mode:'add'|'edit', data}
-  const [confirm, setConfirm] = useState(null); // userId to toggle
+  const [modal, setModal]       = useState(null); // null | {mode:'add'|'edit', data}
+  const [confirm, setConfirm]   = useState(null); // userId to toggle
+
+  // Load users from app_users table.
+  // CRITICAL: previously the IIFE had no try/catch — a network error, RLS
+  // denial, or supabase.from() being undefined (e.g. when supabaseReady is
+  // true but the client failed to initialise) became an UNHANDLED REJECTION
+  // that crashed the test suite and would silently leave the loading spinner
+  // spinning forever in production. Now every failure path sets a clear
+  // toast and setLoading(false).
+  useEffect(() => {
+    if (!supabaseReady) { setUsers([]); return; }
+    setLoading(true);
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data, error } = await supabase
+          .from('app_users')
+          .select('id, username, name, email, role, modules, status, phone, created_at')
+          .order('created_at', { ascending: true });
+        if (cancelled) return;
+        if (error) {
+          showToast('Failed to load users: ' + error.message, 'error');
+          setUsers([]);
+        } else {
+          setUsers(data || []);
+        }
+      } catch (e) {
+        if (!cancelled) {
+          showToast('Failed to load users: ' + (e?.message || 'unknown error'), 'error');
+          setUsers([]);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [supabaseReady]);
 
   const filtered = useMemo(() => {
     let list = users;
@@ -157,63 +188,90 @@ export default function Users() {
     inactive: users.filter(u=>u.status!=='Active').length,
   };
 
-  function persist(list) {
-    setUsers(list);
-    saveUsers(list);
-  }
-
-  function handleSave(form) {
+  async function handleSave(form) {
     if (!form.name?.trim() || !form.email?.trim()) { showToast('Name and email are required','error'); return; }
-    if (modal.mode==='add') {
-      const exists = users.some(u=>u.email.toLowerCase()===form.email.toLowerCase());
-      if (exists) { showToast('Email already exists','error'); return; }
-      // Auto-generate username from email if blank (e.g. tunde.adeyemi@sloteng.com → tunde.adeyemi)
-      const autoUsername = (form.username?.trim() || form.email.split('@')[0]).toLowerCase().replace(/[^a-z0-9._]/g,'');
-      if (!form.password?.trim()) { showToast('Password is required for new users','error'); return; }
-      // Hash password before storing (async — wrap the rest in the handler)
-      hashPassword(form.password.trim()).then(hashed => {
-        const newUser = {
-          ...form,
-          id: generateId(),
-          username: autoUsername,
-          password: hashed,
-          createdAt: new Date().toISOString(),
-        };
-        persist([...users, newUser]);
-        logActivity(dispatch, `Created user: ${form.name} (${form.role}) — username: ${autoUsername}`, currentUser);
-        showToast(`✅ User created! Login: ${autoUsername} (or email) + their password`, 'success');
-        setModal(null);
-      }).catch(() => showToast('Password hashing failed — try again','error'));
-      return; // early return since we continue inside .then()
-    } else {
-      // If admin entered a new password → hash it; if left blank → keep existing hash
-      if (form.password?.trim()) {
-        hashPassword(form.password.trim()).then(hashed => {
-          const updates = { ...form, password: hashed };
-          persist(users.map(u => u.id===form.id ? { ...u, ...updates } : u));
-          logActivity(dispatch, `Updated user (password changed): ${form.name}`, currentUser);
-          showToast('User updated');
-          setModal(null);
-        }).catch(() => showToast('Password hashing failed — try again','error'));
-      } else {
-        // No new password — strip the blank field so existing hash is preserved
-        const { password: _drop, ...safeForm } = form;
-        persist(users.map(u => u.id===form.id ? { ...u, ...safeForm } : u));
-        logActivity(dispatch, `Updated user: ${form.name}`, currentUser);
-        showToast('User updated');
-        setModal(null);
+    if (modal.mode === 'add') {
+      if (!form.password?.trim()) { showToast('Password is required for new users', 'error'); return; }
+      const pwErr = validatePassword(form.password, true);
+      if (pwErr) { showToast(pwErr, 'error'); return; }
+      setLoading(true);
+      const result = await createSupabaseUser({
+        email:    form.email.trim().toLowerCase(),
+        password: form.password,
+        name:     form.name.trim(),
+        username: (form.username?.trim() || form.email.split('@')[0]).toLowerCase().replace(/[^a-z0-9._]/g,''),
+        role:     form.role,
+        modules:  form.modules || [],
+        // companyId is implicit from RLS — the new row will be inserted
+        // with the same company_id as the current admin (the trigger in
+        // 002_rls.sql uses auth.uid() to derive it). For multi-company
+        // deployments, a service-role call would set it explicitly.
+      });
+      setLoading(false);
+      if (!result.success) {
+        showToast('Failed to create user: ' + (result.error || 'unknown error'), 'error');
+        return;
       }
+      // Reload the list to pick up the new row
+      const { data } = await supabase.from('app_users').select('id, username, name, email, role, modules, status, phone, created_at').order('created_at', { ascending: true });
+      setUsers(data || []);
+      logActivity(dispatch, `Created user: ${form.name} (${form.role})`, currentUser);
+      showToast(`✅ User created — they can sign in with ${form.email}`, 'success');
+      setModal(null);
+    } else {
+      // Edit: route through the manage-users Edge Function so the admin
+      // keeps their own session, and so any future server-side validation
+      // (e.g. "can't demote the last admin") is enforced in one place.
+      setLoading(true);
+      const result = await updateSupabaseUser(form.id, {
+        name:    form.name.trim(),
+        role:    form.role,
+        modules: form.modules || [],
+        status:  form.status,
+        phone:   form.phone || null,
+      });
+      setLoading(false);
+      if (!result.success) {
+        showToast('Failed to update user: ' + (result.error || 'unknown error'), 'error');
+        return;
+      }
+      // Refresh the row from the server response so the UI shows the canonical state
+      setUsers(users.map(u => u.id===form.id ? { ...u, ...result.profile, password: undefined } : u));
+      logActivity(dispatch, `Updated user: ${form.name}`, currentUser);
+      showToast('User updated');
+      setModal(null);
     }
   }
 
-  function handleToggle(userId) {
+  async function handleToggle(userId) {
     const u = users.find(x=>x.id===userId);
     if (!u) return;
     const next = u.status==='Active' ? 'Inactive' : 'Active';
-    persist(users.map(x => x.id===userId ? {...x, status:next} : x));
+    setLoading(true);
+    const result = next === 'Inactive' ? await disableSupabaseUser(userId) : await enableSupabaseUser(userId);
+    setLoading(false);
+    if (!result.success) {
+      showToast('Failed to update status: ' + (result.error || 'unknown error'), 'error');
+      return;
+    }
+    setUsers(users.map(x => x.id===userId ? {...x, status:next} : x));
     logActivity(dispatch, `${next==='Inactive'?'Deactivated':'Reactivated'} user: ${u.name}`, currentUser);
     showToast(`User ${next==='Inactive'?'deactivated':'reactivated'}`);
     setConfirm(null);
+  }
+
+  async function handleSendReset(userId, email) {
+    if (!userId) return;
+    setLoading(true);
+    // Routes through the Edge Function so the reset email is sent from
+    // server-side (Supabase's built-in reset flow).
+    const result = await adminResetPassword(userId);
+    setLoading(false);
+    if (result.success) {
+      showToast(`Password-reset link sent to ${email}`, 'success');
+    } else {
+      showToast('Could not send reset link: ' + (result.error || 'unknown error'), 'error');
+    }
   }
 
   const inp = { padding:'7px 10px', borderRadius:7, border:'1px solid '+C.border,
@@ -224,34 +282,24 @@ export default function Users() {
   const td = i => ({ padding:'9px 10px', borderBottom:'1px solid '+C.borderLight,
     color:C.text, fontSize:12.5, background:i%2===1?C.greenPale2:'transparent' });
 
+  if (!supabaseReady) {
+    return (
+      <div style={{ padding:40, textAlign:'center', color:C.textMuted }}>
+        <div style={{ fontSize:15, fontWeight:600, marginBottom:8 }}>Supabase is not configured</div>
+        <div style={{ fontSize:13 }}>User management requires a Supabase connection. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to your <code>.env</code>.</div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
 
-      {/* ── Supabase Cloud Login Setup Guide ─────────────────────────────── */}
-      {supabaseReady && (
-        <div style={{ background:C.bgCard, border:'1px solid '+C.green+'40', borderRadius:12, overflow:'hidden', boxShadow:C.shadowCard }}>
-          <div style={{ padding:'12px 18px', background:C.green+'18', borderBottom:'1px solid '+C.green+'30', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-            <div style={{ fontSize:13, fontWeight:700, color:C.green }}>🔐 Cloud Login Setup (Supabase Auth)</div>
-            <span style={{ fontSize:11, color:C.textMuted }}>One-time task per user — admin only</span>
-          </div>
-          <div style={{ padding:'14px 18px', display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(210px,1fr))', gap:14 }}>
-            {[
-              { step:'1', title:'Create Auth account', body:'Supabase Dashboard → Authentication → Users → Add User. Enter email + strong password. Tick "Auto Confirm User".' },
-              { step:'2', title:'Copy the UUID', body:'Click the new user row. Copy the UUID from the User details panel (looks like xxxxxxxx-xxxx-xxxx-...).' },
-              { step:'3', title:'Link in SQL Editor', body:"UPDATE app_users SET auth_user_id = '<uuid>' WHERE email = 'their@email.com';" },
-              { step:'4', title:'Done', body:'The user logs in at the app with their email address. The 🔐 badge below confirms the link is active.' },
-            ].map(({ step, title, body }) => (
-              <div key={step} style={{ display:'flex', gap:10 }}>
-                <div style={{ width:24, height:24, borderRadius:'50%', background:C.green, color:'#fff', fontSize:11, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, marginTop:1 }}>{step}</div>
-                <div>
-                  <div style={{ fontSize:12, fontWeight:600, color:C.text, marginBottom:3 }}>{title}</div>
-                  <div style={{ fontSize:11, color:C.textMuted, lineHeight:1.55, fontFamily:'monospace' }}>{body}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* Cloud-Login explainer — kept as a one-liner since users are now
+          always cloud-managed; the elaborate 4-step setup guide from the
+          v1.x era is gone (no manual SQL linking needed). */}
+      <div style={{ background:C.green+'10', border:'1px solid '+C.green+'40', borderRadius:10, padding:'10px 16px', fontSize:12, color:C.textMid, lineHeight:1.6 }}>
+        🔐 <strong>Cloud-managed users.</strong> This list is the <code style={{ background:C.greenPale, padding:'1px 5px', borderRadius:3 }}>app_users</code> table in Supabase. New users get a Supabase Auth account automatically when you add them here. Password changes go through the email-reset flow — never stored in the browser.
+      </div>
 
       {/* KPI row */}
       <div style={{ display:'flex', gap:12, flexWrap:'wrap' }}>
@@ -267,7 +315,7 @@ export default function Users() {
           borderRadius:'12px 12px 0 0' }}>
           <div style={{ fontSize:14, fontWeight:700, color:'#fff' }}>👥 System User Management</div>
           <div style={{ fontSize:11, color:'rgba(255,255,255,0.6)', marginTop:2 }}>
-            Control who can access BizCore and what they can see
+            Control who can access {SLOT_BRAND.short} and what they can see
           </div>
         </div>
 
@@ -276,7 +324,7 @@ export default function Users() {
           <input value={search} onChange={e=>setSearch(e.target.value)}
             placeholder="Search by name, email, role…"
             style={{ ...inp, flex:1, minWidth:220 }} />
-          <Btn onClick={()=>setModal({mode:'add', data:{...EMPTY}})}>+ Add User</Btn>
+          <Btn onClick={()=>setModal({mode:'add', data:{...EMPTY}})} disabled={loading}>+ Add User</Btn>
         </div>
 
         {/* Table */}
@@ -284,17 +332,20 @@ export default function Users() {
           <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12, minWidth:800 }}>
             <thead>
               <tr>
-                {['S/N','Name','Email','Phone','Role','Modules','Status','Cloud','Action'].map(h =>
+                {['S/N','Name','Email','Phone','Role','Modules','Status','Action'].map(h =>
                   <th key={h} style={th}>{h}</th>)}
               </tr>
             </thead>
             <tbody>
-              {filtered.length===0 && (
+              {loading && (
+                <tr><td colSpan={8} style={{ textAlign:'center', padding:40, color:C.textMuted }}>Loading…</td></tr>
+              )}
+              {!loading && filtered.length===0 && (
                 <tr><td colSpan={8} style={{ textAlign:'center', padding:40, color:C.textMuted }}>
                   No users found
                 </td></tr>
               )}
-              {filtered.map((u, i) => (
+              {!loading && filtered.map((u, i) => (
                 <tr key={u.id}>
                   <td style={td(i)}>{i+1}</td>
                   <td style={{ ...td(i), fontWeight:600 }}>
@@ -310,7 +361,7 @@ export default function Users() {
                   </td>
                   <td style={{ ...td(i), fontSize:11, color:C.textMuted }}>{u.email}</td>
                   <td style={{ ...td(i), fontSize:11 }}>{u.phone||'—'}</td>
-                  <td style={td(i)}><Tag role={u.role} /></td>
+                  <td style={td(i)}><Tag role={u.role} appSettings={state.appSettings} /></td>
                   <td style={td(i)}>
                     {u.role==='admin'
                       ? <span style={{ fontSize:11, color:C.green, fontWeight:600 }}>All Modules</span>
@@ -324,16 +375,10 @@ export default function Users() {
                     </span>
                   </td>
                   <td style={td(i)}>
-                    {supabaseReady
-                      ? (u.email
-                          ? <span style={{ fontSize:11, color:C.green, fontWeight:600 }} title="Supabase Auth linked — user can log in with email">🔐 Ready</span>
-                          : <span style={{ fontSize:11, color:C.textMuted }} title="No email set — cannot use cloud login">—</span>)
-                      : <span style={{ fontSize:11, color:C.textMuted }}>—</span>
-                    }
-                  </td>
-                  <td style={td(i)}>
                     <div style={{ display:'flex', gap:4 }}>
                       <Btn variant="outline" sm onClick={()=>setModal({mode:'edit',data:{...u,password:''}})}>Edit</Btn>
+                      <Btn variant="ghost" sm onClick={()=>handleSendReset(u.id, u.email)} disabled={!u.email}
+                        title="Send password-reset email">🔑</Btn>
                       {u.id !== currentUser?.id && (
                         <Btn variant={u.status==='Active'?'danger':'ghost'} sm
                           onClick={()=>setConfirm(u.id)}>
@@ -352,7 +397,7 @@ export default function Users() {
       {/* Add / Edit Modal */}
       {modal && (
         <Overlay onClose={()=>setModal(null)}>
-          <UserModal mode={modal.mode} data={modal.data} onSave={handleSave} onClose={()=>setModal(null)} />
+          <UserModal mode={modal.mode} data={modal.data} onSave={handleSave} onClose={()=>setModal(null)} loading={loading} appSettings={state.appSettings} />
         </Overlay>
       )}
 
@@ -367,8 +412,8 @@ export default function Users() {
               </div>
               <div style={{ fontSize:13, color:C.textMuted, marginBottom:20 }}>
                 {u?.status==='Active'
-                  ? `${u?.name} will lose access to BizCore immediately.`
-                  : `${u?.name} will regain access to BizCore.`}
+                  ? `${u?.name} will lose access to ${SLOT_BRAND.short} immediately.`
+                  : `${u?.name} will regain access to ${SLOT_BRAND.short}.`}
               </div>
               <div style={{ display:'flex', gap:8, justifyContent:'flex-end' }}>
                 <Btn variant="ghost" onClick={()=>setConfirm(null)}>Cancel</Btn>
@@ -386,7 +431,7 @@ export default function Users() {
 }
 
 // ── User Form Modal ───────────────────────────────────────────────────────────
-function UserModal({ mode, data, onSave, onClose }) {
+function UserModal({ mode, data, onSave, onClose, loading, appSettings }) {
   const { C } = useTheme();
   const [f, setF] = useState({ ...data });
   const set = k => e => setF(p => ({ ...p, [k]: e.target.value }));
@@ -421,7 +466,8 @@ function UserModal({ mode, data, onSave, onClose }) {
             <input style={inp} value={f.name} onChange={set('name')} placeholder="e.g. Tunde Adeyemi" />
           </FG>
           <FG label="Email Address">
-            <input style={inp} type="email" value={f.email} onChange={set('email')} placeholder="user@slotengineering.com" />
+            <input style={inp} type="email" value={f.email} onChange={set('email')} placeholder="user@slotengineering.com"
+              disabled={isEdit} title={isEdit ? 'Email is managed by Supabase Auth — change it in the Supabase Dashboard' : ''} />
           </FG>
           <FG label="Phone Number">
             <input style={inp} value={f.phone||''} onChange={set('phone')} placeholder="e.g. 08031234567" />
@@ -434,19 +480,23 @@ function UserModal({ mode, data, onSave, onClose }) {
           </FG>
           <FG label="Role">
             <select style={inp} value={f.role} onChange={set('role')}>
-              {ROLES.map(r=><option key={r} value={r}>{r.charAt(0).toUpperCase()+r.slice(1)}</option>)}
+              {getAllRoles(appSettings).map(r=><option key={r.key} value={r.key}>{r.label}{!r.builtin ? ' (custom)' : ''}</option>)}
             </select>
           </FG>
-          <FG label={isEdit ? 'New Password (leave blank to keep current)' : 'Password'} full>
-            <input style={inp} type="password" value={f.password||''} onChange={set('password')}
-              placeholder={isEdit ? 'Leave blank to keep current password' : 'Set a strong password'} />
-          </FG>
-          <FG label="Status">
-            <select style={inp} value={f.status} onChange={set('status')}>
-              <option value="Active">Active</option>
-              <option value="Inactive">Inactive</option>
-            </select>
-          </FG>
+          {!isEdit && (
+            <FG label="Password (Supabase Auth handles the hashing)" full>
+              <input style={inp} type="password" value={f.password||''} onChange={set('password')}
+                placeholder="Min 8 chars, mixed case, number/symbol" autoComplete="new-password" />
+            </FG>
+          )}
+          {isEdit && (
+            <FG label="Status" full>
+              <select style={inp} value={f.status} onChange={set('status')}>
+                <option value="Active">Active</option>
+                <option value="Inactive">Inactive</option>
+              </select>
+            </FG>
+          )}
         </div>
 
         {/* Module access (hide for admin — they get everything) */}
@@ -486,9 +536,10 @@ function UserModal({ mode, data, onSave, onClose }) {
           <button onClick={onClose} style={{ padding:'7px 16px', borderRadius:7,
             background:'transparent', border:'1px solid '+C.border, color:C.textMid,
             fontSize:13, cursor:'pointer' }}>Cancel</button>
-          <button onClick={()=>onSave(f)}
+          <button onClick={()=>onSave(f)} disabled={loading}
             style={{ padding:'7px 18px', borderRadius:7, background:C.green,
-              border:'none', color:'#fff', fontSize:13, fontWeight:600, cursor:'pointer' }}>
+              border:'none', color:'#fff', fontSize:13, fontWeight:600,
+              cursor:loading?'not-allowed':'pointer', opacity:loading?0.7:1 }}>
             {isEdit ? 'Update User' : 'Create User'}
           </button>
         </div>

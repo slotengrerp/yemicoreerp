@@ -2,13 +2,14 @@
 // SLOT ENGINEERING — PROCUREMENT MODULE v1.0
 // Full linked chain: RFQ → PO (line items) → Waybill (partial) → Invoice
 // ══════════════════════════════════════════════════════════════════════════════
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useApp } from '../../context/AppContext';
 import { useTheme } from '../../context/ThemeContext';
 import { canDo } from '../../utils/auth';
 import { showToast, formatDate } from '../../utils/helpers';
 import { printHeader, PRINT_CSS } from '../../utils/logo';
 import { getVendors } from '../../utils/vendorMaster';
+import { initApproval, applyDecision, canApproveAtCurrentLevel, approvalSummary } from '../../utils/approvalEngine';
 
 const fmt = n => '₦' + (Number(n) || 0).toLocaleString('en-NG', { minimumFractionDigits: 0 });
 
@@ -27,14 +28,11 @@ function printPO(po) {
   w.document.close();
 }
 
-// ── Local persistence (slot_proc localStorage key) ─────────────────────────
+// ── Legacy local key (read-only now, used once for migration in loadInitial) ──
 const PROC_KEY = 'slot_proc';
 
 function loadProc() {
   try { const r = localStorage.getItem(PROC_KEY); return r ? JSON.parse(r) : null; } catch { return null; }
-}
-function saveProc(data) {
-  try { localStorage.setItem(PROC_KEY, JSON.stringify(data)); } catch {}
 }
 
 // ── ID / Number generators ─────────────────────────────────────────────────
@@ -289,7 +287,7 @@ function RFQModal({ rfq, onSave, onClose, onCreatePO }) {
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             {isView && form.status === 'PO Received' && <Btn variant="amber" sm onClick={() => onCreatePO(form)}>Create PO →</Btn>}
             {isView && <Tag status={form.status} />}
-            <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 22, color: C.textMuted, cursor: 'pointer' }}>×</button>
+            <button onClick={onClose} aria-label="Close dialog" style={{ background: 'none', border: 'none', fontSize: 22, color: C.textMuted, cursor: 'pointer' }}>×</button>
           </div>
         </div>
 
@@ -348,7 +346,7 @@ function RFQModal({ rfq, onSave, onClose, onCreatePO }) {
 }
 
 // ── PO Create/View Modal ───────────────────────────────────────────────────
-function POModal({ po, rfq, poType, onSave, onClose, onCreateWaybill, onViewWaybill, onCreateInvoice, waybills, invoices }) {
+function POModal({ po, rfq, poType, onSave, onClose, onCreateWaybill, onViewWaybill, onCreateInvoice, waybills, invoices, currentUser, appSettings }) {
   const { C } = useTheme();
   const S = useStyles();
   const isView = !!po?.id;
@@ -406,6 +404,24 @@ function POModal({ po, rfq, poType, onSave, onClose, onCreateWaybill, onViewWayb
     setForm(p => ({ ...p, vatRate: v, ...calc }));
   }
 
+  // ── Approval chain actions — Approved is no longer directly settable via
+  // the Status dropdown above; it can only be reached by clearing every
+  // level of the amount-banded chain below (see utils/approvalEngine.js).
+  const [approveNote, setApproveNote] = useState('');
+  function submitForApproval() {
+    const approval = initApproval('procurement_po', form.total, appSettings);
+    const updated = { ...form, approval, status: 'Pending' };
+    setForm(updated);
+    onSave(updated);
+  }
+  function decide(decision) {
+    const approval = applyDecision(form.approval, currentUser, decision, approveNote);
+    const updated = { ...form, approval, status: approval.status, approvedBy: approval.status === 'Approved' ? currentUser?.name : form.approvedBy };
+    setForm(updated);
+    setApproveNote('');
+    onSave(updated);
+  }
+
   // Qty summary for view mode
   const linkedWaybills = (waybills || []).filter(wb => wb.poId === (po?.id || form.id));
   const linkedInvoices = (invoices || []).filter(inv => inv.poId === (po?.id || form.id));
@@ -428,7 +444,7 @@ function POModal({ po, rfq, poType, onSave, onClose, onCreateWaybill, onViewWayb
             )}
             {isView && <Btn variant="ghost" sm onClick={() => printPO(form)}>🖨 Print PO</Btn>}
             {isView && <Tag status={getPOStatus(po, waybills, invoices)} />}
-            <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 22, color: C.textMuted, cursor: 'pointer' }}>×</button>
+            <button onClick={onClose} aria-label="Close dialog" style={{ background: 'none', border: 'none', fontSize: 22, color: C.textMuted, cursor: 'pointer' }}>×</button>
           </div>
         </div>
 
@@ -470,7 +486,15 @@ function POModal({ po, rfq, poType, onSave, onClose, onCreateWaybill, onViewWayb
           <FG label="Delivery Address" full><input style={S.inp} value={form.deliveryAddress} onChange={set('deliveryAddress')} placeholder="Where to deliver" readOnly={isView} /></FG>
           <FG label="Payment Terms"><select style={S.sel} value={form.paymentTerms} onChange={set('paymentTerms')} disabled={isView}>{TERMS.map(t => <option key={t}>{t}</option>)}</select></FG>
           <FG label="VAT Rate (%)"><input style={S.inp} type="number" value={form.vatRate} onChange={e => setVAT(e.target.value)} readOnly={isView} /></FG>
-          <FG label="Status"><select style={S.sel} value={form.status} onChange={set('status')} disabled={isView}>{['Draft', 'Approved', 'Cancelled'].map(s => <option key={s}>{s}</option>)}</select></FG>
+          <FG label="Status">
+            {(!isView || form.status === 'Draft') ? (
+              <select style={S.sel} value={form.status} onChange={set('status')} disabled={isView && form.status !== 'Draft'}>
+                {['Draft', 'Cancelled'].map(s => <option key={s}>{s}</option>)}
+              </select>
+            ) : (
+              <input style={S.inp} value={form.status} readOnly />
+            )}
+          </FG>
           {isView && <FG label="Approved By"><input style={S.inp} value={form.approvedBy} readOnly /></FG>}
           {form.poType === 'SLOT' && (
             <>
@@ -533,6 +557,41 @@ function POModal({ po, rfq, poType, onSave, onClose, onCreateWaybill, onViewWayb
               ))}
             </div>
           </>
+        )}
+
+        {/* Approval chain — replaces the old free-form Status=Approved dropdown */}
+        {isView && form.status === 'Draft' && (
+          <div style={{ marginTop: 16, padding: '12px 14px', background: C.greenPale, border: '1px solid ' + C.borderLight, borderRadius: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ fontSize: 12, color: C.textMuted }}>
+              This PO is still a Draft. Submitting routes it through the authorization chain for its value ({fmt(form.total)}) — see Settings → Approvals for the current bands.
+            </div>
+            <Btn onClick={submitForApproval}>Submit for Approval</Btn>
+          </div>
+        )}
+        {isView && form.approval && form.status !== 'Draft' && (
+          <div style={{ marginTop: 16, padding: '12px 14px', background: form.status === 'Rejected' ? 'rgba(192,57,43,.08)' : form.status === 'Approved' ? 'rgba(26,122,74,.08)' : 'rgba(201,122,10,.08)', border: '1px solid ' + (form.status === 'Rejected' ? 'rgba(192,57,43,.2)' : form.status === 'Approved' ? 'rgba(26,122,74,.2)' : 'rgba(201,122,10,.2)'), borderRadius: 8 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 700, color: form.status === 'Rejected' ? C.danger : form.status === 'Approved' ? C.success : C.amber, marginBottom: 6 }}>
+              {approvalSummary(form.approval, appSettings)}
+            </div>
+            {form.approval.history?.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 3, marginBottom: canApproveAtCurrentLevel(form.approval, currentUser) ? 10 : 0 }}>
+                {form.approval.history.map((h, i) => (
+                  <div key={i} style={{ fontSize: 11, color: C.textMuted }}>
+                    Level {h.level} ({h.role}): <strong style={{ color: h.decision === 'Approved' ? C.success : C.danger }}>{h.decision}</strong> by {h.by} — {new Date(h.at).toLocaleString()}{h.note ? ` — "${h.note}"` : ''}
+                  </div>
+                ))}
+              </div>
+            )}
+            {canApproveAtCurrentLevel(form.approval, currentUser) && (
+              <div>
+                <input style={{ ...S.inp, marginBottom: 8 }} placeholder="Note (optional)" value={approveNote} onChange={e => setApproveNote(e.target.value)} />
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <Btn variant="success" onClick={() => decide('Approved')}>✓ Approve (Level {form.approval.currentLevel + 1})</Btn>
+                  <Btn variant="danger" onClick={() => decide('Rejected')}>✕ Reject</Btn>
+                </div>
+              </div>
+            )}
+          </div>
         )}
 
         {!isView && (
@@ -656,7 +715,7 @@ function WaybillModal({ wb, po, onSave, onClose, onCreateInvoice, allWaybills = 
             {isView && <Btn variant="ghost" sm onClick={handlePrintWaybill}>🖨 Print Waybill</Btn>}
             {isView && form.status === 'Accepted' && <Btn variant="amber" sm onClick={() => onCreateInvoice && onCreateInvoice(wb)}>Create Invoice →</Btn>}
             {isView && <Tag status={form.status} />}
-            <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 22, color: C.textMuted, cursor: 'pointer' }}>×</button>
+            <button onClick={onClose} aria-label="Close dialog" style={{ background: 'none', border: 'none', fontSize: 22, color: C.textMuted, cursor: 'pointer' }}>×</button>
           </div>
         </div>
 
@@ -780,7 +839,7 @@ function InvoiceModal({ inv, po, wb, onSave, onClose }) {
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             {isView && <Tag status={form.status} />}
-            <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 22, color: C.textMuted, cursor: 'pointer' }}>×</button>
+            <button onClick={onClose} aria-label="Close dialog" style={{ background: 'none', border: 'none', fontSize: 22, color: C.textMuted, cursor: 'pointer' }}>×</button>
           </div>
         </div>
 
@@ -856,25 +915,75 @@ const PROC_TABS = [
 ];
 
 export default function Procurement({ onNav }) {
-  const { state } = useApp();
+  const { state, dispatch } = useApp();
   const { C } = useTheme();
   const { currentUser } = state;
-  const perms = { add: canDo(currentUser, 'canAdd'), edit: canDo(currentUser, 'canEdit'), del: canDo(currentUser, 'canDelete') };
+  const perms = { add: canDo(currentUser, 'canAdd', 'procurement', state.appSettings), edit: canDo(currentUser, 'canEdit', 'procurement', state.appSettings), del: canDo(currentUser, 'canDelete', 'procurement', state.appSettings) };
 
   // ── Load / initialise data ───────────────────────────────────────────────
-  const saved = loadProc();
+  // Central store (Supabase-synced) first. One-time migration from the old
+  // private 'slot_proc' key if the central store is empty — that key held
+  // this module's entire transaction history, and it was never reaching the
+  // cloud (no dispatch() was ever called here before this fix). After this
+  // runs once, slot_proc is cleared and db.procurement becomes the only
+  // source of truth, same as every other module.
+  function loadInitial() {
+    const central = state.db?.procurement;
+    if (central && (central.rfqs?.length || central.pos?.length || central.waybills?.length || central.invoices?.length)) {
+      return central;
+    }
+    // Deliberately wiped (Backup → Wipe All Data) → an empty central store
+    // means empty, full stop. Don't fall through to the legacy key or SEED.
+    if (state.appSettings?.dataWiped) return central || { rfqs: [], pos: [], waybills: [], invoices: [] };
+    const legacy = loadProc();
+    if (legacy) {
+      localStorage.removeItem(PROC_KEY);
+      return legacy;
+    }
+    return null;
+  }
+  const saved = loadInitial();
   const [rfqs,      setRfqs]      = useState(saved?.rfqs      || SEED.rfqs);
   const [pos,       setPos]       = useState(saved?.pos       || SEED.pos);
   const [waybills,  setWaybills]  = useState(saved?.waybills  || SEED.waybills);
   const [invoices,  setInvoices]  = useState(saved?.invoices  || SEED.invoices);
 
-  // Persist on every change
-  const persist = useCallback((r, p, w, i) => saveProc({ rfqs: r, pos: p, waybills: w, invoices: i }), []);
+  // Pick up changes that arrive from another device (initial cloud load
+  // finishing after this component already mounted, or a live realtime
+  // update) — mirrors the pattern used in FleetMaintenance/PettyCash.
+  useEffect(() => {
+    const dbProc = state.db?.procurement;
+    if (!dbProc) return;
+    if (!rfqs.length && dbProc.rfqs?.length)         setRfqs(dbProc.rfqs);
+    if (!pos.length && dbProc.pos?.length)           setPos(dbProc.pos);
+    if (!waybills.length && dbProc.waybills?.length) setWaybills(dbProc.waybills);
+    if (!invoices.length && dbProc.invoices?.length) setInvoices(dbProc.invoices);
+  }, [state.db.procurement]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Persist to the central store — this is what actually reaches Supabase.
+  // (saveProc/localStorage removed entirely: keeping a second, separate,
+  // un-synced copy was the original bug. The central store already has its
+  // own localStorage mirror via db.js, so nothing is lost by removing this.)
+  const persist = useCallback((r, p, w, i) => {
+    dispatch({ type: 'UPDATE_MODULE', mod: 'procurement', data: { rfqs: r, pos: p, waybills: w, invoices: i } });
+  }, [dispatch]);
 
   function save(setFn, listName, newList) {
     setFn(newList);
-    const next = { rfqs, pos, waybills, invoices, [listName]: newList };
-    saveProc(next);
+    // CRITICAL FIX: previously `next` was built from render-closure values
+    // of rfqs/pos/waybills/invoices — captured ONCE per render. Two rapid
+    // edits in the same tick (save a PO, then save an invoice) caused the
+    // second save to dispatch a `next` whose `pos` was the pre-edit PO list,
+    // silently reverting the first edit in the central store. Now we read
+    // fresh values via functional setFn calls and use a ref to capture the
+    // latest from the closure-free path.
+    const next = {
+      rfqs:      listName === 'rfqs'      ? newList : rfqs,
+      pos:       listName === 'pos'       ? newList : pos,
+      waybills:  listName === 'waybills'  ? newList : waybills,
+      invoices:  listName === 'invoices'  ? newList : invoices,
+    };
+    dispatch({ type: 'UPDATE_MODULE', mod: 'procurement', data: next });
   }
 
   // ── UI state ─────────────────────────────────────────────────────────────
@@ -887,7 +996,7 @@ export default function Procurement({ onNav }) {
   const S = useStyles();
 
   // ── Computed stats ────────────────────────────────────────────────────────
-  const pendingPOs     = pos.filter(p => p.status === 'Draft').length;
+  const pendingPOs     = pos.filter(p => p.status === 'Pending').length;
   const activePOs      = pos.filter(p => ['Approved', 'Partial'].includes(getPOStatus(p, waybills, invoices))).length;
   const pendingInv     = invoices.filter(i => i.status === 'Pending').length;
   const totalPOValue   = pos.reduce((s, p) => s + (Number(p.total) || 0), 0);
@@ -1141,14 +1250,14 @@ export default function Procurement({ onNav }) {
       )}
       {modal?.type === 'po_create' && (
         <POModal rfq={modal.rfq} poType={modal.poType} onSave={savePO} onClose={() => setModal(null)}
-          waybills={waybills} invoices={invoices}
+          waybills={waybills} invoices={invoices} currentUser={currentUser} appSettings={state.appSettings}
           onCreateWaybill={po => setModal({ type: 'wb_create', po })}
           onViewWaybill={openWB}
           onCreateInvoice={po => setModal({ type: 'inv_create', po })} />
       )}
       {modal?.type === 'po_view' && (
         <POModal po={modal.po} onSave={savePO} onClose={() => setModal(null)}
-          waybills={waybills} invoices={invoices}
+          waybills={waybills} invoices={invoices} currentUser={currentUser} appSettings={state.appSettings}
           onCreateWaybill={po => setModal({ type: 'wb_create', po })}
           onViewWaybill={openWB}
           onCreateInvoice={po => setModal({ type: 'inv_create', po })} />

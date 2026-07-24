@@ -5,16 +5,24 @@
  * Launched from the Topbar; results stored in AppContext (state.scannedDocs).
  * Any module can read state.scannedDocs to access recent scans.
  *
+ * Storage:
+ *   • Primary: Supabase Storage (private bucket `scanner-docs`) — URL/path
+ *     stored in app state, full binary stays in object storage.
+ *   • Fallback: inline base64 (only if Supabase is offline). Tagged with
+ *     `storageBackend: 'inline'` so the doc can be re-uploaded later.
+ *
  * Props:
- *   onClose()                         — called when modal is dismissed
+ *   onClose()                         — called when the modal is dismissed
  *   onSave(docObj)                    — called with the saved doc object
  *
  * Doc object shape:
- *   { id, name, timestamp, module, text, imageUrl, fileType, fileSize }
+ *   { id, name, timestamp, module, text, imageUrl, storagePath,
+ *     storageBackend, fileType, fileSize }
  */
 
 import { useState, useRef, useEffect } from 'react';
 import { useTheme } from '../../context/ThemeContext';
+import { useApp } from '../../context/AppContext';
 
 // ── tiny uid ────────────────────────────────────────────────────────────────
 const uid = () => Math.random().toString(36).slice(2, 9);
@@ -38,6 +46,8 @@ const MODULE_OPTIONS = [
 
 export default function DocScanner({ onClose, onSave }) {
   const { C } = useTheme();
+  const { state } = useApp();
+  const companyId = import.meta.env.VITE_COMPANY_DOC || 'slot-engineering-nigeria';
 
   // ── step: 'pick' | 'camera' | 'result' ───────────────────────────────────
   const [step, setStep]           = useState('pick');
@@ -146,20 +156,52 @@ export default function DocScanner({ onClose, onSave }) {
   }
 
   // ── Save ───────────────────────────────────────────────────────────────────
-  function handleSave() {
+  async function handleSave() {
     setSaving(true);
-    const doc = {
-      id:        'SCAN-' + uid(),
-      name:      docName.trim() || fileName || 'Untitled scan',
-      timestamp: new Date().toISOString(),
-      module,
-      text,
-      imageUrl:  captured || null,
-      fileType,
-      fileSize,
-    };
-    onSave(doc);
-    onClose();
+    try {
+      let url = captured || null;
+      let storagePath = null;
+      let storageBackend = 'inline';   // 'storage' once we successfully upload
+      let sizeBytes = fileSize;
+
+      // Upload to Supabase Storage (private bucket) — falls back to inline
+      // base64 if Supabase isn't available. Either way, the doc record is
+      // small (URL + metadata) instead of the full image inlined into
+      // localStorage.
+      if (captured) {
+        const { uploadDocument } = await import('../../supabase/storage');
+        const up = await uploadDocument({
+          dataUrl:    captured,
+          name:       docName.trim() || fileName || 'scan',
+          contentType: fileType || 'image/jpeg',
+          companyId,
+        });
+        if (up) {
+          url           = up.url;
+          storagePath   = up.path;
+          storageBackend = up.backend;
+          sizeBytes     = up.sizeBytes || sizeBytes;
+        }
+      }
+
+      const doc = {
+        id:        'SCAN-' + uid(),
+        name:      docName.trim() || fileName || 'Untitled scan',
+        timestamp: new Date().toISOString(),
+        module,
+        text,
+        imageUrl:       url,
+        storagePath,                  // path in `scanner-docs` bucket (null for inline)
+        storageBackend,                // 'storage' | 'inline'
+        fileType,
+        fileSize:      sizeBytes,
+      };
+      onSave(doc);
+      onClose();
+    } catch (err) {
+      console.error('[DocScanner] save failed:', err);
+      setSaving(false);
+    }
   }
 
   // ── Styles ─────────────────────────────────────────────────────────────────

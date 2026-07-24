@@ -11,6 +11,7 @@ import { saveDBLocal } from '../../utils/db';
 import { logActivity }  from '../../utils/audit';
 import { SLOT_LOGO_B64, SLOT_BRAND, printHeader, PRINT_CSS } from '../../utils/logo';
 import { getProjects } from '../../utils/projectMaster';
+import { calcPAYE_Nigeria } from '../../utils/financeConstants';
 
 const DEPARTMENTS = ['Administration','Procurement','Finance','Engineering','HSE','Operations','Mechanical','Electrical','Civil','IT','Logistics','Legal','HR','Business Development'];
 const WORK_LOCATIONS = ['Port Harcourt HQ','Lagos Office','Abuja Office','Bonny Island','Onne Port','Warri Office','Kaduna Office','Site Rotation'];
@@ -92,10 +93,11 @@ function printPayslip(s, period) {
   const gross    = basic + housing + transport + medical + other;
 
   function calcPAYE(annual) {
-    const bands = [[300000,7],[300000,11],[500000,15],[500000,19],[1600000,21],[Infinity,24]];
-    let tax=0, rem=annual;
-    for(const [limit,rate] of bands){ const slice=Math.min(rem,limit); tax+=slice*(rate/100); rem-=slice; if(rem<=0)break; }
-    return Math.round(tax/12);
+    // CRITICAL FIX: previously applied the bands directly to annual gross,
+    // omitting the Consolidated Relief Allowance (CRA). Nigerian law requires
+    // CRA = max(₦200,000, 1% of gross) + 20% of gross to be deducted first.
+    // Now delegates to the shared PITA-compliant utility.
+    return calcPAYE_Nigeria(annual / 12);
   }
 
   const pension     = Math.round((basic+housing+transport)*0.08);
@@ -265,7 +267,7 @@ function StaffModal({ modal, onSave, onClose, projects }) {
             <div style={{ fontSize:16, fontWeight:700, color:C.text }}>{isEdit?'Edit Staff Record':'Add New Staff Member'}</div>
             <div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>SLOT Engineering Nigeria Limited · Internal Staff</div>
           </div>
-          <button onClick={onClose} style={{ background:'none', border:'none', fontSize:22, color:C.textMuted, cursor:'pointer' }}>×</button>
+          <button onClick={onClose} aria-label="Close dialog" style={{ background:'none', border:'none', fontSize:22, color:C.textMuted, cursor:'pointer' }}>×</button>
         </div>
         <div style={{ padding:'0 24px 20px' }}>
           <SecLabel label="Staff Information" />
@@ -361,7 +363,7 @@ export default function SlotStaff() {
       const medical=(Number(s.medicalAllowance)||0), other=(Number(s.otherAllowances)||0);
       const gross=basic+housing+transport+medical+other;
       const pension=Math.round((basic+housing+transport)*0.08);
-      const paye=(()=>{ const bands=[[300000,7],[300000,11],[500000,15],[500000,19],[1600000,21],[Infinity,24]]; let tax=0,rem=gross*12; for(const [lim,rate] of bands){const sl=Math.min(rem,lim);tax+=sl*(rate/100);rem-=sl;if(rem<=0)break;} return Math.round(tax/12); })();
+      const paye=calcPAYE_Nigeria(gross);  // shared PITA-compliant calc (with CRA)
       const nhf=Math.round(basic*0.025);
       const netPay = gross - pension - paye - nhf;
       return { staffId:s.id, refId:s.refId, fullName:s.fullName, department:s.department, projectCode:s.projectCode||'',
@@ -527,7 +529,7 @@ export default function SlotStaff() {
                     const medical=(Number(s.medicalAllowance)||0), other=(Number(s.otherAllowances)||0);
                     const gross=basic+housing+transport+medical+other;
                     const pension=Math.round((basic+housing+transport)*0.08);
-                    const paye=(()=>{ const bands=[[300000,7],[300000,11],[500000,15],[500000,19],[1600000,21],[Infinity,24]]; let tax=0,rem=gross*12; for(const [lim,rate] of bands){const sl=Math.min(rem,lim);tax+=sl*(rate/100);rem-=sl;if(rem<=0)break;} return Math.round(tax/12); })();
+                    const paye=calcPAYE_Nigeria(gross);  // shared PITA-compliant calc (with CRA)
                     const nhf=Math.round(basic*0.025);
                     const totalDeduct=pension+paye+nhf;
                     const netPay=gross-totalDeduct;

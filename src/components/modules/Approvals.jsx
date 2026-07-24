@@ -201,6 +201,14 @@ export default function Approvals() {
   function applyAction(item, mod, cfg, action, actionNote) {
     const records  = getModRecords(mod);
     const before   = records.find(r => r.id === item.id);
+    // Guard: if the record was deleted between render and click, bail out
+    // cleanly instead of passing `undefined` to logActivity which left a
+    // diff-less audit entry (the approval happened but no before-state was
+    // captured).
+    if (!before) {
+      showToast('Record no longer exists', 'error');
+      return;
+    }
     const updated  = records.map(r => r.id === item.id ? cfg[action](r, actionNote, currentUser) : r);
     const after    = updated.find(r => r.id === item.id);
     saveModRecords(mod, updated);
@@ -221,13 +229,48 @@ export default function Approvals() {
 
   function handleBatchApprove() {
     if (batchSel.size === 0) return;
+    // CRITICAL FIX: previously this looped over batchSel and called applyAction
+    // per-item, each of which dispatched UPDATE_MODULE + saveDBLocal using
+    // the SAME render-closure snapshot of `db`. Synchronous dispatches land
+    // in React's batched reducer, but saveDBLocal writes to localStorage
+    // immediately — so only the LAST item per module survived a page reload.
+    // Now we group items by module, compute the full updated list in one
+    // pass per module, and dispatch + saveDBLocal ONCE per module.
+    const byModule = new Map(); // mod -> { cfg, items: [{item, before, after}] }
     batchSel.forEach(key => {
       const [mod, id] = key.split('::');
-      const rec = (db[mod]||[]).find(r=>r.id===id);
-      if (rec && MODULE_CONFIGS[mod]) {
-        applyAction(rec, mod, MODULE_CONFIGS[mod], 'approve', '');
-      }
+      const cfg = MODULE_CONFIGS[mod];
+      if (!cfg) return;
+      // For procurement, records live in db.procurement.pos; for everything
+      // else, db[mod]. Same lookup as getModRecords but inlined so we don't
+      // re-read from the closure between iterations.
+      const records = mod === 'procurement' ? (db.procurement?.pos || []) : (db[mod] || []);
+      const before = records.find(r => r.id === id);
+      if (!before) return; // deleted between render and click — skip
+      const after = cfg.approve(before, '', currentUser);
+      if (!byModule.has(mod)) byModule.set(mod, { cfg, records, updates: [] });
+      byModule.get(mod).updates.push({ id, before, after });
     });
+
+    byModule.forEach(({ cfg, records, updates }, mod) => {
+      const updatedList = records.map(r => {
+        const u = updates.find(x => x.id === r.id);
+        return u ? u.after : r;
+      });
+      saveModRecords(mod, updatedList);
+      // One audit-log entry per item (preserves per-item history) but only
+      // one saveDBLocal per module (preserves the data).
+      updates.forEach(({ item: before, after }) => {
+        // `before` here is actually the original record — extract ref
+        logActivity(
+          dispatch,
+          `Approved: ${cfg.getRef(before)} (${cfg.label})`,
+          currentUser,
+          { module: mod, action: 'approve', recordId: before.id, before, after }
+        );
+      });
+    });
+
     showToast(`${batchSel.size} items approved`);
     setBatchSel(new Set());
   }

@@ -287,3 +287,173 @@ export function ThemeToggle() {
     </button>
   );
 }
+
+// ── AttachmentUploader ───────────────────────────────────────────────────────
+//
+// Reusable file-upload widget. Used wherever a transaction needs scanned
+// supporting documents (AR invoices, AP bills, journal entries, etc.).
+// Files are uploaded to Supabase Storage when available, or kept inline
+// (base64) when offline — see `src/supabase/storage.js` for the contract.
+//
+//   <AttachmentUploader
+//     attachments={invoice.attachments}      // [{id,name,url,sizeBytes,contentType,storageBackend,uploadedAt,uploadedBy}]
+//     onChange={next => updateInvoice({...invoice, attachments: next})}
+//     folder="invoices"                       // logical folder, prefix on storage path
+//     maxSizeMB={10}
+//   />
+//
+// `attachments` is the source of truth. The component uploads the bytes
+// and adds a record to the list, never mutating other entries.
+import { useState, useRef } from 'react';
+import { showToast } from '../../utils/helpers';
+export function AttachmentUploader({ attachments = [], onChange, folder = 'general', maxSizeMB = 10, compact = false, currentUser }) {
+  const { C } = useTheme();
+  const fileRef = useRef(null);
+  const [uploading, setUploading] = useState(false);
+
+  async function handleFiles(fileList) {
+    const files = Array.from(fileList || []);
+    if (files.length === 0) return;
+    setUploading(true);
+    try {
+      const next = [...attachments];
+      for (const file of files) {
+        if (file.size > maxSizeMB * 1024 * 1024) {
+          showToast(`${file.name} exceeds ${maxSizeMB} MB — skipped`, 'error');
+          continue;
+        }
+        try {
+          const { uploadDocument } = await import('../../supabase/storage');
+          const result = await uploadDocument({
+            file,
+            name: file.name,
+            contentType: file.type,
+            companyId: folder,
+          });
+          next.push({
+            id: 'att-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7),
+            name: file.name,
+            url: result.url,
+            path: result.path,
+            sizeBytes: result.sizeBytes,
+            contentType: file.type || 'application/octet-stream',
+            storageBackend: result.backend,   // 'storage' (Supabase) or 'inline' (base64 fallback)
+            folder,
+            uploadedAt: new Date().toISOString(),
+            uploadedBy: currentUser?.name || currentUser?.email || 'system',
+          });
+        } catch (e) {
+          showToast(`Upload failed: ${file.name} — ${e.message}`, 'error');
+        }
+      }
+      onChange?.(next);
+      showToast(`${files.length} file(s) uploaded`);
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  }
+
+  async function handleDelete(att) {
+    if (!window.confirm(`Delete attachment "${att.name}"?`)) return;
+    if (att.storageBackend === 'storage' && att.path) {
+      const { deleteDocument } = await import('../../supabase/storage');
+      await deleteDocument(att.path);
+    }
+    onChange?.(attachments.filter(a => a.id !== att.id));
+    showToast('Attachment deleted', 'error');
+  }
+
+  function fmtSize(b) {
+    if (!b) return '—';
+    if (b < 1024) return `${b} B`;
+    if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
+    return `${(b / (1024 * 1024)).toFixed(2)} MB`;
+  }
+
+  function pickIcon(ct) {
+    if (!ct) return '📎';
+    if (ct.startsWith('image/')) return '🖼';
+    if (ct.includes('pdf')) return '📄';
+    if (ct.includes('sheet') || ct.includes('csv') || ct.includes('excel')) return '📊';
+    if (ct.includes('word') || ct.includes('document')) return '📝';
+    return '📎';
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <input
+        ref={fileRef}
+        type="file"
+        multiple
+        accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.csv,.txt"
+        onChange={e => handleFiles(e.target.files)}
+        style={{ display: 'none' }}
+      />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <button
+          type="button"
+          onClick={() => fileRef.current?.click()}
+          disabled={uploading}
+          style={{
+            padding: compact ? '4px 10px' : '6px 14px', borderRadius: 6, fontSize: compact ? 11 : 12,
+            background: C.green, color: '#fff', border: 'none', fontWeight: 600,
+            cursor: uploading ? 'not-allowed' : 'pointer', opacity: uploading ? 0.6 : 1,
+            display: 'inline-flex', alignItems: 'center', gap: 5,
+          }}
+        >
+          {uploading ? '⏳ Uploading…' : '📎 Attach Files'}
+        </button>
+        <span style={{ fontSize: 11, color: C.textMuted }}>
+          {attachments.length} attached · max {maxSizeMB}MB each · stored in Supabase Storage
+        </span>
+      </div>
+      {attachments.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {attachments.map(att => (
+            <div
+              key={att.id}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                padding: '5px 9px', borderRadius: 6,
+                background: C.bgAlt, border: '1px solid ' + C.borderLight,
+                fontSize: 12,
+              }}
+            >
+              <span style={{ fontSize: 16 }}>{pickIcon(att.contentType)}</span>
+              <a
+                href={att.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                download={att.name}
+                style={{ flex: 1, color: C.text, fontWeight: 500, textDecoration: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                title={att.name}
+              >
+                {att.name}
+              </a>
+              <span style={{ fontSize: 10, color: C.textMuted }}>{fmtSize(att.sizeBytes)}</span>
+              <span
+                title={att.storageBackend === 'storage' ? 'Supabase Storage' : 'Inline (offline mode)'}
+                style={{
+                  fontSize: 9, padding: '1px 6px', borderRadius: 8, fontWeight: 600,
+                  color: att.storageBackend === 'storage' ? C.success : C.warning,
+                  background: (att.storageBackend === 'storage' ? C.success : C.warning) + '15',
+                }}
+              >
+                {att.storageBackend === 'storage' ? '☁ storage' : '📦 inline'}
+              </span>
+              <button
+                type="button"
+                onClick={() => handleDelete(att)}
+                title="Delete attachment"
+                style={{ background: 'transparent', border: 'none', color: C.danger, cursor: 'pointer', fontSize: 13, padding: 0 }}
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}

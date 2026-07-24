@@ -12,6 +12,7 @@ import { logActivity }  from '../../utils/audit';
 import { getVendors, addVendor }   from '../../utils/vendorMaster';
 import { getProjects }  from '../../utils/projectMaster';
 import { BANK_ACCOUNTS, DEFAULT_FX } from '../../utils/financeConstants';
+import { matchBill, decideOnVariance } from '../../utils/threeWayMatch';
 
 const uid   = () => generateId();
 const today = () => new Date().toISOString().split('T')[0];
@@ -230,6 +231,44 @@ export default function AccountsPayable() {
     if (!selBill) return;
     if (!payForm.date) { showToast('Enter payment date','error'); return; }
     if (!Number(payForm.amount)) { showToast('Enter payment amount','error'); return; }
+
+    // ── 3-WAY MATCH CHECK ──────────────────────────────────────────────────
+    // Tier 3 fix: previously the AP module paid any bill without verifying
+    // that the billed qty/price matched the PO and the goods-received note.
+    // Now we run the threeWayMatch utility against the linked PO + waybills
+    // and BLOCK payment on critical variances (over-receipt, over-billing).
+    // The user can override with a confirmation prompt for non-critical
+    // variances, but critical ones require an admin to edit the bill first.
+    if (selBill.poId || selBill.poNumber) {
+      const procurement = db.procurement || { pos: [], waybills: [] };
+      const po = (procurement.pos || []).find(p => p.id === selBill.poId || p.poNo === selBill.poNumber);
+      // FIX (T1-1): previously, a bill that named a PO which couldn't be
+      // resolved (deleted PO, typo, stale reference) silently skipped the
+      // entire 3-way match with no warning — payment proceeded unchecked.
+      // That's the exact scenario 3-way match exists to catch.
+      if (!po) {
+        showToast('⛔ Payment BLOCKED — this bill references a PO that no longer exists. Verify the PO before paying.', 'error');
+        return;
+      }
+      const waybills = (procurement.waybills || []).filter(w => w.poId === po.id || w.poNo === po.poNo);
+      const report = matchBill({ bill: selBill, po, waybills });
+      if (!report.ok) {
+        const decision = decideOnVariance(report);
+        if (decision.action === 'block') {
+          showToast(`⛔ Payment BLOCKED — ${decision.reason}. Variances: ${report.variances.map(v=>v.message).join('; ')}`, 'error');
+          return;
+        }
+        if (decision.action === 'hold') {
+          const proceed = window.confirm(
+            `⚠️ 3-WAY MATCH VARIANCE DETECTED\n\n` +
+            report.variances.map(v => `• ${v.message}`).join('\n') +
+            `\n\n${decision.reason}\n\nPay anyway? (Admin override)`
+          );
+          if (!proceed) return;
+        }
+      }
+    }
+
     const payAmt  = Number(payForm.amount);
     const payFx   = Number(payForm.fxRate) || 1;
     const newPaid = (Number(selBill.paidAmount)||0) + payAmt;

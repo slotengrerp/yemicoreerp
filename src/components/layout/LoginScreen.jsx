@@ -1,37 +1,44 @@
 // ══════════════════════════════════════════════════════════════════════════════
-// SLOT Engineering — Login Screen v2.0
-// Auth path priority:
-//   1. Email input + Supabase ready → signInWithSupabase()
-//   2. Username input (no @) OR Supabase not configured → legacy localStorage login
-// Both paths call saveSession() so the session-timeout watcher in App.jsx works.
+// SLOT Engineering — Login Screen v3.0
+//
+// Auth model: Supabase is the ONLY source of truth for authentication.
+//   • Email + password is verified by Supabase Auth (server-side bcrypt)
+//   • The user profile (role, modules, company) is loaded from the
+//     `app_users` Postgres table, joined by auth_user_id = auth.uid()
+//   • There is NO localStorage-based login, no SHA-256 client hashing,
+//     no recovery code, no DEFAULT_ADMIN fallback.
+//
+// Why this matters: every auth-related vulnerability that the independent
+// audit flagged (client-side hashing, no MFA, no rate limit, recovery
+// code in localStorage) lived in the old localStorage path. Removing that
+// path entirely closes them. If Supabase is not configured, you can't
+// log in — and that's the correct failure mode for a system that
+// explicitly refuses to hold passwords locally.
+//
+// Password reset: delegated to Supabase's resetPasswordForEmail() flow.
+// The user receives a reset link by email, sets a new password in
+// Supabase's hosted reset page, and is signed back in.
 // ══════════════════════════════════════════════════════════════════════════════
 import { useState } from 'react';
 import { useTheme } from '../../context/ThemeContext';
-import { login, saveSession, hashPassword, validatePassword, getUsers, saveUsers } from '../../utils/auth';
-import { signInWithSupabase } from '../../supabase/auth';
-import { supabaseReady } from '../../supabase/client';
+import { signInWithSupabase, requestPasswordReset } from '../../supabase/auth';
+import { supabaseReady, supabase } from '../../supabase/client';
 import { showToast } from '../../utils/helpers';
 import { SLOT_LOGO_SRC, SLOT_BRAND } from '../../utils/logo';
-
-function getRecoveryCode() {
-  try {
-    const s = JSON.parse(localStorage.getItem('bc_settings') || '{}');
-    return s?.security?.recoveryCode || '';
-  } catch { return ''; }
-}
 
 export default function LoginScreen({ onLogin }) {
   const { C } = useTheme();
   const [mode,       setMode]       = useState('login');
-  const [credential, setCredential] = useState(''); // accepts email OR username
+  const [email,      setEmail]      = useState('');
   const [password,   setPassword]   = useState('');
   const [loading,    setLoading]    = useState(false);
   const [showPw,     setShowPw]     = useState(false);
-  const [fpUser,     setFpUser]     = useState('');
-  const [fpCode,     setFpCode]     = useState('');
-  const [fpNew,      setFpNew]      = useState('');
-  const [fpConfirm,  setFpConfirm]  = useState('');
-  const [fpTarget,   setFpTarget]   = useState(null);
+
+  // If Supabase isn't configured, we can't authenticate at all — render a
+  // setup-required screen instead of a form that pretends to work. This
+  // intentionally removes the "username" / "local fallback" path that the
+  // audit called out as a security risk.
+  const authConfigured = supabaseReady && !!supabase;
 
   const inp = {
     padding:'8px 10px', borderRadius:7, border:'1px solid '+C.border,
@@ -41,90 +48,55 @@ export default function LoginScreen({ onLogin }) {
 
   async function handleLogin(e) {
     e.preventDefault();
-    const cred = credential.trim();
-    if (!cred || !password) {
-      showToast('Enter your email or username and password', 'error');
+    const eAddr = email.trim().toLowerCase();
+    if (!eAddr || !password) {
+      showToast('Enter your email and password', 'error');
+      return;
+    }
+    if (!authConfigured) {
+      showToast('Authentication service is not configured. Contact your administrator.', 'error');
       return;
     }
     setLoading(true);
     try {
-      const isEmail = cred.includes('@');
-
-      // ── Step 1: Try Supabase Auth (only for email credentials when Supabase is ready) ──
-      // Users with a Supabase Auth account get the full cloud-authenticated session.
-      if (isEmail && supabaseReady) {
-        const supaResult = await signInWithSupabase(cred, password);
-        if (supaResult.success) {
-          saveSession(supaResult.user);
-          showToast('Welcome, ' + supaResult.user.name);
-          onLogin(supaResult.user);
-          return;
-        }
-        // Supabase rejected — could be wrong password OR user has no Supabase Auth account.
-        // Always fall through to the local system before giving up.
-      }
-
-      // ── Step 2: Local user system (bc_users in localStorage) ──────────────────
-      // Covers: users created in the Users module, legacy accounts, and any email
-      // user whose Supabase login failed above. login() matches by email OR username.
-      const localResult = await login(cred, password);
-      if (localResult.success) {
-        showToast('Welcome, ' + localResult.user.name);
-        onLogin(localResult.user);
+      const result = await signInWithSupabase(eAddr, password);
+      if (result.success) {
+        showToast('Welcome, ' + result.user.name);
+        onLogin(result.user);
         return;
       }
-
-      // ── Step 3: Nothing worked — show a clear, honest error ──────────────────
-      // If both paths failed, show the specific error from the local system
-      // (rate limit message, inactive account, wrong password count, etc.)
-      showToast(localResult.error || 'Invalid credentials. Check your details and try again.', 'error');
-
+      showToast(result.error || 'Sign-in failed. Please try again.', 'error');
     } catch (err) {
       console.error('[LoginScreen] handleLogin error:', err);
-      showToast('Login failed. Please try again.', 'error');
+      showToast('Sign-in failed. Please try again.', 'error');
     } finally {
       setLoading(false);
     }
   }
 
-  function handleForgotVerify(e) {
+  async function handleForgot(e) {
     e.preventDefault();
-    if (!fpUser.trim()) { showToast('Enter your username', 'error'); return; }
-    if (!fpCode.trim()) { showToast('Enter the recovery code', 'error'); return; }
-    const users = getUsers();
-    const user  = users.find(u => u.username === fpUser.trim().toLowerCase());
-    if (!user) { showToast('Username not found', 'error'); return; }
-    const storedCode = getRecoveryCode();
-    if (!storedCode) { showToast('No recovery code set. Contact your administrator.', 'error'); return; }
-    if (fpCode.trim() !== storedCode) { showToast('Recovery code is incorrect', 'error'); return; }
-    setFpTarget(user);
-    setMode('reset');
-  }
-
-  async function handlePasswordReset(e) {
-    e.preventDefault();
-    const err = validatePassword(fpNew, true);
-    if (err) { showToast(err, 'error'); return; }
-    if (fpNew !== fpConfirm) { showToast('Passwords do not match', 'error'); return; }
+    const eAddr = email.trim().toLowerCase();
+    if (!eAddr) { showToast('Enter your email address first', 'error'); return; }
+    if (!authConfigured) {
+      showToast('Authentication service is not configured. Contact your administrator.', 'error');
+      return;
+    }
     setLoading(true);
     try {
-      const hashed  = await hashPassword(fpNew);
-      const updated = getUsers().map(u => u.id === fpTarget.id ? { ...u, password: hashed } : u);
-      saveUsers(updated);
-      showToast('Password reset successfully. Please sign in.', 'success');
-      setMode('login');
-      setFpUser(''); setFpCode(''); setFpNew(''); setFpConfirm(''); setFpTarget(null);
-    } catch {
-      showToast('Reset failed. Please try again.', 'error');
+      const result = await requestPasswordReset(eAddr);
+      if (result.success) {
+        showToast('Password-reset link sent. Check your email.', 'success');
+        setMode('login');
+      } else {
+        showToast(result.error || 'Could not send reset link. Try again.', 'error');
+      }
+    } catch (err) {
+      showToast('Reset request failed. Please try again.', 'error');
     } finally {
       setLoading(false);
     }
   }
-
-  // Always accept email or username — both paths handle both
-  const credLabel        = 'Email or Username';
-  const credPlaceholder  = 'user@slotengineering.com or username';
-  const credAutoComplete = credential.includes('@') ? 'email' : 'username';
 
   return (
     <div style={{ minHeight:'100vh', background:C.bg, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
@@ -148,21 +120,42 @@ export default function LoginScreen({ onLogin }) {
         {/* Card */}
         <div style={{ background:C.bgCard, border:'1px solid '+C.border, borderTop:'none', borderRadius:'0 0 14px 14px', padding:'28px 32px', boxShadow:C.shadowCard }}>
 
-          {mode === 'login' && (
+          {!authConfigured ? (
+            // ── Supabase not configured — refuse to render a login form ─────
+            <div>
+              <div style={{ fontSize:15, fontWeight:700, color:C.danger, marginBottom:10 }}>⚠ Authentication not configured</div>
+              <div style={{ fontSize:13, color:C.textMid, lineHeight:1.6, marginBottom:14 }}>
+                Supabase Auth is required to sign in. Add these to your
+                <code style={{ fontFamily:'monospace', background:C.greenPale, padding:'2px 5px', borderRadius:4, margin:'0 4px' }}>.env</code>
+                and redeploy:
+              </div>
+              <pre style={{ background:'#0b1410', color:'#DDE9DE', padding:'12px 14px', borderRadius:8, fontSize:11.5, fontFamily:'monospace', lineHeight:1.6, overflowX:'auto', margin:'0 0 12px' }}>
+{`VITE_SUPABASE_URL=https://<your-project>.supabase.co
+VITE_SUPABASE_ANON_KEY=<your-anon-key>`}
+              </pre>
+              <div style={{ fontSize:11, color:C.textMuted, lineHeight:1.5 }}>
+                Then create at least one user in
+                <strong> Supabase Dashboard → Authentication → Users</strong>
+                and link it to an
+                <code style={{ fontFamily:'monospace', background:C.greenPale, padding:'1px 4px', borderRadius:3, margin:'0 3px' }}>app_users</code>
+                row in the SQL editor.
+              </div>
+            </div>
+          ) : mode === 'login' ? (
             <>
               <div style={{ fontSize:15, fontWeight:700, color:C.text, marginBottom:20 }}>Sign in to your account</div>
               <form onSubmit={handleLogin} style={{ display:'flex', flexDirection:'column', gap:14 }}>
                 <div>
-                  <label style={{ fontSize:11, fontWeight:600, color:C.textMid, display:'block', marginBottom:5 }}>
-                    {credLabel}
-                  </label>
+                  <label style={{ fontSize:11, fontWeight:600, color:C.textMid, display:'block', marginBottom:5 }}>Email</label>
                   <input
                     style={inp}
-                    value={credential}
-                    onChange={e => setCredential(e.target.value)}
-                    placeholder={credPlaceholder}
-                    autoComplete={credAutoComplete}
+                    type="email"
+                    value={email}
+                    onChange={e => setEmail(e.target.value)}
+                    placeholder="you@slotengineering.com"
+                    autoComplete="email"
                     autoFocus
+                    required
                   />
                 </div>
                 <div>
@@ -175,6 +168,7 @@ export default function LoginScreen({ onLogin }) {
                       onChange={e => setPassword(e.target.value)}
                       placeholder="Enter password"
                       autoComplete="current-password"
+                      required
                     />
                     <button
                       type="button"
@@ -198,63 +192,42 @@ export default function LoginScreen({ onLogin }) {
                   Forgot password?
                 </button>
               </div>
-
-              {/* Auth-mode indicator */}
               <div style={{ marginTop:12, padding:'10px 12px', background:C.green+'10', border:'1px solid '+C.green+'30', borderRadius:8, fontSize:11, color:C.textMuted, lineHeight:1.7 }}>
-                🔑 Enter your <strong>email address</strong> or <strong>username</strong> and password.
-                {supabaseReady && <span> Cloud authentication is active.</span>}
+                🔒 Authentication is handled by <strong>Supabase Auth</strong>. Your password is never sent to or stored by this application.
               </div>
             </>
-          )}
-
-          {mode === 'forgot' && (
+          ) : (
+            // mode === 'forgot'
             <>
-              <div style={{ fontSize:15, fontWeight:700, color:C.text, marginBottom:6 }}>Reset Password — Step 1</div>
-              <div style={{ fontSize:12, color:C.textMuted, marginBottom:20, lineHeight:1.6 }}>Enter your username and the recovery code set by your administrator.</div>
-              <form onSubmit={handleForgotVerify} style={{ display:'flex', flexDirection:'column', gap:14 }}>
-                <div>
-                  <label style={{ fontSize:11, fontWeight:600, color:C.textMid, display:'block', marginBottom:5 }}>Username</label>
-                  <input style={inp} value={fpUser} onChange={e => setFpUser(e.target.value)} placeholder="Your username" autoFocus />
-                </div>
-                <div>
-                  <label style={{ fontSize:11, fontWeight:600, color:C.textMid, display:'block', marginBottom:5 }}>Recovery Code</label>
-                  <input style={inp} value={fpCode} onChange={e => setFpCode(e.target.value)} placeholder="Provided by administrator" />
-                </div>
-                <button type="submit" style={{ padding:'9px 0', background:C.green, color:'#fff', border:'none', borderRadius:8, fontSize:13, fontWeight:600, cursor:'pointer' }}>Verify →</button>
-              </form>
-              <div style={{ marginTop:14, textAlign:'center' }}>
-                <button onClick={() => setMode('login')} style={{ background:'none', border:'none', color:C.textMid, fontSize:12, cursor:'pointer' }}>← Back to login</button>
+              <div style={{ fontSize:15, fontWeight:700, color:C.text, marginBottom:6 }}>Reset password</div>
+              <div style={{ fontSize:12, color:C.textMuted, marginBottom:20, lineHeight:1.6 }}>
+                Enter your email address and we'll send you a link to choose a new password.
               </div>
-              <div style={{ marginTop:12, padding:'10px 12px', background:'rgba(201,122,10,.08)', border:'1px solid rgba(201,122,10,.3)', borderRadius:8, fontSize:11, color:C.textMid, lineHeight:1.7 }}>
-                ⚠ Recovery code is set in <strong>Settings → Security → Recovery Code</strong>. Only admins can set it.
-              </div>
-            </>
-          )}
-
-          {mode === 'reset' && fpTarget && (
-            <>
-              <div style={{ fontSize:15, fontWeight:700, color:C.text, marginBottom:4 }}>Reset Password — Step 2</div>
-              <div style={{ fontSize:12, color:C.textMuted, marginBottom:20 }}>Setting new password for <strong>{fpTarget.name}</strong></div>
-              <form onSubmit={handlePasswordReset} style={{ display:'flex', flexDirection:'column', gap:14 }}>
+              <form onSubmit={handleForgot} style={{ display:'flex', flexDirection:'column', gap:14 }}>
                 <div>
-                  <label style={{ fontSize:11, fontWeight:600, color:C.textMid, display:'block', marginBottom:5 }}>New Password</label>
-                  <input type={showPw ? 'text' : 'password'} style={inp} value={fpNew} onChange={e => setFpNew(e.target.value)} placeholder="Min 8 chars, upper+lower, number/symbol" autoFocus />
+                  <label style={{ fontSize:11, fontWeight:600, color:C.textMid, display:'block', marginBottom:5 }}>Email</label>
+                  <input
+                    style={inp}
+                    type="email"
+                    value={email}
+                    onChange={e => setEmail(e.target.value)}
+                    placeholder="you@slotengineering.com"
+                    autoComplete="email"
+                    autoFocus
+                    required
+                  />
                 </div>
-                <div>
-                  <label style={{ fontSize:11, fontWeight:600, color:C.textMid, display:'block', marginBottom:5 }}>Confirm Password</label>
-                  <input type={showPw ? 'text' : 'password'} style={inp} value={fpConfirm} onChange={e => setFpConfirm(e.target.value)} />
-                </div>
-                <label style={{ display:'flex', alignItems:'center', gap:8, cursor:'pointer', fontSize:12, color:C.textMid }}>
-                  <input type="checkbox" checked={showPw} onChange={() => setShowPw(p => !p)} /> Show passwords
-                </label>
                 <button
                   type="submit"
                   disabled={loading}
                   style={{ padding:'9px 0', background:C.green, color:'#fff', border:'none', borderRadius:8, fontSize:13, fontWeight:600, cursor:loading ? 'not-allowed' : 'pointer', opacity:loading ? 0.7 : 1 }}
                 >
-                  {loading ? 'Resetting…' : 'Reset Password →'}
+                  {loading ? 'Sending…' : 'Send reset link →'}
                 </button>
               </form>
+              <div style={{ marginTop:14, textAlign:'center' }}>
+                <button onClick={() => setMode('login')} style={{ background:'none', border:'none', color:C.textMid, fontSize:12, cursor:'pointer' }}>← Back to sign in</button>
+              </div>
             </>
           )}
 

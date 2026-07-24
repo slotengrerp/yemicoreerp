@@ -70,6 +70,7 @@ export function getVendors() {
 
 export function saveVendors(vendors) {
   try { localStorage.setItem(VENDOR_KEY, JSON.stringify(vendors)); } catch {}
+  try { window.dispatchEvent(new CustomEvent('slot:masterDataChanged', { detail: { mod: 'vendors', data: vendors } })); } catch {}
 }
 
 export function addVendor(vendor) {

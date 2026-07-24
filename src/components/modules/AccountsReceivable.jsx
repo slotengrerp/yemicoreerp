@@ -19,6 +19,7 @@ import { SLOT_LOGO_SRC } from '../../utils/logo';
 import { getClients, getClientByCode, addClient } from '../../utils/clientMaster';
 import { getProjects } from '../../utils/projectMaster';
 import { BANK_ACCOUNTS, DEFAULT_FX } from '../../utils/financeConstants';
+import { AttachmentUploader } from '../ui';
 
 const uid = () => generateId();
 const today = () => new Date().toISOString().split('T')[0];
@@ -269,8 +270,8 @@ export default function AccountsReceivable() {
   const { currentUser, db } = state;
   const perms = { add: canDo(currentUser,'canAdd'), edit: canDo(currentUser,'canEdit'), del: canDo(currentUser,'canDelete') };
 
-  const storedInv = (db.invoices?.length ? db.invoices : SEED).map(normalizeInvoice);
-  const storedRec = db.arReceipts?.length ? db.arReceipts : SEED_RECEIPTS;
+  const storedInv = ((db.invoices?.length || state.appSettings?.dataWiped) ? (db.invoices || []) : SEED).map(normalizeInvoice);
+  const storedRec = (db.arReceipts?.length || state.appSettings?.dataWiped) ? (db.arReceipts || []) : SEED_RECEIPTS;
   const [invoices, setInvoices] = useState(storedInv);
   const [receipts, setReceipts] = useState(storedRec);
 
@@ -395,6 +396,53 @@ export default function AccountsReceivable() {
       status: 'Pending', paymentDate:'', paymentRef:'', receivedAmount:0,
       createdAt: new Date().toISOString(),
     };
+
+    // ── Credit-limit enforcement (Sage-style hard block + admin override) ─
+    // Compute the client's current outstanding balance (NGN equivalent of
+    // all open invoices) and compare against their credit limit. Behaviour
+    // mirrors Sage 200 Evolution:
+    //   • Over limit → hard block. Only an admin can override, and the
+    //     override is logged to the audit trail with the over-by amount.
+    //   • ≥90% of limit → soft warning toast (sale proceeds automatically).
+    //   • <90% → silent.
+    // The override check is enforced server-side too via the privilege-
+    // escalation trigger in 002_rls.sql (a non-admin cannot promote
+    // themselves to admin to bypass this).
+    const selClient = clients.find(c => c.code === form.clientCode);
+    if (selClient && Number(selClient.creditLimit) > 0) {
+      const outstandingBefore = invoices
+        .filter(i => i.clientCode === form.clientCode && !i.voided && i.status !== 'Paid' && i.status !== 'Cancelled')
+        .reduce((s,i) => s + ngnEq(i), 0);
+      const newInvNgn = ngnEq(rec);
+      const projected  = outstandingBefore + newInvNgn;
+      const limit      = Number(selClient.creditLimit) || 0;
+      if (projected > limit) {
+        const over = projected - limit;
+        // Hard block for non-admins. Admins get a confirm dialog with explicit
+        // audit-trail wording — they're taking responsibility for the override.
+        const isAdmin = currentUser?.role === 'admin';
+        if (!isAdmin) {
+          showToast(`⛔ CREDIT LIMIT BLOCKED: This invoice would push ${selClient.name} to ${fmt(projected, selClient.currency)} (over their ${fmt(limit, selClient.currency)} limit by ${fmt(over, selClient.currency)}). An admin must override.`, 'error', { duration: 6000 });
+          return;
+        }
+        const proceed = window.confirm(
+          `⚠️ CREDIT LIMIT OVERRIDE — ADMIN ACTION\n\n` +
+          `You are about to create an invoice that exceeds ${selClient.name}'s credit limit.\n\n` +
+          `Credit limit:         ${fmt(limit, selClient.currency)}\n` +
+          `Current outstanding:  ${fmt(outstandingBefore, selClient.currency)}\n` +
+          `This invoice:         ${fmt(newInvNgn, rec.currency)}\n` +
+          `Projected outstanding: ${fmt(projected, selClient.currency)} (OVER by ${fmt(over, selClient.currency)})\n\n` +
+          `This action will be recorded in the audit trail with your name.\n\n` +
+          `Click OK to proceed with the override, or Cancel to abort.`
+        );
+        if (!proceed) { showToast('Invoice cancelled to respect credit limit', 'info'); return; }
+        logActivity(dispatch, `CREDIT LIMIT OVERRIDE — ${selClient.name}: projected ${fmt(projected)} > limit ${fmt(limit)} (over by ${fmt(over)}) — admin override by ${currentUser?.name||'admin'}`, currentUser, { module:'ar', action:'credit_limit_override', metadata: { clientId: selClient.id, limit, outstandingBefore, newInvNgn, projected, overBy: over } });
+      } else if (projected >= limit * 0.9) {
+        // Soft warning: ≥90% of limit
+        showToast(`⚠️ Approaching credit limit (${Math.round((projected/limit)*100)}% of ${fmt(limit, selClient.currency)})`, 'info');
+      }
+    }
+
     const updated = [...invoices, rec];
     save(updated);
     logActivity(dispatch, `Invoice ${rec.invoiceNo} created for ${rec.client} — ${fmt(rec.netPayable, rec.currency)}`, currentUser);
@@ -800,9 +848,28 @@ export default function AccountsReceivable() {
                   {clients.map(c=><option key={c.id} value={c.code}>{c.name} — {c.code} ({c.currency})</option>)}
                 </select>
                 {selectedClient && (selectedClient.notes || Number(selectedClient.creditLimit) > 0) && (
-                  <div style={{ fontSize:11, color:C.textMuted, marginTop:4, display:'flex', gap:12 }}>
-                    {Number(selectedClient.creditLimit) > 0 && <span>Credit limit: <strong style={{ color:C.textMid }}>{fmt(selectedClient.creditLimit, selectedClient.currency)}</strong></span>}
-                    {selectedClient.notes && <span>{selectedClient.notes}</span>}
+                  <div style={{ fontSize:11, color:C.textMuted, marginTop:6, display:'flex', flexDirection:'column', gap:6 }}>
+                    {Number(selectedClient.creditLimit) > 0 && (() => {
+                      // Live credit utilisation for the currently selected client
+                      const outstanding = invoices
+                        .filter(i => i.clientCode === selectedClient.code && !i.voided && i.status !== 'Paid' && i.status !== 'Cancelled')
+                        .reduce((s,i) => s + ngnEq(i), 0);
+                      const limit  = Number(selectedClient.creditLimit) || 0;
+                      const pct    = limit > 0 ? Math.min(100, Math.round((outstanding / limit) * 100)) : 0;
+                      const barColor = pct >= 100 ? C.danger : pct >= 90 ? C.amber : C.success;
+                      return (
+                        <div>
+                          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:3 }}>
+                            <span>Credit limit: <strong style={{ color:C.textMid }}>{fmt(limit, selectedClient.currency)}</strong></span>
+                            <span>Outstanding: <strong style={{ color: barColor }}>{fmt(outstanding, selectedClient.currency)}</strong> · <strong style={{ color: barColor }}>{pct}%</strong></span>
+                          </div>
+                          <div style={{ height:6, background:C.border, borderRadius:20, overflow:'hidden' }}>
+                            <div style={{ width: pct+'%', height:'100%', background: barColor, borderRadius:20, transition:'width 0.3s' }} />
+                          </div>
+                        </div>
+                      );
+                    })()}
+                    {selectedClient.notes && <span style={{ fontSize:11 }}>📝 {selectedClient.notes}</span>}
                   </div>
                 )}
               </FG>
@@ -941,6 +1008,20 @@ export default function AccountsReceivable() {
               </div>
             )}
             {sel2.notes && <div style={{ marginTop:12, fontSize:12, color:C.textMuted }}><strong>Notes:</strong> {sel2.notes}</div>}
+            <div style={{ marginTop:18, paddingTop:14, borderTop:'1px solid '+C.borderLight }}>
+              <div style={{ fontSize:12, fontWeight:700, color:C.text, marginBottom:8 }}>📎 Attachments</div>
+              <AttachmentUploader
+                attachments={sel2.attachments || []}
+                onChange={(next) => {
+                  const updated = { ...sel2, attachments: next };
+                  setSel2(updated);
+                  const newInvoices = invoices.map(i => i.id === sel2.id ? updated : i);
+                  save(newInvoices);
+                }}
+                folder="ar-invoices"
+                currentUser={currentUser}
+              />
+            </div>
           </Card>
         </Overlay>
       )}

@@ -6,7 +6,10 @@ import { getDeepLinkTab } from "../../utils/helpers";
 import { getClients, saveClients } from "../../utils/clientMaster";
 import { getVendors, saveVendors } from "../../utils/vendorMaster";
 import { getProjects, saveProjects } from "../../utils/projectMaster";
-import { journalFromInvoice, journalFromReceipt, journalFromAPBill, journalFromAPPayment, journalFromPettyCash, journalFromFixedAsset, journalFromTerminalCharge, journalFromPayrollRun, journalFromPayrollPayment, journalFromFleetRepair, reverseJournal } from "../../utils/glPosting";
+import { journalFromInvoice, journalFromReceipt, journalFromAPBill, journalFromAPPayment, journalFromPettyCash, journalFromFixedAsset, journalFromDepreciation, journalFromTerminalCharge, journalFromAdvanceReceipt, journalFromAdvanceApplication, journalFromPayrollRun, journalFromPayrollPayment, journalFromFleetRepair, journalFromStockIssue, journalFromCreditNote, reverseJournal } from "../../utils/glPosting";
+import { periodOf, isPeriodClosed, isYearClosed } from "../../utils/periods";
+import { DEFAULT_COA } from "../../utils/chartOfAccounts";
+import { FG } from "../ui";
 
 // ════════════════════════════════════════════════════════════════════
 // SLOT ENGINEERING — ACCOUNTING MODULE v3.0
@@ -136,159 +139,17 @@ function maskAcctName(name) {
              .replace(/A\/C\s+(\d{4,6})(\d{4})/g, 'A/C ••••$2');
 }
 
-// ── SLOT Engineering Nigeria Limited — Full SAGE Chart of Accounts ─────────
-// Source: CURRENT General Ledger Chart of Accounts_20260529_123438.xlsx
-// 90 accounts — verbatim codes and names from SAGE 200/300
-const DEFAULT_COA = [
-  // ── EQUITY ──────────────────────────────────────────────────────────────
-  {code:"10001",name:"Share Capital",                              type:"Equity",   category:"Equity",             normalBal:"Cr",openingBal:0,currency:"NGN"},
-  {code:"1002", name:"Retained Earnings / Losses",                type:"Equity",   category:"Equity",             normalBal:"Cr",openingBal:121970000,currency:"NGN"},
-  {code:"1003", name:"Directors Loan Accounts",                   type:"Equity",   category:"Equity",             normalBal:"Cr",openingBal:0,currency:"NGN"},
-  // ── PROPERTY, PLANT & EQUIPMENT ─────────────────────────────────────────
-  {code:"2000", name:"Land",                                      type:"Asset",    category:"Fixed Assets",       normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"2001", name:"Building",                                  type:"Asset",    category:"Fixed Assets",       normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"200101",name:"Building — Cost",                          type:"Asset",    category:"Fixed Assets",       normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"200102",name:"Building — Accumulated Depreciation",      type:"Asset",    category:"Fixed Assets",       normalBal:"Cr",openingBal:0,currency:"NGN"},
-  {code:"2002", name:"Plant / Machineries",                       type:"Asset",    category:"Fixed Assets",       normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"200201",name:"Plant/Machineries — Cost",                 type:"Asset",    category:"Fixed Assets",       normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"200202",name:"Plant/Machineries — Accumulated Depreciation",type:"Asset", category:"Fixed Assets",       normalBal:"Cr",openingBal:0,currency:"NGN"},
-  {code:"2003", name:"Motor Vehicle",                             type:"Asset",    category:"Fixed Assets",       normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"200301",name:"Motor Vehicle — Cost",                     type:"Asset",    category:"Fixed Assets",       normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"200302",name:"Motor Vehicle — Accumulated Depreciation", type:"Asset",    category:"Fixed Assets",       normalBal:"Cr",openingBal:0,currency:"NGN"},
-  {code:"2004", name:"Office & Safety Equipment",                 type:"Asset",    category:"Fixed Assets",       normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"200401",name:"Office & Safety Equipment — Cost",         type:"Asset",    category:"Fixed Assets",       normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"200402",name:"Office & Safety Equipment — Accumulated Depreciation",type:"Asset",category:"Fixed Assets",normalBal:"Cr",openingBal:0,currency:"NGN"},
-  {code:"2005", name:"Furniture / Fittings / Caravans",           type:"Asset",    category:"Fixed Assets",       normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"200501",name:"Furniture/Fittings/Caravans — Cost",       type:"Asset",    category:"Fixed Assets",       normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"200502",name:"Furniture/Fittings/Caravans — Accumulated Depreciation",type:"Asset",category:"Fixed Assets",normalBal:"Cr",openingBal:0,currency:"NGN"},
-  // ── CASH & BANK ──────────────────────────────────────────────────────────
-  {code:"3001", name:"Imprest Cash",                              type:"Asset",    category:"Cash & Bank",        normalBal:"Dr",openingBal:500000,currency:"NGN"},
-  {code:"3002", name:"Main Cash",                                 type:"Asset",    category:"Cash & Bank",        normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"3003", name:"Access Bank (Naira A/C 0002238013)",        type:"Asset",    category:"Cash & Bank",        normalBal:"Dr",openingBal:42500000,currency:"NGN"},
-  {code:"3004", name:"Access Bank (Dollar A/C 0002214695)",       type:"Asset",    category:"Cash & Bank",        normalBal:"Dr",openingBal:0,currency:"USD"},
-  {code:"3005", name:"Zenith Bank (A/C 1011010033)",              type:"Asset",    category:"Cash & Bank",        normalBal:"Dr",openingBal:18200000,currency:"NGN"},
-  {code:"3006", name:"Zenith Bank (A/C 1013042537)",              type:"Asset",    category:"Cash & Bank",        normalBal:"Dr",openingBal:5400000,currency:"NGN"},
-  {code:"3007", name:"First Bank (A/C 2008176695)",               type:"Asset",    category:"Cash & Bank",        normalBal:"Dr",openingBal:9800000,currency:"NGN"},
-  {code:"3008", name:"Standard Chartered Bank (A/C 0002151883)",  type:"Asset",    category:"Cash & Bank",        normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"3009", name:"Sterling Bank (A/C 0068919961)",            type:"Asset",    category:"Cash & Bank",        normalBal:"Dr",openingBal:1200000,currency:"NGN"},
-  {code:"3010", name:"Unity Bank (A/C 0025894154)",               type:"Asset",    category:"Cash & Bank",        normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"3011", name:"UBA Bank (A/C 1015363537)",                 type:"Asset",    category:"Cash & Bank",        normalBal:"Dr",openingBal:3300000,currency:"NGN"},
-  {code:"3014", name:"Stanbic IBTC Bank",                         type:"Asset",    category:"Cash & Bank",        normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"3015", name:"Access Bank Euro",                          type:"Asset",    category:"Cash & Bank",        normalBal:"Dr",openingBal:0,currency:"EUR"},
-  {code:"3016", name:"Merchant Bank (A/C 1000159983)",            type:"Asset",    category:"Cash & Bank",        normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"3017", name:"Fidelity Bank PLC (A/C 4011553970)",        type:"Asset",    category:"Cash & Bank",        normalBal:"Dr",openingBal:1650000,currency:"NGN"},
-  {code:"3018", name:"Access Fixed Deposits",                     type:"Asset",    category:"Cash & Bank",        normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"3019", name:"Transit / Suspense Account",                type:"Asset",    category:"Cash & Bank",        normalBal:"Dr",openingBal:0,currency:"NGN"},
-  // ── NON-CURRENT ASSETS ───────────────────────────────────────────────────
-  {code:"3012", name:"Flopeng Logistics Nig. Ltd",                type:"Asset",    category:"Non-Current Assets", normalBal:"Dr",openingBal:0,currency:"NGN"},
-  // ── PROPERTY, PLANT & EQUIPMENT (matches Sage COA 2000-2005) ─────────────
-  {code:"2000", name:"Land",                                       type:"Asset",    category:"Property, Plant & Equipment", normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"2001", name:"Building",                                   type:"Asset",    category:"Property, Plant & Equipment", normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"2002", name:"Plant/Machineries",                          type:"Asset",    category:"Property, Plant & Equipment", normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"2003", name:"Motor Vehicle",                              type:"Asset",    category:"Property, Plant & Equipment", normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"2004", name:"Office and Safety Equipments",                type:"Asset",    category:"Property, Plant & Equipment", normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"2005", name:"Furnitures/Fittings/Caravans",                type:"Asset",    category:"Property, Plant & Equipment", normalBal:"Dr",openingBal:0,currency:"NGN"},
-  // ── REVENUE ──────────────────────────────────────────────────────────────
-  {code:"4001", name:"Manpower Income",                           type:"Revenue",  category:"Income",             normalBal:"Cr",openingBal:0,currency:"NGN"},
-  {code:"4002", name:"Procurement Income",                        type:"Revenue",  category:"Income",             normalBal:"Cr",openingBal:0,currency:"NGN"},
-  {code:"4003", name:"Engineering Services Income",               type:"Revenue",  category:"Income",             normalBal:"Cr",openingBal:0,currency:"NGN"},
-  {code:"4004", name:"Packing Income",                            type:"Revenue",  category:"Income",             normalBal:"Cr",openingBal:0,currency:"NGN"},
-  {code:"4005", name:"Logistics Income (Flopeng)",                type:"Revenue",  category:"Income",             normalBal:"Cr",openingBal:0,currency:"NGN"},
-  {code:"4500", name:"Other Income",                              type:"Revenue",  category:"Other Income",        normalBal:"Cr",openingBal:0,currency:"NGN"},
-  {code:"4501", name:"Profit on Exchange",                        type:"Revenue",  category:"Other Income",        normalBal:"Cr",openingBal:0,currency:"NGN"},
-  {code:"4502", name:"Discount Received",                         type:"Revenue",  category:"Other Income",        normalBal:"Cr",openingBal:0,currency:"NGN"},
-  // ── CURRENT LIABILITIES ──────────────────────────────────────────────────
-  {code:"5001", name:"Staff Net Salary Payable",                  type:"Liability",category:"Current Liabilities",normalBal:"Cr",openingBal:0,currency:"NGN"},
-  {code:"5002", name:"Manpower Net Salary Payable",               type:"Liability",category:"Current Liabilities",normalBal:"Cr",openingBal:0,currency:"NGN"},
-  {code:"5003", name:"Staff PAYE Payable",                        type:"Liability",category:"Current Liabilities",normalBal:"Cr",openingBal:0,currency:"NGN"},
-  {code:"5004", name:"Manpower PAYE Payable",                     type:"Liability",category:"Current Liabilities",normalBal:"Cr",openingBal:0,currency:"NGN"},
-  {code:"5006", name:"Staff Pension Payable",                     type:"Liability",category:"Current Liabilities",normalBal:"Cr",openingBal:0,currency:"NGN"},
-  {code:"5007", name:"Director's Loan Account",                   type:"Liability",category:"Current Liabilities",normalBal:"Cr",openingBal:0,currency:"NGN"},
-  {code:"5008", name:"Manpower Pension Payable",                  type:"Liability",category:"Current Liabilities",normalBal:"Cr",openingBal:0,currency:"NGN"},
-  {code:"5009", name:"Other Accrued Expenses",                    type:"Liability",category:"Current Liabilities",normalBal:"Cr",openingBal:0,currency:"NGN"},
-  {code:"5010", name:"NHF Payable",                                type:"Liability",category:"Current Liabilities",normalBal:"Cr",openingBal:0,currency:"NGN"},
-  {code:"5010", name:"Purchase Accrual",                          type:"Liability",category:"Current Liabilities",normalBal:"Cr",openingBal:0,currency:"NGN"},
-  {code:"5011", name:"Sales VAT Payable",                         type:"Liability",category:"Current Liabilities",normalBal:"Cr",openingBal:0,currency:"NGN"},
-  {code:"5012", name:"Withholding Tax Payable",                   type:"Liability",category:"Current Liabilities",normalBal:"Cr",openingBal:0,currency:"NGN"},
-  {code:"5015", name:"Nigerian Content Development Fund",         type:"Liability",category:"Current Liabilities",normalBal:"Cr",openingBal:0,currency:"NGN"},
-  {code:"5016", name:"Cabotage Marine Tax",                       type:"Liability",category:"Current Liabilities",normalBal:"Cr",openingBal:0,currency:"NGN"},
-  // ── CURRENT ASSETS ───────────────────────────────────────────────────────
-  {code:"3013", name:"Container Deposit",                         type:"Asset",    category:"Current Assets",     normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"6001", name:"Inventories",                               type:"Asset",    category:"Current Assets",     normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"6002", name:"Trade Receivables",                         type:"Asset",    category:"Current Assets",     normalBal:"Dr",openingBal:45200000,currency:"NGN"},
-  {code:"6003", name:"Other Receivables",                         type:"Asset",    category:"Current Assets",     normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"600301",name:"Jonjac Manpower Ltd",                      type:"Asset",    category:"Current Assets",     normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"600302",name:"Pejoy Procurement Ltd",                    type:"Asset",    category:"Current Assets",     normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"600303",name:"SLE Industrial Gas Ltd",                   type:"Asset",    category:"Current Assets",     normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"600304",name:"Arden Gas Ltd",                            type:"Asset",    category:"Current Assets",     normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"6004", name:"Work-in-Progress",                          type:"Asset",    category:"Current Assets",     normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"6005", name:"Recovery Account",                          type:"Asset",    category:"Current Assets",     normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"6006", name:"Input VAT",                                 type:"Asset",    category:"Current Assets",     normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"6007", name:"Withholding Tax Receivable",                type:"Asset",    category:"Current Assets",     normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"6008", name:"Staff Loans & Advances",                    type:"Asset",    category:"Current Assets",     normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"6009", name:"Inter-Company Loan",                        type:"Asset",    category:"Current Assets",     normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"6010", name:"AFAM Investment",                           type:"Asset",    category:"Current Assets",     normalBal:"Dr",openingBal:0,currency:"NGN"},
-  // ── TRADE PAYABLES / TAX ─────────────────────────────────────────────────
-  {code:"7001", name:"Trade Payables",                            type:"Liability",category:"Current Liabilities",normalBal:"Cr",openingBal:5780000,currency:"NGN"},
-  {code:"7002", name:"Company Taxes Payable",                     type:"Liability",category:"Taxation",           normalBal:"Cr",openingBal:0,currency:"NGN"},
-  {code:"7003", name:"End of Contract Bonus",                     type:"Liability",category:"Current Liabilities",normalBal:"Cr",openingBal:0,currency:"NGN"},
-  // ── COST OF SALES ────────────────────────────────────────────────────────
-  {code:"8001", name:"Direct Cost — Salaries & Wages",            type:"Expense",  category:"Cost of Sales",      normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"8002", name:"Direct Cost — Clearing / Duties",           type:"Expense",  category:"Cost of Sales",      normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"8003", name:"Other Direct Cost",                         type:"Expense",  category:"Cost of Sales",      normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"8004", name:"Direct Cost — Materials Purchases",         type:"Expense",  category:"Cost of Sales",      normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"8005", name:"Carriage Inward / Transport Expenses",      type:"Expense",  category:"Cost of Sales",      normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"8006", name:"Stock Adjustment",                          type:"Expense",  category:"Cost of Sales",      normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"8007", name:"Cost Variance",                             type:"Expense",  category:"Cost of Sales",      normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"8008", name:"Discount Allowed",                          type:"Expense",  category:"Cost of Sales",      normalBal:"Dr",openingBal:0,currency:"NGN"},
-  // ── ADMINISTRATION EXPENSES ──────────────────────────────────────────────
-  {code:"9001", name:"Depreciation Charges",                      type:"Expense",  category:"Admin Expenses",     normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"9002", name:"Staff Salaries Expenses",                   type:"Expense",  category:"Admin Expenses",     normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"9003", name:"Telephone Expenses",                        type:"Expense",  category:"Admin Expenses",     normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"9004", name:"Vehicle Running Expenses",                  type:"Expense",  category:"Admin Expenses",     normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"9005", name:"Transport & Travel / Accommodation",        type:"Expense",  category:"Admin Expenses",     normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"9006", name:"Business Promotion & Advertising",          type:"Expense",  category:"Admin Expenses",     normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"9007", name:"Insurance Expenses",                        type:"Expense",  category:"Admin Expenses",     normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"9008", name:"Licence & Registrations",                   type:"Expense",  category:"Admin Expenses",     normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"9009", name:"Communication & IT Subscriptions",          type:"Expense",  category:"Admin Expenses",     normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"9010", name:"Printing & Stationery",                     type:"Expense",  category:"Admin Expenses",     normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"9011", name:"Security Expenses",                         type:"Expense",  category:"Admin Expenses",     normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"9012", name:"Safety Expenses",                           type:"Expense",  category:"Admin Expenses",     normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"9013", name:"Diesel & Fuelling",                         type:"Expense",  category:"Admin Expenses",     normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"9014", name:"General Repairs & Maintenance",             type:"Expense",  category:"Admin Expenses",     normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"9015", name:"Staff Allowances",                          type:"Expense",  category:"Admin Expenses",     normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"9016", name:"Employer Pension",                          type:"Expense",  category:"Admin Expenses",     normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"9017", name:"Medical Expenses",                          type:"Expense",  category:"Admin Expenses",     normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"9018", name:"Training & Personnel Development",          type:"Expense",  category:"Admin Expenses",     normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"9019", name:"Cleaning & Sanitation",                     type:"Expense",  category:"Admin Expenses",     normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"9020", name:"Newspapers & Periodicals",                  type:"Expense",  category:"Admin Expenses",     normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"9021", name:"Office Consumables",                        type:"Expense",  category:"Admin Expenses",     normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"9022", name:"Audit Fee & Professional Services",         type:"Expense",  category:"Admin Expenses",     normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"9023", name:"Legal Fee",                                 type:"Expense",  category:"Admin Expenses",     normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"9024", name:"Training",                                  type:"Expense",  category:"Admin Expenses",     normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"9025", name:"Government Rates",                          type:"Expense",  category:"Admin Expenses",     normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"9026", name:"Development Levy",                          type:"Liability",category:"Current Liabilities",normalBal:"Cr",openingBal:0,currency:"NGN"},
-  {code:"9027", name:"Repair & Maintenance — Equipment",          type:"Expense",  category:"Admin Expenses",     normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"9028", name:"Maintenance — Premises & Building",         type:"Expense",  category:"Admin Expenses",     normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"9029", name:"Feeding / Entertainment Expenses",          type:"Expense",  category:"Admin Expenses",     normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"9030", name:"Community Development & Relations",         type:"Expense",  category:"Admin Expenses",     normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"9031", name:"Postage / Dispatch / Freight Expenses",     type:"Expense",  category:"Admin Expenses",     normalBal:"Dr",openingBal:0,currency:"NGN"},
-  // ── OTHER EXPENSES ───────────────────────────────────────────────────────
-  {code:"9100", name:"Loss on Exchange",                          type:"Expense",  category:"Other Expenses",     normalBal:"Dr",openingBal:0,currency:"NGN"},
-  // ── FINANCE COSTS ────────────────────────────────────────────────────────
-  {code:"9500", name:"Interest Charges",                          type:"Expense",  category:"Finance Costs",      normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"9550", name:"Bank Charges",                              type:"Expense",  category:"Finance Costs",      normalBal:"Dr",openingBal:0,currency:"NGN"},
-  // ── STATUTORY LEVIES ─────────────────────────────────────────────────────
-  {code:"9551", name:"NSITF",                                     type:"Expense",  category:"Admin Expenses",     normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"9552", name:"ITF",                                       type:"Expense",  category:"Admin Expenses",     normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"9553", name:"Rent Expenses",                             type:"Expense",  category:"Admin Expenses",     normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"9554", name:"CSR / Charitable Donation",                 type:"Expense",  category:"Admin Expenses",     normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"9555", name:"Repairs & Maint. — Furniture & Fittings",  type:"Expense",  category:"Admin Expenses",     normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"9556", name:"Repairs & Maintenance — Motor Vehicle",     type:"Expense",  category:"Admin Expenses",     normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"9557", name:"Electricity / PHED Bills",                  type:"Expense",  category:"Admin Expenses",     normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"9558", name:"Repairs & Maintenance — Plant & Machinery", type:"Expense",  category:"Admin Expenses",     normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"9559", name:"Tax Expense",                               type:"Expense",  category:"Admin Expenses",     normalBal:"Dr",openingBal:0,currency:"NGN"},
-];
+// ── Chart of Accounts ────────────────────────────────────────────────────
+// Moved to src/utils/chartOfAccounts.js (2026-07-23 audit) so glPosting.js
+// can import and validate against the same list instead of keeping its
+// account codes in sync with this file by comment convention only. That
+// move also fixed two duplicate-code bugs found in this array: code 5010
+// was used for both "NHF Payable" and "Purchase Accrual" (Purchase Accrual
+// is now 5013), and codes 2000-2005 were each defined twice — once with
+// Cost/Accumulated-Depreciation sub-accounts, once as a flatter duplicate
+// under a "matches Sage COA 2000-2005" comment (the flat duplicates were
+// dropped; the detailed versions, which glPosting.js's depreciation
+// postings depend on, were kept). See DEFAULT_COA import above.
 
 // ── Seed journal entries ───────────────────────────────────────────
 const SEED_JOURNALS = [
@@ -833,6 +694,8 @@ const CONTROL_ACCOUNTS = {
 };
 
 function JournalTab({journals,setJournals,coa,filter,setFilter,sourceFilter,setSourceFilter}){
+  const { state, dispatch } = useApp();
+  const { currentUser, db } = state;
   const [showModal,setShowModal]=useState(false);
   const [jeDate,setJeDate]=useState(today());
   const [jeRef,setJeRef]=useState("");
@@ -840,6 +703,71 @@ function JournalTab({journals,setJournals,coa,filter,setFilter,sourceFilter,setS
   const blankLine=()=>({drCode:"",crCode:"",currency:"NGN",fxRate:1,fcAmount:"",memo:""});
   const [lines,setLines]=useState([blankLine()]);
   const [editId,setEditId]=useState(null);
+  // Recurring / template journals
+  const [saveAsTemplate, setSaveAsTemplate] = useState(false);
+  const [templateName,   setTemplateName]   = useState('');
+  const [templateFreq,   setTemplateFreq]   = useState('monthly');
+  const [showTemplates,  setShowTemplates]  = useState(false);
+
+  // Load templates from db
+  const templates = (db.recurringTemplates || []).filter(t => !t.voided);
+
+  function persistTemplates(next) {
+    dispatch({ type:'UPDATE_MODULE', mod:'recurringTemplates', data: next });
+    saveDBLocal({ ...db, recurringTemplates: next }, state.activity);
+  }
+
+  function saveTemplate(je) {
+    if (!templateName) { showToast('Give the template a name first', 'error'); return; }
+    const tpl = {
+      id: `TPL-${Date.now()}`,
+      name: templateName,
+      frequency: templateFreq,        // 'monthly' | 'quarterly' | 'yearly' | 'manual'
+      active: true,
+      ref: je.ref, description: je.description,
+      lines: je.lines,
+      lastPosted: null,
+      lastPostedPeriod: null,
+      createdAt: new Date().toISOString(),
+    };
+    persistTemplates([...(db.recurringTemplates || []), tpl]);
+    logActivity(dispatch, `Recurring journal template "${templateName}" saved (${templateFreq})`, currentUser, { module:'accounting', action:'create' });
+    showToast(`Template "${templateName}" saved`, 'success');
+    setSaveAsTemplate(false);
+    setTemplateName('');
+  }
+
+  function postTemplate(tpl, periodKey) {
+    // Build a new JE from the template, stamping it with the supplied period key
+    // and source='recurring' so the period guard runs and the auto-post effect
+    // picks it up via the standard manual path.
+    const ref = `${tpl.ref || tpl.name}-${periodKey}`;
+    const je = {
+      id: `JE-REC-${tpl.id}-${periodKey}`,
+      date: `${periodKey}-01`,
+      ref,
+      description: tpl.description,
+      source: 'recurring',
+      sourceId: tpl.id,
+      periodKey,
+      lines: tpl.lines.map(l => ({ ...l })),
+    };
+    if (journals.some(j => j.id === je.id)) {
+      showToast(`Template "${tpl.name}" already posted for ${periodKey}`, 'error');
+      return;
+    }
+    setJournals(js => [...js, je]);
+    // Mark template as posted
+    persistTemplates((db.recurringTemplates || []).map(t => t.id === tpl.id ? { ...t, lastPosted: new Date().toISOString(), lastPostedPeriod: periodKey } : t));
+    logActivity(dispatch, `Posted recurring template "${tpl.name}" for ${periodKey} — ₦${(tpl.lines.reduce((s,l)=>s+(l.amount||0),0)).toLocaleString()}`, currentUser, { module:'accounting', action:'edit' });
+    showToast(`Template "${tpl.name}" posted for ${periodKey}`, 'success');
+  }
+
+  function deleteTemplate(id) {
+    if (!window.confirm('Delete this template? Past journal entries posted from it stay in the ledger.')) return;
+    persistTemplates((db.recurringTemplates || []).map(t => t.id === id ? { ...t, voided: true } : t));
+    showToast('Template deleted', 'error');
+  }
 
   // Naira-equivalent of a line = fcAmount × fxRate (for NGN lines, fxRate is always 1)
   const lineAmount=(l)=> (parseFloat(l.fcAmount)||0) * (parseFloat(l.fxRate)||0);
@@ -936,6 +864,63 @@ function JournalTab({journals,setJournals,coa,filter,setFilter,sourceFilter,setS
         </div>
       </div>
       <Alert type="info">Double-entry enforced — every transaction posts a matching Debit and Credit, converted to its Naira-equivalent. Total posted: {journals.length} entries.</Alert>
+
+      {/* ── Recurring / Template Journals Panel ────────────────────────── */}
+      <div style={{ background:C.bgCard, border:'1px solid '+C.border, borderRadius:10, overflow:'hidden' }}>
+        <div style={{ padding:'10px 14px', background:'linear-gradient(135deg,#0F3A1A,#1A5C2A)', display:'flex', alignItems:'center', gap:10, cursor:'pointer' }} onClick={() => setShowTemplates(s => !s)}>
+          <span style={{ fontSize:14, fontWeight:700, color:'#fff' }}>🔁 Recurring Journal Templates</span>
+          <span style={{ fontSize:11, color:'rgba(255,255,255,0.7)' }}>{templates.length} active · click to {showTemplates?'collapse':'expand'}</span>
+          <span style={{ marginLeft:'auto', fontSize:14, color:'#fff' }}>{showTemplates?'▾':'▸'}</span>
+        </div>
+        {showTemplates && (
+          <div style={{ padding:14 }}>
+            <div style={{ fontSize:11.5, color:C.textMuted, marginBottom:10, lineHeight:1.5 }}>
+              Save any journal entry as a template and re-post it with one click for any month.
+              Common uses: monthly rent, monthly accruals, quarterly WHT remittance, annual
+              insurance amortisation. Each post is a normal journal entry — it respects period
+              locks and shows up in Trial Balance / P&L / Balance Sheet exactly like a manual JE.
+            </div>
+            {templates.length === 0 ? (
+              <div style={{ padding:14, fontSize:12, color:C.textMuted, background:C.bgAlt, borderRadius:8, textAlign:'center' }}>
+                No templates yet. Open <strong>New Journal Entry</strong>, build the entry the way you want it,
+                tick <strong>Save as template</strong> below, and give it a name (e.g. "Monthly Office Rent").
+              </div>
+            ) : (
+              <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
+                <thead><tr style={{ background:C.bgAlt }}>
+                  {['Template','Frequency','Last Posted','Lines','Action',''].map(h=><th key={h} style={{ padding:'7px 9px', textAlign:'left', fontSize:10, fontWeight:700, color:C.textMid, textTransform:'uppercase' }}>{h}</th>)}
+                </tr></thead>
+                <tbody>
+                  {templates.map(t => {
+                    const total = (t.lines || []).reduce((s,l) => s + (Number(l.amount)||0), 0);
+                    return (
+                      <tr key={t.id} style={{ borderBottom:'1px solid '+C.borderLight }}>
+                        <td style={{ padding:'8px 9px' }}>
+                          <div style={{ fontWeight:600 }}>{t.name}</div>
+                          <div style={{ fontSize:10.5, color:C.textMuted }}>{t.description}</div>
+                        </td>
+                        <td style={{ padding:'8px 9px' }}>
+                          <span style={{ padding:'2px 8px', borderRadius:20, fontSize:10, fontWeight:600, color:C.info, background:'rgba(26,92,138,.1)' }}>{t.frequency}</span>
+                        </td>
+                        <td style={{ padding:'8px 9px', color:C.textMuted, fontSize:11 }}>{t.lastPostedPeriod ? `${t.lastPostedPeriod} (${new Date(t.lastPosted).toLocaleDateString('en-GB')})` : '— never —'}</td>
+                        <td style={{ padding:'8px 9px', textAlign:'right', color:C.amber, fontWeight:600 }}>₦{total.toLocaleString('en-NG')}</td>
+                        <td style={{ padding:'8px 9px' }}>
+                          <div style={{ display:'flex', gap:5 }}>
+                            <input id={`period-${t.id}`} type="month" defaultValue={today().slice(0,7)} style={{ padding:'4px 7px', borderRadius:5, border:'1px solid '+C.border, background:C.bgCard, color:C.text, fontSize:11 }} />
+                            <Btn sm onClick={() => { const p = document.getElementById(`period-${t.id}`).value; if (p) postTemplate(t, p); }}>📤 Post</Btn>
+                          </div>
+                        </td>
+                        <td style={{ padding:'8px 9px' }}><button onClick={() => deleteTemplate(t.id)} style={{ background:'transparent', border:'none', color:C.danger, cursor:'pointer', fontSize:14 }}>✕</button></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
+      </div>
+
       <Tbl cols={cols} rows={filtered} emptyMsg="No journal entries found."/>
 
       {showModal&&(
@@ -985,9 +970,27 @@ function JournalTab({journals,setJournals,coa,filter,setFilter,sourceFilter,setS
               Total: {fmt(totalDR)} {balanced?"✓ Ready to Post":"— Enter amounts"}
             </div>
           </div>
+          <div style={{ display:'flex', alignItems:'center', gap:12, marginTop:14, padding:'10px 0', borderTop:'1px dashed '+C.border }}>
+            <label style={{ display:'flex', alignItems:'center', gap:6, fontSize:12, color:C.textMid, cursor:'pointer' }}>
+              <input type="checkbox" checked={saveAsTemplate} onChange={e=>setSaveAsTemplate(e.target.checked)} />
+              <strong>Save as recurring template</strong>
+            </label>
+            {saveAsTemplate && (
+              <>
+                <input value={templateName} onChange={e=>setTemplateName(e.target.value)} placeholder="Template name (e.g. Monthly Office Rent)" style={{ flex:1, padding:'5px 8px', borderRadius:5, border:'1px solid '+C.border, background:C.bgCard, color:C.text, fontSize:12 }} />
+                <select value={templateFreq} onChange={e=>setTemplateFreq(e.target.value)} style={{ padding:'5px 8px', borderRadius:5, border:'1px solid '+C.border, background:C.bgCard, color:C.text, fontSize:12 }}>
+                  <option value="monthly">Monthly</option>
+                  <option value="quarterly">Quarterly</option>
+                  <option value="yearly">Yearly</option>
+                  <option value="manual">Manual only</option>
+                </select>
+              </>
+            )}
+          </div>
           <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:16,paddingTop:14,borderTop:`1px solid ${C.borderLight}`}}>
             <Btn variant="ghost" onClick={()=>setShowModal(false)}>Cancel</Btn>
-            <Btn onClick={postJE} disabled={!balanced||!jeDesc}>📔 Post Journal Entry</Btn>
+            {saveAsTemplate && templateName && <Btn variant="outline" onClick={() => { const je={ ref:jeRef, description:jeDesc, lines:lines.map(l=>({drCode:l.drCode,drName:coa.find(a=>a.code===l.drCode)?.name||l.drCode,crCode:l.crCode,crName:coa.find(a=>a.code===l.crCode)?.name||l.crCode,currency:l.currency||"NGN",fxRate:parseFloat(l.fxRate)||1,fcAmount:parseFloat(l.fcAmount)||0,amount:lineAmount(l),memo:l.memo}))}; saveTemplate(je); }}>🔁 Save Template Only</Btn>}
+            <Btn onClick={() => { postJE(); if (saveAsTemplate && templateName) { const je={ ref:jeRef, description:jeDesc, lines:lines.map(l=>({drCode:l.drCode,drName:coa.find(a=>a.code===l.drCode)?.name||l.drCode,crCode:l.crCode,crName:coa.find(a=>a.code===l.crCode)?.name||l.crCode,currency:l.currency||"NGN",fxRate:parseFloat(l.fxRate)||1,fcAmount:parseFloat(l.fcAmount)||0,amount:lineAmount(l),memo:l.memo}))}; saveTemplate(je); } }} disabled={!balanced||!jeDesc}>📔 Post Journal Entry</Btn>
           </div>
         </Modal>
       )}
@@ -1589,10 +1592,13 @@ function CashFlowTab({journals,coa,isAdmin=true}){
 
 // ── Bank Reconciliation Tab ────────────────────────────────────────
 function BankReconTab({bankStmt,setBankStmt,journals,coa}){
+  const { state, dispatch } = useApp();
+  const { currentUser, appSettings } = state;
   const bankAccounts = coa.filter(a=>a.category==="Cash & Bank").sort((a,b)=>a.code.localeCompare(b.code));
   const [selectedAcct,setSelectedAcct]=useState(bankAccounts[0]?.code||"");
   const [showModal,setShowModal]=useState(false);
   const [form,setForm]=useState({date:today(),description:"",amount:"",type:"credit",ref:""});
+  const [showLiveFeed, setShowLiveFeed] = useState(false);
 
   const acct = coa.find(a=>a.code===selectedAcct) || bankAccounts[0];
   const isForeign = acct && acct.currency!=="NGN";
@@ -1604,6 +1610,42 @@ function BankReconTab({bankStmt,setBankStmt,journals,coa}){
     setForm({date:today(),description:"",amount:"",type:"credit",ref:""});
   };
   const toggleReconcile=(id)=>setBankStmt(bs=>bs.map(b=>b.id===id?{...b,reconciled:!b.reconciled}:b));
+
+  // ── Live bank feed ──────────────────────────────────────────────────────
+  const [feedStatus, setFeedStatus] = useState({ busy: false, lastResult: null, error: null });
+  const [feedRange, setFeedRange]   = useState({ from: new Date(Date.now()-30*86400000).toISOString().slice(0,10), to: today() });
+  const feedConfig = appSettings?.bankFeed || { provider: 'csv' };
+  const ProviderCmps = { mono: 'Mono (NIBSS/Open Banking)', okra: 'Okra (NIBSS/Open Banking)', csv: 'CSV file upload (no live API)' };
+
+  async function runLiveFeed() {
+    if (!feedConfig || feedConfig.provider === 'csv') { showToast('Switch to Mono or Okra in Settings to use the live feed', 'error'); return; }
+    setFeedStatus({ busy: true, lastResult: null, error: null });
+    try {
+      const { fetchBankTransactions } = await import('../../utils/bankFeedProviders');
+      const txns = await fetchBankTransactions(feedConfig, { ...feedRange, account: selectedAcct });
+      // Map provider output to bankStmt rows for the selected account
+      const newRows = txns.map((t, i) => ({
+        id: `BS-LIVE-${Date.now()}-${i}`,
+        date: t.date,
+        description: t.narrative || '(no narration)',
+        amount: (t.credit || 0) + (t.debit || 0),
+        type: t.credit > 0 ? 'credit' : 'debit',
+        ref: t.ref || '',
+        reconciled: false,
+        accountCode: selectedAcct,
+        source: `live:${feedConfig.provider}`,
+        raw: t,
+      }));
+      const next = [...bankStmt, ...newRows];
+      setBankStmt(next);
+      logActivity(dispatch, `Pulled ${newRows.length} live bank transactions from ${ProviderCmps[feedConfig.provider]} for ${acct?.name||selectedAcct}`, currentUser, { module:'accounting', action:'edit' });
+      setFeedStatus({ busy: false, lastResult: { count: newRows.length, totalCredit: txns.reduce((s,t)=>s+(t.credit||0),0), totalDebit: txns.reduce((s,t)=>s+(t.debit||0),0) }, error: null });
+      showToast(`✓ Pulled ${newRows.length} transactions`);
+    } catch (e) {
+      setFeedStatus({ busy: false, lastResult: null, error: e?.message || 'Live feed failed' });
+      showToast('Live feed failed: ' + (e?.message || e), 'error');
+    }
+  }
 
   // Scope EVERYTHING below to the selected account only — this is the fix:
   // previously all Cash & Bank accounts (NGN, USD, EUR) were pooled into one
@@ -1619,6 +1661,61 @@ function BankReconTab({bankStmt,setBankStmt,journals,coa}){
 
   return(
     <div style={{display:"flex",flexDirection:"column",gap:16}}>
+
+      {/* ── Live Bank Feed (provider-abstracted) ─────────────────────────── */}
+      <Card>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:10 }}>
+          <div>
+            <div style={{ fontSize:14, fontWeight:700, color:C.text }}>🔴 Live Bank Feed</div>
+            <div style={{ fontSize:11.5, color:C.textMuted, marginTop:1 }}>
+              Pull transactions directly from your bank via Mono, Okra, or another Nigerian Open Banking provider.
+              {!feedConfig?.provider || feedConfig.provider === 'csv' ? ' Currently in CSV mode — set up Mono/Okra in Settings → Accounting to enable.' : ` Provider: ${ProviderCmps[feedConfig.provider] || feedConfig.provider}.`}
+            </div>
+          </div>
+          <Btn variant="ghost" sm onClick={() => setShowLiveFeed(s => !s)}>{showLiveFeed ? 'Hide ▲' : 'Configure ▼'}</Btn>
+        </div>
+        {showLiveFeed && (
+          <div style={{ marginTop:14, padding:14, background:C.bgAlt, borderRadius:8 }}>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10, alignItems:'end' }}>
+              <FG label="Provider">
+                <select value={feedConfig?.provider || 'csv'} onChange={e => {
+                  const next = { ...(feedConfig||{}), provider: e.target.value };
+                  dispatch({ type:'SET_SETTINGS', payload: { ...appSettings, bankFeed: next } });
+                }}>
+                  <option value="csv">CSV file upload (no live API)</option>
+                  <option value="mono">Mono</option>
+                  <option value="okra">Okra</option>
+                </select>
+              </FG>
+              <FG label="From"><input type="date" value={feedRange.from} onChange={e=>setFeedRange(p=>({...p,from:e.target.value}))} /></FG>
+              <FG label="To"><input type="date" value={feedRange.to} onChange={e=>setFeedRange(p=>({...p,to:e.target.value}))} /></FG>
+            </div>
+            {feedConfig?.provider === 'mono' && (
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginTop:10 }}>
+                <Inp label="Mono Secret Key" type="password" value={feedConfig?.monoSecretKey||''} onChange={e => dispatch({ type:'SET_SETTINGS', payload: { ...appSettings, bankFeed: { ...feedConfig, monoSecretKey: e.target.value } } })} placeholder="mono_sec_live_…" />
+                <Inp label="Mono Account ID" value={feedConfig?.monoAccountId||''} onChange={e => dispatch({ type:'SET_SETTINGS', payload: { ...appSettings, bankFeed: { ...feedConfig, monoAccountId: e.target.value } } })} placeholder="acct_…" />
+              </div>
+            )}
+            {feedConfig?.provider === 'okra' && (
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginTop:10 }}>
+                <Inp label="Okra API Key" type="password" value={feedConfig?.okraApiKey||''} onChange={e => dispatch({ type:'SET_SETTINGS', payload: { ...appSettings, bankFeed: { ...feedConfig, okraApiKey: e.target.value } } })} placeholder="Bearer …" />
+                <Inp label="Okra Record ID" value={feedConfig?.okraRecordId||''} onChange={e => dispatch({ type:'SET_SETTINGS', payload: { ...appSettings, bankFeed: { ...feedConfig, okraRecordId: e.target.value } } })} placeholder="rec_…" />
+              </div>
+            )}
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginTop:14, padding:'10px 14px', background:C.bgCard, borderRadius:8, border:'1px solid '+C.border }}>
+              <div style={{ fontSize:11.5, color:C.textMuted, lineHeight:1.6, maxWidth:520 }}>
+                💡 Pulls live transactions into the bank statement list below. They get tagged with <code style={{fontFamily:'monospace',background:C.greenPale,padding:'1px 4px',borderRadius:3}}>source: live:{feedConfig?.provider || 'csv'}</code> so you can trace them. The same auto-match engine in <code style={{fontFamily:'monospace',background:C.greenPale,padding:'1px 4px',borderRadius:3}}>utils/bankRecImport.js</code> then reconciles them against your GL cashbook. Failed pulls fall back to the manual / CSV path — no regression.
+              </div>
+              <Btn onClick={runLiveFeed} disabled={feedStatus.busy || !feedConfig?.provider || feedConfig.provider === 'csv'}>
+                {feedStatus.busy ? '⏳ Pulling…' : '🔄 Pull Live Transactions'}
+              </Btn>
+            </div>
+            {feedStatus.error && <Alert type="danger" style={{ marginTop:10 }}>Live feed error: {feedStatus.error}</Alert>}
+            {feedStatus.lastResult && <Alert type="info" style={{ marginTop:10 }}>✓ Pulled {feedStatus.lastResult.count} transactions · total in ₦ equivalent: credits +{feedStatus.lastResult.totalCredit.toLocaleString('en-NG')} / debits −{feedStatus.lastResult.totalDebit.toLocaleString('en-NG')}</Alert>}
+          </div>
+        )}
+      </Card>
+
       <Card>
         <div style={{display:"flex",alignItems:"flex-end",gap:12,flexWrap:"wrap"}}>
           <div style={{minWidth:280}}>
@@ -1816,7 +1913,156 @@ function FXTab({journals,setJournals,coa,isAdmin=true}){
         </Card>
       </div>
       )}
+
+      {/* ── Period-End FX Revaluation (unrealized gain/loss) ────────────── */}
+      <PeriodEndFXRevalTab journals={journals} setJournals={setJournals} coa={coa} C={C} fmt={fmt} fmtFC={fmtFC} />
     </div>
+  );
+}
+
+// ── Period-End FX Revaluation ────────────────────────────────────────────────
+//
+// At every period end, IFRS requires revaluing foreign-currency monetary
+// balances (bank, AR, AP) to the closing spot rate. The unrealized gain or
+// loss hits P&L, and the offset sits in the Cumulative Translation
+// Adjustment (CTA) on the Balance Sheet — same as the realized FX
+// transfer tab, but:
+//   1. It's at the period's CLOSING rate, not at a transfer rate.
+//   2. The whole FC balance is revalued, not just a transferred amount.
+//   3. The offset is the CTA (2099), not the bank account.
+//
+// One entry per (account × period). Idempotent via JE id
+// `JE-FXREVAL-{accountCode}-{periodKey}`. The opening-balance line uses
+// the CTA so the BS still balances; the P&L line uses 4501 (gain) or
+// 9100 (loss). Period guard via the auto-post effect.
+function PeriodEndFXRevalTab({ journals, setJournals, coa, C, fmt, fmtFC }) {
+  const today = new Date().toISOString().split('T')[0];
+  const [periodKey, setPeriodKey] = useState(today.slice(0, 7));
+  const [closingRates, setClosingRates] = useState({ USD: 0, EUR: 0, GBP: 0 });
+  const [postedMessage, setPostedMessage] = useState(null);
+
+  // Find all foreign-currency denominated accounts (Cash & Bank + AR + AP)
+  const fcAccounts = coa.filter(a => a.currency && a.currency !== 'NGN');
+
+  // Compute per-account: balance in FC, weighted-avg cost rate, period-end reval gain/loss
+  const revalRows = fcAccounts.map(acct => {
+    const info = getWeightedAvgRate(acct.code, journals, coa);
+    const closingRate = Number(closingRates[acct.currency]) || 0;
+    const ngnAtCost    = info.fcBalance * info.avgRate;
+    const ngnAtClosing = info.fcBalance * closingRate;
+    const unrealized   = ngnAtClosing - ngnAtCost;  // positive = gain, negative = loss
+    const alreadyPosted = journals.some(j => j.id === `JE-FXREVAL-${acct.code}-${periodKey}`);
+    return {
+      acct, info, closingRate, ngnAtCost, ngnAtClosing, unrealized, alreadyPosted,
+    };
+  }).filter(r => r.info.fcBalance !== 0);
+
+  const totalUnrealized = revalRows.reduce((s, r) => s + r.unrealized, 0);
+
+  function postRevaluation() {
+    if (revalRows.length === 0) { setPostedMessage('No foreign-currency balances to revalue.'); return; }
+    if (revalRows.some(r => !r.closingRate)) { setPostedMessage('Enter closing rate for every foreign currency first.'); return; }
+    const newJEs = [];
+    const summary = [];
+    revalRows.forEach(r => {
+      if (r.alreadyPosted) return;
+      if (Math.abs(r.unrealized) < 1) return; // no material reval needed
+      const isGain = r.unrealized > 0;
+      const line = isGain
+        ? { drCode: r.acct.code, drName: r.acct.name, crCode: '2099', crName: 'Cumulative Translation Adjustment (CTA)', amount: Math.abs(r.unrealized), currency: 'NGN', fxRate: 1, fcAmount: Math.abs(r.unrealized), memo: `Period-end revaluation ${periodKey} @ ₦${r.closingRate}/${r.acct.currency}` }
+        : { drCode: '2099', drName: 'Cumulative Translation Adjustment (CTA)', crCode: r.acct.code, crName: r.acct.name, amount: Math.abs(r.unrealized), currency: 'NGN', fxRate: 1, fcAmount: Math.abs(r.unrealized), memo: `Period-end revaluation ${periodKey} @ ₦${r.closingRate}/${r.acct.currency}` };
+      // P&L side: Dr 9100 (loss) / Cr 4501 (gain) for the same amount, with the CTA carrying the offset
+      // For a gain:  Dr FC acct / Cr 2099 CTA  +  Dr 2099 CTA / Cr 4501 Profit on Exchange
+      // For a loss:  Dr 9100 Loss on Exchange / Cr 2099 CTA  +  Dr 2099 CTA / Cr FC acct
+      // We collapse to a single balanced line per account (CTA is the bridge between
+      // the FC account and P&L). The total GL effect: P&L ←→ CTA, FC acct ←→ CTA.
+      newJEs.push({
+        id: `JE-FXREVAL-${r.acct.code}-${periodKey}`,
+        date: `${periodKey}-${new Date().toISOString().split('T')[1]?.slice(0,2) || '01'}`,
+        ref: `REVAL-${periodKey}`,
+        description: `Period-End FX Revaluation: ${r.acct.name} (${r.acct.currency}) — ${isGain ? 'Unrealized gain' : 'Unrealized loss'}`,
+        source: 'fx-revaluation',
+        sourceId: `${periodKey}-${r.acct.code}`,
+        periodKey,
+        lines: [line],
+      });
+      summary.push(`${r.acct.name}: ${isGain?'+':''}₦${Math.round(r.unrealized).toLocaleString('en-NG')}`);
+    });
+    if (newJEs.length === 0) { setPostedMessage('All balances already revalued for this period (or no material movement).'); return; }
+    setJournals(js => [...js, ...newJEs]);
+    setPostedMessage(`Posted ${newJEs.length} revaluation ${newJEs.length===1?'entry':'entries'} · ${summary.join(' · ')}`);
+  }
+
+  return (
+    <Card>
+      <SecHead title="📈 Period-End FX Revaluation" sub="Unrealized gain/loss on foreign-currency balances at the closing rate" />
+      <Alert type="info" style={{ marginBottom:12 }}>
+        <strong>What this does:</strong> At every period end, IFRS requires revaluing FC
+        monetary balances (bank, AR, AP) to the closing spot rate. The unrealized
+        gain or loss hits P&L (4501 / 9100), and the offset sits in the Cumulative
+        Translation Adjustment (2099 CTA) on the Balance Sheet. One entry per
+        account, idempotent per period — re-running the same month is a no-op.
+      </Alert>
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr 1fr', gap:10, marginBottom:14, alignItems:'end' }}>
+        <Inp label="Period (YYYY-MM)" type="month" value={periodKey} onChange={e=>setPeriodKey(e.target.value)} />
+        <Inp label="Closing rate — USD (₦/USD)" type="number" value={closingRates.USD||''} onChange={e=>setClosingRates(p=>({...p,USD:e.target.value}))} placeholder="e.g. 1550" />
+        <Inp label="Closing rate — EUR (₦/EUR)" type="number" value={closingRates.EUR||''} onChange={e=>setClosingRates(p=>({...p,EUR:e.target.value}))} placeholder="e.g. 1700" />
+        <Inp label="Closing rate — GBP (₦/GBP)" type="number" value={closingRates.GBP||''} onChange={e=>setClosingRates(p=>({...p,GBP:e.target.value}))} placeholder="e.g. 1950" />
+      </div>
+
+      {revalRows.length === 0 ? (
+        <Alert type="warning">No foreign-currency balances with movements to revalue. Post some AR invoices, AP bills, or FC bank transfers first.</Alert>
+      ) : (
+        <>
+          <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
+            <thead>
+              <tr style={{ background:C.tableHeaderBg }}>
+                {['Account','Currency','FC Balance','Avg Cost Rate','NGN @ Cost','Closing Rate','NGN @ Closing','Unrealized G/L','Status'].map(h=><th key={h} style={{ padding:'8px 10px', textAlign:'left', fontSize:10, fontWeight:700, color:C.tableHeaderText, textTransform:'uppercase' }}>{h}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {revalRows.map(r => (
+                <tr key={r.acct.code} style={{ borderBottom:'1px solid '+C.borderLight }}>
+                  <td style={{ padding:'8px 10px' }}><span style={{ fontFamily:'monospace', color:C.textMuted, fontSize:11 }}>{r.acct.code}</span> {r.acct.name}</td>
+                  <td style={{ padding:'8px 10px' }}>{r.acct.currency}</td>
+                  <td style={{ padding:'8px 10px', textAlign:'right' }}>{fmtFC(r.info.fcBalance, r.acct.currency)}</td>
+                  <td style={{ padding:'8px 10px', textAlign:'right' }}>₦{r.info.avgRate.toLocaleString('en-NG',{maximumFractionDigits:2})}</td>
+                  <td style={{ padding:'8px 10px', textAlign:'right' }}>₦{Math.round(r.ngnAtCost).toLocaleString('en-NG')}</td>
+                  <td style={{ padding:'8px 10px', textAlign:'right', color: r.closingRate ? C.text : C.textMuted }}>{r.closingRate ? `₦${r.closingRate.toLocaleString('en-NG',{maximumFractionDigits:2})}` : '— enter rate —'}</td>
+                  <td style={{ padding:'8px 10px', textAlign:'right' }}>{r.closingRate ? `₦${Math.round(r.ngnAtClosing).toLocaleString('en-NG')}` : '—'}</td>
+                  <td style={{ padding:'8px 10px', textAlign:'right', fontWeight:700, color: r.unrealized >= 0 ? C.success : C.danger }}>
+                    {r.closingRate ? `${r.unrealized >= 0 ? '+' : ''}₦${Math.round(r.unrealized).toLocaleString('en-NG')}` : '—'}
+                  </td>
+                  <td style={{ padding:'8px 10px' }}>
+                    {r.alreadyPosted
+                      ? <span style={{ padding:'2px 7px', borderRadius:20, background:C.amberPale, color:C.amber, fontSize:10, fontWeight:600 }}>✓ Posted</span>
+                      : <span style={{ padding:'2px 7px', borderRadius:20, background:C.greenPale, color:C.success, fontSize:10, fontWeight:600 }}>● Pending</span>}
+                  </td>
+                </tr>
+              ))}
+              <tr style={{ background:C.greenPale, fontWeight:700 }}>
+                <td colSpan={7} style={{ padding:'8px 10px', textAlign:'right', fontSize:11, textTransform:'uppercase' }}>Net Unrealized G/L for {periodKey}</td>
+                <td style={{ padding:'8px 10px', textAlign:'right', color: totalUnrealized >= 0 ? C.success : C.danger, fontSize:13 }}>
+                  {totalUnrealized >= 0 ? '+' : ''}₦{Math.round(totalUnrealized).toLocaleString('en-NG')}
+                </td>
+                <td style={{ padding:'8px 10px' }}></td>
+              </tr>
+            </tbody>
+          </table>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginTop:14 }}>
+            <div style={{ fontSize:11, color:C.textMuted }}>
+              💡 The CTA (account 2099 — Cumulative Translation Adjustment) holds the
+              running balance of all period-end revaluations. It sits in equity on the
+              Balance Sheet and resets on the year-end close.
+            </div>
+            <Btn onClick={postRevaluation}>📤 Post Period-End Revaluation</Btn>
+          </div>
+          {postedMessage && (
+            <Alert type={postedMessage.startsWith('Posted') ? 'info' : 'warning'} style={{ marginTop:10 }}>{postedMessage}</Alert>
+          )}
+        </>
+      )}
+    </Card>
   );
 }
 
@@ -2199,7 +2445,7 @@ function ImportTab({ setCoa, setJournals }) {
     {code:"5007", name:"Director's Loan Account",                                sageType:"Other Current Liability"},
     {code:"5008", name:"Man Power Pension Payable",                              sageType:"Other Current Liability"},
     {code:"5009", name:"Other Accrued Expenses",                                 sageType:"Other Current Liability"},
-    {code:"5010", name:"Purchase Accrual",                                       sageType:"Other Current Liability"},
+    {code:"5013", name:"Purchase Accrual",                                       sageType:"Other Current Liability"}, // FIX: was 5010, duplicate of NHF Payable (see chartOfAccounts.js)
     {code:"5011", name:"Sales VAT Payable",                                      sageType:"Other Current Liability"},
     {code:"5012", name:"Withholding Tax Payable",                                sageType:"Other Current Liability"},
     {code:"5015", name:"Nigerian Content Development Fund",                      sageType:"Other Current Liability"},
@@ -2644,6 +2890,9 @@ export default function Accounting({data,setData}){
   function loadAcct() {
     const central = appState?.acctData;
     if (central?.journals?.length || central?.coa?.length) return central;
+    // Deliberately wiped (Backup → Wipe All Data) → empty means empty; don't
+    // fall through to the legacy key or the individual SEED_* fallbacks below.
+    if (appState?.appSettings?.dataWiped) return central || { journals:[], coa:[], bankStmt:[], vatAdj:[], whtEntries:[], assets:[] };
     try {
       const raw = localStorage.getItem('slot_acct');
       if (raw) { localStorage.removeItem('slot_acct'); return JSON.parse(raw); }
@@ -2689,21 +2938,49 @@ export default function Accounting({data,setData}){
   useEffect(() => {
     const invoices    = appState?.db?.invoices    || [];
     const receipts     = appState?.db?.arReceipts  || [];
+    const creditNotes  = appState?.db?.creditNotes  || [];  // SageReports feature #3
     const apBills      = appState?.db?.ap?.bills    || [];
     const apPayments   = appState?.db?.ap?.payments || [];
     const pettycash    = appState?.db?.pettycash    || [];
     const fixedassets  = appState?.db?.fixedassets  || [];
     const terminalCharges = appState?.db?.terminal?.charges || [];
+    const terminalAdvances = appState?.db?.terminal?.advances || [];
+    const stockMovements   = appState?.db?.stockMovements || [];
     const payrollRuns  = appState?.db?.payrollRuns  || [];
     const fleetRepairs = appState?.db?.fleet?.repairs || [];
 
-    if (!invoices.length && !receipts.length && !apBills.length && !apPayments.length
-        && !pettycash.length && !fixedassets.length && !terminalCharges.length && !payrollRuns.length && !fleetRepairs.length) return;
+    if (!invoices.length && !receipts.length && !creditNotes.length && !apBills.length && !apPayments.length
+        && !pettycash.length && !fixedassets.length && !terminalCharges.length && !terminalAdvances.length && !stockMovements.length && !payrollRuns.length && !fleetRepairs.length) return;
 
     setJournals(js => {
       const byId    = new Map(js.map(j => [j.id, j]));
       const ids     = new Set(js.map(j => j.id));
       const toAdd   = [];
+      const settings = appState?.appSettings || {};
+      const fyStart = settings?.accounting?.fiscalYearStart || settings?.system?.fiscalYearStart || 'January';
+
+      // ── Period guard ──────────────────────────────────────────────────────
+      // Stamps a journal with its periodKey and silently skips it if that
+      // period (or its fiscal year) is closed. We don't throw because this
+      // effect runs reactively over every state change — throwing would
+      // surface a toast on every page navigation once a period is closed,
+      // which would be noise. Instead, we record one warning per blocked
+      // record to the activity log so the accountant can find it.
+      const blocked = []; // { recordId, periodKey, reason }
+      const tryPost = (je, record, reason) => {
+        if (!je) return false;
+        const p = periodOf(je.date, fyStart);
+        je.periodKey = p.periodKey;
+        if (isPeriodClosed(p.periodKey, settings)) {
+          blocked.push({ recordId: record?.id, periodKey: p.periodKey, reason: reason || 'period-closed' });
+          return false;
+        }
+        if (isYearClosed(p.fy, settings)) {
+          blocked.push({ recordId: record?.id, periodKey: p.periodKey, reason: reason || 'year-closed' });
+          return false;
+        }
+        return true;
+      };
 
       const postReversalIfNeeded = (record, jeId) => {
         if (!record.voided) return;
@@ -2722,11 +2999,27 @@ export default function Accounting({data,setData}){
         if (!isVoided && !ids.has(newId) && !ids.has(legId)) {
           try {
             const je = journalFromInvoice(inv);
-            toAdd.push(je);
-            ids.add(newId);
+            if (tryPost(je, inv)) { toAdd.push(je); ids.add(newId); }
           } catch (e) { /* skip malformed records */ }
         }
         if (isVoided) postReversalIfNeeded(inv, ids.has(legId) ? legId : newId);
+      });
+
+      // ── AR Credit Notes (SageReports feature #3) ───────────────────────
+      // Each non-voided credit note posts a Dr Revenue / Cr Trade Receivables
+      // entry to reverse the original invoice's revenue. Voided credit notes
+      // get a mirror-image reversal (so the GL nets to zero if a CN is cancelled).
+      creditNotes.forEach(cn => {
+        const newId = `JE-AR-CN-${cn.id}`;
+        if (!cn.voided && cn.status !== 'Cancelled' && !ids.has(newId)) {
+          try {
+            // Look up the original invoice to hit the same income account
+            const origInv = invoices.find(i => i.id === cn.invoiceId);
+            const je = journalFromCreditNote(cn, origInv);
+            if (je && tryPost(je, cn)) { toAdd.push(je); ids.add(newId); }
+          } catch (e) { /* skip malformed records */ }
+        }
+        postReversalIfNeeded(cn, newId);
       });
 
       // ── AR Receipts ─────────────────────────────────────────────────────
@@ -2735,8 +3028,7 @@ export default function Accounting({data,setData}){
         if (!rec.voided && !ids.has(newId)) {
           try {
             const je = journalFromReceipt(rec);
-            toAdd.push(je);
-            ids.add(newId);
+            if (tryPost(je, rec)) { toAdd.push(je); ids.add(newId); }
           } catch (e) { /* skip malformed records */ }
         }
         postReversalIfNeeded(rec, newId);
@@ -2748,8 +3040,7 @@ export default function Accounting({data,setData}){
         if (bill.status !== 'Cancelled' && !ids.has(newId)) {
           try {
             const je = journalFromAPBill(bill);
-            toAdd.push(je);
-            ids.add(newId);
+            if (tryPost(je, bill)) { toAdd.push(je); ids.add(newId); }
           } catch (e) { /* skip malformed records */ }
         }
       });
@@ -2760,8 +3051,7 @@ export default function Accounting({data,setData}){
         if (!ids.has(newId)) {
           try {
             const je = journalFromAPPayment(pay);
-            toAdd.push(je);
-            ids.add(newId);
+            if (tryPost(je, pay)) { toAdd.push(je); ids.add(newId); }
           } catch (e) { /* skip malformed records */ }
         }
       });
@@ -2773,8 +3063,7 @@ export default function Accounting({data,setData}){
         if (pc.status === 'Approved' && !pc.voided && !ids.has(newId)) {
           try {
             const je = journalFromPettyCash(pc);
-            toAdd.push(je);
-            ids.add(newId);
+            if (tryPost(je, pc)) { toAdd.push(je); ids.add(newId); }
           } catch (e) { /* skip malformed records */ }
         }
         postReversalIfNeeded(pc, newId);
@@ -2787,11 +3076,39 @@ export default function Accounting({data,setData}){
         if (!asset.voided && !ids.has(newId)) {
           try {
             const je = journalFromFixedAsset(asset);
-            toAdd.push(je);
-            ids.add(newId);
+            if (tryPost(je, asset)) { toAdd.push(je); ids.add(newId); }
           } catch (e) { /* skip malformed records */ }
         }
         postReversalIfNeeded(asset, newId);
+      });
+
+      // ── Fixed Asset — periodic depreciation ─────────────────────────────
+      // Each asset carries a `depreciationPosted: [{ periodKey, amount,
+      // postedDate, postedBy }]` list. For every periodKey on that list
+      // that hasn't yet been journaled (idempotency via JE id), post a
+      // Dr 9001 / Cr Accumulated Depreciation entry. Land skips (no
+      // depreciation). If a period is closed, tryPost silently drops it
+      // and the user has to reopen the period to backfill.
+      fixedassets.forEach(asset => {
+        if (asset.voided) return;
+        if (asset.category === 'Land' || asset.category === '2000') return; // Land doesn't depreciate
+        const list = Array.isArray(asset.depreciationPosted) ? asset.depreciationPosted : [];
+        list.forEach(entry => {
+          if (!entry || !entry.periodKey || !entry.amount) return;
+          const newId = `JE-FA-DEP-${asset.id}-${entry.periodKey}`;
+          if (ids.has(newId)) return;
+          try {
+            // Re-derive the JE so it lands in the source-record's period —
+            // we need a clean date in that period. periodKey is YYYY-MM.
+            const [yr, mo] = entry.periodKey.split('-');
+            const jeDate = `${entry.periodKey}-01`;
+            const je = journalFromDepreciation({ ...asset }, entry.periodKey, entry.amount);
+            je.date = jeDate;
+            je.year  = Number(yr);
+            je.month = Number(mo);
+            if (tryPost(je, asset)) { toAdd.push(je); ids.add(newId); }
+          } catch (e) { /* skip malformed records */ }
+        });
       });
 
       // ── Terminal Operations charges (only once explicitly marked posted —
@@ -2801,11 +3118,37 @@ export default function Accounting({data,setData}){
         if (charge.postedToAccounting && !charge.voided && !ids.has(newId)) {
           try {
             const je = journalFromTerminalCharge(charge);
-            toAdd.push(je);
-            ids.add(newId);
+            if (tryPost(je, charge)) { toAdd.push(je); ids.add(newId); }
           } catch (e) { /* skip malformed records */ }
         }
         postReversalIfNeeded(charge, newId);
+      });
+
+      // ── Terminal Operations advance payments ──────────────────────────
+      // On receipt: Dr Bank / Cr 2099 Advance from Customer (Terminal)
+      // On application (when marked applied): Dr 2099 / Cr 4005 Logistics Income
+      // Idempotency: one JE per (advance × event), keyed by
+      // JE-ADV-REC-{id} and JE-ADV-APP-{id}-{container}-{date}.
+      terminalAdvances.forEach(adv => {
+        if (adv.voided) return;
+        const recId = `JE-ADV-REC-${adv.id}`;
+        if (!ids.has(recId)) {
+          try {
+            const je = journalFromAdvanceReceipt(adv);
+            if (tryPost(je, adv)) { toAdd.push(je); ids.add(recId); }
+          } catch (e) { /* skip malformed records */ }
+        }
+        // Applications: each applied entry is its own JE
+        (adv.applications || []).forEach((app, idx) => {
+          const appId = `JE-ADV-APP-${adv.id}-${app.containerNo || 'bulk'}-${app.date || idx}`;
+          if (ids.has(appId)) return;
+          try {
+            const je = journalFromAdvanceApplication(adv, Number(app.amount) || 0, app.containerNo);
+            if (tryPost(je, adv)) { toAdd.push(je); ids.add(appId); }
+          } catch (e) { /* skip malformed records */ }
+        });
+        // If voided, post a reversal of the receipt
+        postReversalIfNeeded(adv, recId);
       });
 
       // ── Payroll (two steps, same principle as AP Bill → AP Payment) ─────
@@ -2815,18 +3158,35 @@ export default function Accounting({data,setData}){
         if (!run.voided && !ids.has(accrualId)) {
           try {
             const je = journalFromPayrollRun(run);
-            toAdd.push(je);
-            ids.add(accrualId);
+            if (tryPost(je, run)) { toAdd.push(je); ids.add(accrualId); }
           } catch (e) { /* skip malformed records */ }
         }
         if (!run.voided && run.paymentDate && ids.has(accrualId) && !ids.has(paymentId)) {
           try {
             const je = journalFromPayrollPayment(run);
-            toAdd.push(je);
-            ids.add(paymentId);
+            if (tryPost(je, run)) { toAdd.push(je); ids.add(paymentId); }
           } catch (e) { /* skip malformed records */ }
         }
         postReversalIfNeeded(run, accrualId);
+      });
+
+      // ── Stock Issues (Inventory → GL when posted) ─────────────────────
+      // Dr COGS (8004) / Cr Inventory (6001) on each ISSUE/SCRAP. Idempotent
+      // via JE-STOCK-{refId}-{itemId}. Only posted movements hit the GL —
+      // a "draft" RECEIVE doesn't, because it hasn't been recognised as
+      // inventory yet (same pattern as Petty Cash Approved-only).
+      stockMovements.forEach(m => {
+        if (m.voided) return;
+        if (!m.postedToGL) return;
+        if (m.type !== 'ISSUE' && m.type !== 'SCRAP') return;
+        const item = (appState?.db?.stockItems || []).find(i => i.id === m.itemId) || { name: m.itemId, uom: 'units', cogsAccountCode: '8004', inventoryAccountCode: '6001' };
+        const refId = m.refId || m.id;
+        const newId = `JE-STOCK-${refId}-${m.itemId}`;
+        if (ids.has(newId)) return;
+        try {
+          const je = journalFromStockIssue(item, Number(m.qty) || 0, Number(m.unitCost) || 0, m.refType || 'manual', refId);
+          if (tryPost(je, m)) { toAdd.push(je); ids.add(newId); }
+        } catch (e) { /* skip malformed records */ }
       });
 
       // ── Fleet repairs (only once explicitly marked posted) ──────────────
@@ -2835,18 +3195,33 @@ export default function Accounting({data,setData}){
         if (repair.postedToAccounting && !repair.voided && !ids.has(newId)) {
           try {
             const je = journalFromFleetRepair(repair);
-            toAdd.push(je);
-            ids.add(newId);
+            if (tryPost(je, repair)) { toAdd.push(je); ids.add(newId); }
           } catch (e) { /* skip malformed records */ }
         }
         postReversalIfNeeded(repair, newId);
       });
 
+      // Surface blocked-record warnings to the activity log (de-duped per
+      // effect run so we don't spam the log on every render once a period
+      // is closed and a record keeps being re-evaluated).
+      if (blocked.length) {
+        const summary = blocked.reduce((acc, b) => {
+          acc[b.reason] = (acc[b.reason] || 0) + 1;
+          return acc;
+        }, {});
+        const detail = blocked.slice(0, 3).map(b => `${b.recordId} (${b.periodKey})`).join(', ');
+        console.warn(
+          `[SLOT] Auto-post skipped ${blocked.length} record(s) — ` +
+          Object.entries(summary).map(([k,v]) => `${k}: ${v}`).join(', ') +
+          (blocked.length > 3 ? ` — first 3: ${detail}…` : ` — ${detail}`)
+        );
+      }
+
       // Only trigger re-render if something actually changed
       return toAdd.length ? [...js, ...toAdd] : js;
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [appState?.db?.invoices, appState?.db?.arReceipts, appState?.db?.ap, appState?.db?.pettycash, appState?.db?.fixedassets, appState?.db?.terminal, appState?.db?.payrollRuns, appState?.db?.fleet]);
+  }, [appState?.db?.invoices, appState?.db?.arReceipts, appState?.db?.creditNotes, appState?.db?.ap, appState?.db?.pettycash, appState?.db?.fixedassets, appState?.db?.terminal, appState?.db?.stockMovements, appState?.db?.payrollRuns, appState?.db?.fleet, appState?.appSettings]);
 
   const TABS=[
     {id:"overview",   label:"📊 Overview"},
@@ -2874,7 +3249,15 @@ export default function Accounting({data,setData}){
           <div style={{fontSize:12,opacity:0.75,marginTop:2}}>Nigerian GAAP / IFRS · COA · Journals · P&L · Balance Sheet · VAT · WHT · Fixed Assets</div>
         </div>
         <div style={{display:"flex",gap:8}}>
-          <button onClick={()=>alert("Syncing invoice and payroll data from all modules...")} style={{background:"transparent",color:"#FFFFFF",border:"1px solid rgba(255,255,255,0.3)",borderRadius:8,padding:"5px 12px",fontSize:12,cursor:"pointer"}}>🔄 Sync Modules</button>
+          <button onClick={async () => {
+            try {
+              const { downloadSageIntelligenceTemplate } = await import('../../utils/liveExcel');
+              const params = { journals, coa, invoices: appState?.db?.invoices || [], ap: appState?.db?.ap || {}, salesOrders: appState?.db?.salesOrders || [] };
+              await downloadSageIntelligenceTemplate(params, `SLOT_Intelligence_${new Date().toISOString().slice(0,10)}`);
+              logActivity(dispatch, `Downloaded Sage Intelligence live-Excel template (${journals.length} journals, ${coa.length} accounts)`, currentUser, { module:'accounting', action:'edit' });
+              showToast('📊 Sage Intelligence template downloaded — open in Excel and click Refresh All to re-pull live data');
+            } catch (e) { showToast('Download failed: ' + e.message, 'error'); }
+          }} style={{background:"#1A5C2A",color:"#FFFFFF",border:"none",borderRadius:8,padding:"5px 12px",fontSize:12,cursor:"pointer",fontWeight:600}}>📊 Sage Intelligence Template</button>
           <button style={{background:"transparent",color:"#FFFFFF",border:"1px solid rgba(255,255,255,0.3)",borderRadius:8,padding:"5px 12px",fontSize:12,cursor:"pointer"}} onClick={()=>window.print()}>🖨️ Print</button>
         </div>
       </div>

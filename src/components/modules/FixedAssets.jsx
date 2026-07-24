@@ -128,7 +128,7 @@ export default function FixedAssets() {
   const { currentUser, db } = state;
   const perms = { add: canDo(currentUser,'canAdd'), del: canDo(currentUser,'canDelete') };
 
-  const stored = db.fixedassets?.length ? db.fixedassets : SEED;
+  const stored = (db.fixedassets?.length || state.appSettings?.dataWiped) ? (db.fixedassets || []) : SEED;
   const [assets, setAssets] = useState(stored);
 
   const save = (data) => {
@@ -147,6 +147,11 @@ export default function FixedAssets() {
   const [modal, setModal]     = useState(null);
   const [sel2, setSel2]       = useState(null);
   const [delId, setDelId]     = useState(null);
+  // Depreciation posting — period picker state
+  const [depPost, setDepPost] = useState(() => ({
+    year:  new Date().getFullYear(),
+    month: new Date().getMonth() + 1,
+  }));
 
   const EMPTY = { description:'', category:'Plant & Equipment', serialNo:'', location:'Port Harcourt HQ', department:'Engineering', purchaseDate:'', cost:'', residualValue:'', usefulLifeYrs:10, condition:'Excellent', assignedTo:'', notes:'' };
   const [form, setForm] = useState(EMPTY);
@@ -266,51 +271,225 @@ export default function FixedAssets() {
         </Card>
       )}
 
-      {tab === 'depreciation' && (
-        <Card>
-          <div style={{ fontSize:14, fontWeight:700, color:C.text, marginBottom:16 }}>Depreciation by Category — As at {new Date().toLocaleDateString('en-GB',{day:'2-digit',month:'long',year:'numeric'})}</div>
-          <table style={{ width:'100%', borderCollapse:'collapse' }}>
-            <thead><tr>
-              {['Category','Assets','Total Cost','Annual Dep.','Acc. Dep.','Net Book Value','Dep. %'].map(h=><th key={h} style={th}>{h}</th>)}
-            </tr></thead>
-            <tbody>
-              {CATEGORIES.map(cat => {
-                const row = depByCategory[cat];
-                if (!row.count) return null;
-                const annualDep = row.cost > 0 ? (row.cost - assets.filter(a=>!a.voided&&a.category===cat).reduce((s,a)=>s+(Number(a.residualValue)||0),0)) / (USEFUL_LIVES[cat]||5) : 0;
-                const depPct = row.cost > 0 ? Math.round((row.accDep / row.cost) * 100) : 0;
-                return (
-                  <tr key={cat} onMouseEnter={e=>e.currentTarget.style.background=C.greenPale2} onMouseLeave={e=>e.currentTarget.style.background=''}>
-                    <td style={td}><strong>{cat}</strong></td>
-                    <td style={td}>{row.count}</td>
-                    <td style={{ ...td, fontWeight:600 }}>{fmt(row.cost)}</td>
-                    <td style={{ ...td, color:C.amber }}>{fmt(annualDep)}</td>
-                    <td style={{ ...td, color:C.amber }}>{fmt(row.accDep)}</td>
-                    <td style={{ ...td, fontWeight:700, color:C.success }}>{fmt(row.nbv)}</td>
-                    <td style={td}>
-                      <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                        <div style={{ flex:1, background:C.greenPale, borderRadius:20, height:6 }}><div style={{ width:`${depPct}%`, height:'100%', background:depPct>75?C.danger:depPct>50?C.warning:C.success, borderRadius:20 }}/></div>
-                        <span style={{ fontSize:11, fontWeight:600, color:C.textMid, minWidth:32 }}>{depPct}%</span>
-                      </div>
-                    </td>
+      {tab === 'depreciation' && (() => {
+        // ── Post monthly depreciation to the GL ───────────────────────────
+        // 1. User picks a period (YYYY-MM, default = current month).
+        // 2. For every active, non-Land, non-voided asset, compute the
+        //    monthly depreciation charge for that period.
+        // 3. Only include periods that have NOT already been posted
+        //    (idempotent — re-running the same month is a no-op).
+        // 4. Cap each asset's charge at its remaining depreciable balance
+        //    (cost - residual - already-posted) so we never over-dep.
+        // 5. On confirm: append to each asset's `depreciationPosted` list.
+        //    The Accounting.jsx auto-post effect will then create the
+        //    Dr 9001 / Cr Accumulated Depreciation journal entries.
+        const periodKey = `${depPost.year}-${String(depPost.month).padStart(2,'0')}`;
+        const monthName = new Date(depPost.year, depPost.month - 1, 1).toLocaleDateString('en-GB',{month:'long'});
+        const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+        // Compute charge for one asset in a given periodKey
+        const computeCharge = (asset, pKey) => {
+          if (asset.voided) return 0;
+          if (asset.status && asset.status !== 'Active') return 0;
+          if (asset.category === 'Land' || asset.category === '2000') return 0;
+          const cost = Number(asset.cost) || 0;
+          const res  = Number(asset.residualValue) || 0;
+          const ul   = Number(asset.usefulLifeYrs) || USEFUL_LIVES[asset.category] || 5;
+          if (cost <= 0 || ul <= 0) return 0;
+          if (!asset.purchaseDate) return 0;
+          // Don't post depreciation for periods before the asset existed
+          const purchaseYm = asset.purchaseDate.slice(0,7);
+          if (pKey < purchaseYm) return 0;
+          const annualDep = (cost - res) / ul;
+          const monthlyDep = annualDep / 12;
+          // Don't post past the asset's end-of-life
+          const totalMonths = ul * 12;
+          const monthsFromPurchase = (Number(pKey.slice(0,4)) - Number(purchaseYm.slice(0,4))) * 12
+                                   + (Number(pKey.slice(5,7)) - Number(purchaseYm.slice(5,7))) + 1;
+          if (monthsFromPurchase > totalMonths) return 0;
+          // Cap at remaining depreciable balance
+          const alreadyPosted = (asset.depreciationPosted || [])
+            .filter(e => e && e.periodKey)
+            .reduce((s,e) => s + (Number(e.amount) || 0), 0);
+          const remaining = Math.max(0, (cost - res) - alreadyPosted);
+          return Math.min(monthlyDep, remaining);
+        };
+
+        const previewList = withDepreciation
+          .filter(a => !a.voided && a.status === 'Active' && a.category !== 'Land')
+          .map(a => {
+            const already = (a.depreciationPosted || []).some(e => e && e.periodKey === periodKey);
+            const charge   = already ? 0 : computeCharge(a, periodKey);
+            return { ...a, charge, already };
+          })
+          .filter(a => a.charge > 0 || a.already);
+        const totalNewCharge = previewList.reduce((s,a) => s + (a.already ? 0 : a.charge), 0);
+        const skippedCount   = previewList.filter(a => a.already).length;
+        const eligibleCount  = previewList.filter(a => !a.already && a.charge > 0).length;
+
+        function handlePostDepreciation() {
+          if (eligibleCount === 0) { showToast('Nothing new to post for this period', 'error'); return; }
+          if (!window.confirm(`Post monthly depreciation for ${monthName} ${depPost.year}? ${eligibleCount} asset(s) will hit P&L and Accumulated Depreciation for a total of ${fmt(totalNewCharge)}.`)) return;
+          const stamp = new Date().toISOString();
+          const next = assets.map(a => {
+            if (a.voided || a.status !== 'Active' || a.category === 'Land') return a;
+            const charge = computeCharge(a, periodKey);
+            if (charge <= 0) return a;
+            if ((a.depreciationPosted || []).some(e => e && e.periodKey === periodKey)) return a;
+            return {
+              ...a,
+              depreciationPosted: [
+                ...(a.depreciationPosted || []),
+                { periodKey, amount: charge, postedDate: stamp, postedBy: currentUser?.name || 'system' },
+              ],
+            };
+          });
+          save(next);
+          logActivity(dispatch, `Posted depreciation for ${monthName} ${depPost.year} — ${eligibleCount} asset(s), total ${fmt(totalNewCharge)}`, currentUser, { module:'fixedassets', action:'edit' });
+          showToast(`Depreciation posted: ${fmt(totalNewCharge)} (${eligibleCount} asset${eligibleCount===1?'':'s'})`, 'success');
+        }
+
+        return (
+          <>
+            <Card>
+              <div style={{ fontSize:14, fontWeight:700, color:C.text, marginBottom:16 }}>Depreciation by Category — As at {new Date().toLocaleDateString('en-GB',{day:'2-digit',month:'long',year:'numeric'})}</div>
+              <table style={{ width:'100%', borderCollapse:'collapse' }}>
+                <thead><tr>
+                  {['Category','Assets','Total Cost','Annual Dep.','Acc. Dep.','Net Book Value','Dep. %'].map(h=><th key={h} style={th}>{h}</th>)}
+                </tr></thead>
+                <tbody>
+                  {CATEGORIES.map(cat => {
+                    const row = depByCategory[cat];
+                    if (!row.count) return null;
+                    const annualDep = row.cost > 0 ? (row.cost - assets.filter(a=>!a.voided&&a.category===cat).reduce((s,a)=>s+(Number(a.residualValue)||0),0)) / (USEFUL_LIVES[cat]||5) : 0;
+                    const depPct = row.cost > 0 ? Math.round((row.accDep / row.cost) * 100) : 0;
+                    return (
+                      <tr key={cat} onMouseEnter={e=>e.currentTarget.style.background=C.greenPale2} onMouseLeave={e=>e.currentTarget.style.background=''}>
+                        <td style={td}><strong>{cat}</strong></td>
+                        <td style={td}>{row.count}</td>
+                        <td style={{ ...td, fontWeight:600 }}>{fmt(row.cost)}</td>
+                        <td style={{ ...td, color:C.amber }}>{fmt(annualDep)}</td>
+                        <td style={{ ...td, color:C.amber }}>{fmt(row.accDep)}</td>
+                        <td style={{ ...td, fontWeight:700, color:C.success }}>{fmt(row.nbv)}</td>
+                        <td style={td}>
+                          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                            <div style={{ flex:1, background:C.greenPale, borderRadius:20, height:6 }}><div style={{ width:`${depPct}%`, height:'100%', background:depPct>75?C.danger:depPct>50?C.warning:C.success, borderRadius:20 }}/></div>
+                            <span style={{ fontSize:11, fontWeight:600, color:C.textMid, minWidth:32 }}>{depPct}%</span>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr style={{ background:C.greenPale }}>
+                    <td style={{ ...td, fontWeight:700 }}>TOTALS</td>
+                    <td style={{ ...td, fontWeight:700 }}>{assets.length}</td>
+                    <td style={{ ...td, fontWeight:700 }}>{fmt(totals.cost)}</td>
+                    <td style={td}></td>
+                    <td style={{ ...td, fontWeight:700, color:C.amber }}>{fmt(totals.accDep)}</td>
+                    <td style={{ ...td, fontWeight:700, color:C.success }}>{fmt(totals.nbv)}</td>
+                    <td style={td}></td>
                   </tr>
-                );
-              })}
-            </tbody>
-            <tfoot>
-              <tr style={{ background:C.greenPale }}>
-                <td style={{ ...td, fontWeight:700 }}>TOTALS</td>
-                <td style={{ ...td, fontWeight:700 }}>{assets.length}</td>
-                <td style={{ ...td, fontWeight:700 }}>{fmt(totals.cost)}</td>
-                <td style={td}></td>
-                <td style={{ ...td, fontWeight:700, color:C.amber }}>{fmt(totals.accDep)}</td>
-                <td style={{ ...td, fontWeight:700, color:C.success }}>{fmt(totals.nbv)}</td>
-                <td style={td}></td>
-              </tr>
-            </tfoot>
-          </table>
-        </Card>
-      )}
+                </tfoot>
+              </table>
+            </Card>
+
+            <Card style={{ marginTop:14 }}>
+              <div style={{ fontSize:14, fontWeight:700, color:C.text, marginBottom:4 }}>📅 Post Periodic Depreciation to GL</div>
+              <div style={{ fontSize:11.5, color:C.textMuted, marginBottom:14, lineHeight:1.6 }}>
+                Computes one month of depreciation for every active, depreciable asset and posts it to
+                the General Ledger as <code style={{ fontFamily:'monospace', background:C.greenPale, padding:'1px 5px', borderRadius:4 }}>Dr 9001 Depreciation Charges / Cr Accumulated Depreciation</code>.
+                Already-posted periods are skipped — re-running the same month is a no-op. The
+                charge for each asset is capped at its remaining depreciable balance so we never
+                over-depreciate past residual value. Land is excluded.
+              </div>
+
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:14, alignItems:'end', marginBottom:14 }}>
+                <FG label="Year">
+                  <select style={inp} value={depPost.year} onChange={e=>setDepPost(p=>({...p,year:Number(e.target.value)}))}>
+                    {[depPost.year-2, depPost.year-1, depPost.year, depPost.year+1].map(y=><option key={y} value={y}>{y}</option>)}
+                  </select>
+                </FG>
+                <FG label="Month">
+                  <select style={inp} value={depPost.month} onChange={e=>setDepPost(p=>({...p,month:Number(e.target.value)}))}>
+                    {monthNames.map((m,i)=><option key={m} value={i+1}>{m}</option>)}
+                  </select>
+                </FG>
+                <div>
+                  <Btn onClick={handlePostDepreciation} disabled={eligibleCount===0}>
+                    📤 Post {monthName} {depPost.year} Depreciation ({eligibleCount})
+                  </Btn>
+                </div>
+              </div>
+
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10, marginBottom:14 }}>
+                <div style={{ padding:'10px 14px', background:C.greenPale, borderRadius:8, borderLeft:'4px solid '+C.green }}>
+                  <div style={{ fontSize:10, color:C.textMuted, fontWeight:600, textTransform:'uppercase' }}>Eligible Assets</div>
+                  <div style={{ fontSize:18, fontWeight:700, color:C.green }}>{eligibleCount}</div>
+                </div>
+                <div style={{ padding:'10px 14px', background:C.bgAlt, borderRadius:8, borderLeft:'4px solid '+C.amber }}>
+                  <div style={{ fontSize:10, color:C.textMuted, fontWeight:600, textTransform:'uppercase' }}>Already Posted</div>
+                  <div style={{ fontSize:18, fontWeight:700, color:C.amber }}>{skippedCount}</div>
+                </div>
+                <div style={{ padding:'10px 14px', background:C.greenPale, borderRadius:8, borderLeft:'4px solid '+C.amber }}>
+                  <div style={{ fontSize:10, color:C.textMuted, fontWeight:600, textTransform:'uppercase' }}>Total Charge</div>
+                  <div style={{ fontSize:18, fontWeight:700, color:C.amber }}>{fmt(totalNewCharge)}</div>
+                </div>
+              </div>
+
+              {previewList.length > 0 && (
+                <div style={{ maxHeight:280, overflowY:'auto', border:'1px solid '+C.border, borderRadius:8 }}>
+                  <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
+                    <thead style={{ position:'sticky', top:0, background:C.bgCard, zIndex:1 }}>
+                      <tr>
+                        {['Asset Tag','Description','Category','Cost','Annual Dep.','Charge This Period','Status',''].map(h=><th key={h} style={th}>{h}</th>)}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {previewList.map(a => (
+                        <tr key={a.id}>
+                          <td style={{ ...td, fontFamily:'monospace', color:C.green, fontWeight:700 }}>{a.assetTag}</td>
+                          <td style={td}>{a.description}</td>
+                          <td style={{ ...td, fontSize:11, color:C.textMuted }}>{a.category}</td>
+                          <td style={{ ...td, textAlign:'right' }}>{fmt(a.cost)}</td>
+                          <td style={{ ...td, textAlign:'right', color:C.amber }}>{fmt(a.annualDep)}</td>
+                          <td style={{ ...td, textAlign:'right', fontWeight:700, color: a.already?C.textMuted:C.amber }}>{fmt(a.charge)}</td>
+                          <td style={td}>
+                            {a.already
+                              ? <span style={{ padding:'2px 9px', borderRadius:20, background:C.amberPale, color:C.amber, fontSize:11, fontWeight:600 }}>✓ Already Posted</span>
+                              : <span style={{ padding:'2px 9px', borderRadius:20, background:C.greenPale, color:C.success, fontSize:11, fontWeight:600 }}>● Pending</span>}
+                          </td>
+                          <td style={td}>
+                            {(a.depreciationPosted || []).length > 0 && (
+                              <span style={{ fontSize:10, color:C.textMuted }}>
+                                {(a.depreciationPosted || []).length} period{(a.depreciationPosted || []).length===1?'':'s'} posted · total {fmt((a.depreciationPosted || []).reduce((s,e)=>s+(Number(e.amount)||0),0))}
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {previewList.length === 0 && (
+                <div style={{ padding:24, textAlign:'center', color:C.textMuted, fontSize:12 }}>
+                  No active depreciable assets found. Register an asset first to enable periodic depreciation.
+                </div>
+              )}
+
+              <div style={{ marginTop:14, padding:'10px 14px', background:'rgba(26,92,138,.08)', border:'1px solid rgba(26,92,138,.2)', borderLeft:'4px solid '+C.info, borderRadius:8, fontSize:12, color:C.info, lineHeight:1.6 }}>
+                💡 <strong>Why this matters:</strong> Without periodic depreciation, your P&L never shows the
+                depreciation expense, and your Balance Sheet never reflects growing Accumulated Depreciation.
+                Sage does this every month automatically; this panel gives you the same one-click month-end
+                posting. Periods that are already posted are safe to re-run — they're skipped automatically.
+              </div>
+            </Card>
+          </>
+        );
+      })()}
 
       {modal === 'add' && (
         <Overlay onClose={()=>setModal(null)}>

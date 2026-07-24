@@ -29,6 +29,10 @@
 // ══════════════════════════════════════════════════════════════════════════════
 
 import { BANK_ACCOUNTS } from './financeConstants';
+import { isKnownAccount } from './chartOfAccounts';
+// Re-export the inventory costing engine's journal function so the
+// Accounting module has a single import surface for all posting helpers.
+export { journalFromStockIssue } from './inventoryModel';
 
 // ── Named account constants ───────────────────────────────────────────────────
 const A = {
@@ -82,6 +86,71 @@ export const PETTYCASH_EXPENSE_MAP = {
 const DEFAULT_PC_EXPENSE = { code: '9021', name: 'Office Consumables' };
 const IMPREST_CASH       = { code: '3001', name: 'Imprest Cash' };
 
+// ── Terminal — Advance Payments ───────────────────────────────────────────────
+//
+// When a consignee/shipping line pays us IN ADVANCE for clearing a list of
+// containers (typical pre-paid forwarding/clearing scenario), we record:
+//
+//   On receipt:  Dr Bank / Cr 2099 Advance from Customer (Terminal)
+//                 → creates a liability keyed to the customer + list of
+//                   containers covered. We can identify it later by the
+//                   `customerId` + `containersCovered[]` in the journal memo.
+//
+//   On application: Dr 2099 Advance from Customer / Cr 4005 Logistics Income
+//                 → clears the advance and recognizes revenue as the
+//                   containers are processed. One entry per container
+//                   applied, batched in a single JE.
+//
+// `2099 Advance from Customer (Terminal)` is a Terminal-specific liability
+// account that doesn't exist in the default SLOT COA — the COA is patched
+// lazily on first save. This keeps the default COA clean while still
+// supporting Terminal's separate books.
+const ADVANCE_FROM_CUSTOMER_TERMINAL = { code: '2099', name: 'Advance from Customer (Terminal)' };
+const TERMINAL_REVENUE               = { code: '4005', name: 'Logistics Income (Flopeng)' };
+
+export function journalFromAdvanceReceipt(adv) {
+  const amt  = Number(adv.amount) || 0;
+  const bank = bankAcct(adv.bankCode, adv.bankName);
+  const covered = (adv.containersCovered || []).map(c => c.containerNo).filter(Boolean).join(', ') || '—';
+
+  return {
+    id:          `JE-ADV-REC-${adv.id}`,
+    date:        adv.paymentDate || new Date().toISOString().split('T')[0],
+    ref:         adv.receiptNo || `ADV-${adv.id}`,
+    description: `Advance Received: ${adv.payerName} — ${covered} (${adv.purpose || 'Clearing'})`,
+    source:      'terminal-advance',
+    sourceId:    adv.id,
+    lines: [
+      jLine(
+        bank.code, bank.name,
+        ADVANCE_FROM_CUSTOMER_TERMINAL.code, ADVANCE_FROM_CUSTOMER_TERMINAL.name,
+        amt, 'NGN', 1, amt,
+        `Advance for ${covered} — ${adv.payerName}`,
+      ),
+    ],
+  };
+}
+
+export function journalFromAdvanceApplication(adv, appliedAmount, containerRef) {
+  const bank = bankAcct(adv.bankCode, adv.bankName);
+  return {
+    id:          `JE-ADV-APP-${adv.id}-${containerRef || 'bulk'}-${new Date().toISOString().split('T')[0]}`,
+    date:        adv.applicationDate || new Date().toISOString().split('T')[0],
+    ref:         adv.receiptNo || `ADV-${adv.id}`,
+    description: `Advance Applied: ${adv.payerName} — ${containerRef || 'bulk'} (${adv.purpose || 'Clearing'})`,
+    source:      'terminal-advance',
+    sourceId:    adv.id,
+    lines: [
+      jLine(
+        ADVANCE_FROM_CUSTOMER_TERMINAL.code, ADVANCE_FROM_CUSTOMER_TERMINAL.name,
+        TERMINAL_REVENUE.code, TERMINAL_REVENUE.name,
+        appliedAmount, 'NGN', 1, appliedAmount,
+        `Cleared against ${containerRef || 'bulk'} — ${adv.payerName}`,
+      ),
+    ],
+  };
+}
+
 // ── Fixed Asset category → PP&E COA account (matches real Sage COA 2000-2005) ──
 export const FIXEDASSET_CATEGORY_MAP = {
   'Land':               { code: '2000', name: 'Land' },
@@ -91,8 +160,25 @@ export const FIXEDASSET_CATEGORY_MAP = {
   'Office Equipment':   { code: '2004', name: 'Office and Safety Equipments' },
   'IT Equipment':       { code: '2004', name: 'Office and Safety Equipments' },
   'Furniture & Fittings': { code: '2005', name: 'Furnitures/Fittings/Caravans' },
+  // Legacy Free-Text categories seen in seed data (FixedAssets.jsx) — mapped
+  // to the closest real Sage PP&E account so depreciation posts cleanly.
+  'Tools & Machinery':           { code: '2002', name: 'Plant/Machineries' },
+  'Land & Building':             { code: '2001', name: 'Building' },
 };
 const DEFAULT_ASSET_ACCT = { code: '2004', name: 'Office and Safety Equipments' };
+
+// Accumulated-dep pair for each PP&E category — every category has a
+// companion `xxx — Accumulated Depreciation` account already in DEFAULT_COA
+// (200102 / 200202 / 200302 / 200402 / 200502). Land doesn't depreciate.
+export const FIXEDASSET_ACCUMDEP_MAP = {
+  '2000': { code: '2000',  name: 'Land' },  // no depreciation
+  '2001': { code: '200102', name: 'Building — Accumulated Depreciation' },
+  '2002': { code: '200202', name: 'Plant/Machineries — Accumulated Depreciation' },
+  '2003': { code: '200302', name: 'Motor Vehicle — Accumulated Depreciation' },
+  '2004': { code: '200402', name: 'Office & Safety Equipment — Accumulated Depreciation' },
+  '2005': { code: '200502', name: 'Furniture/Fittings/Caravans — Accumulated Depreciation' },
+};
+const DEPRECIATION_EXPENSE = { code: '9001', name: 'Depreciation Charges' };
 // Funding source (cash vs. supplier credit) isn't captured on the asset record
 // itself, so the capitalization entry credits Suspense rather than guessing —
 // the accountant clears it against Cash/Bank or AP during reconciliation.
@@ -109,8 +195,21 @@ function toNGN(fcAmt, fxRate) {
  * amount is ALWAYS in NGN. currency/fxRate/fcAmount carry the foreign-currency
  * view that the Accounting module uses for its native-currency bank reports.
  */
-function jLine(drCode, drName, crCode, crName, ngnAmount, currency = 'NGN', fxRate = 1, fcAmount = null, memo = '') {
-  const amt = Math.round(Math.abs(ngnAmount));
+function jLine(drCode, drName, crCode, crName, ngnAmount, currency = 'NGN', fxRate = 1, fcAmount = null, memo = '', costCentre = '') {
+  const n = Number(ngnAmount);
+  if (!Number.isFinite(n)) {
+    // FIX (T1-3): a non-numeric amount used to silently become 0 via
+    // Math.round(Math.abs(NaN)) === NaN -> then coerced downstream — fail
+    // loudly instead of posting a broken journal line.
+    throw new Error(`jLine: ngnAmount must be a finite number, got ${ngnAmount} (${memo || 'no memo'})`);
+  }
+  if (n < 0) {
+    // FIX (T1-3): a negative amount means the Dr/Cr pair was built backwards
+    // upstream — Math.abs() was silently hiding that bug instead of
+    // surfacing it.
+    throw new Error(`jLine: ngnAmount must not be negative (${n}) — check Dr/Cr order in the caller (${memo || 'no memo'})`);
+  }
+  const amt = Math.round(n * 100) / 100; // FIX (T1-3): round to kobo (2dp), not whole Naira — was silently discarding kobo on every posting
   return {
     drCode, drName,
     crCode, crName,
@@ -119,6 +218,10 @@ function jLine(drCode, drName, crCode, crName, ngnAmount, currency = 'NGN', fxRa
     fxRate:   Number(fxRate) || 1,
     fcAmount: fcAmount != null ? Math.abs(Number(fcAmount)) : amt,
     memo,
+    // Cost centre / department tag — optional. Populated from the source
+    // record (invoice projectCode, payroll line department, etc.) so that
+    // P&L and Balance Sheet can be sliced by cost centre without re-keying.
+    costCentre: costCentre || '',
   };
 }
 
@@ -192,6 +295,53 @@ export function journalFromInvoice(inv) {
     description: `Invoice: ${inv.invoiceNo} — ${inv.client}`,
     source:      'ar',
     sourceId:    inv.id,
+    lines,
+  };
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// AR CREDIT NOTE — Reverse an invoice (full or partial)
+// ══════════════════════════════════════════════════════════════════════════════
+//
+// A credit note reverses the revenue + Trade Receivables recorded under the
+// original invoice. To keep the GL clean and auditable, we post the reverse
+// of the original invoice's revenue line: Dr Revenue / Cr Trade Receivables.
+// We don't reverse VAT/WHT here — those are statutory and stay as originally
+// posted (the customer's WHT certificate remains valid). If a credit note is
+// later voided, the auto-post effect posts the mirror-image reversal.
+//
+// We look up the original invoice's category to hit the same income account
+// (so a credit on a Logistics invoice hits Logistics Income, not a generic
+// Sales Returns account). Falls back to 4500 (Other Income) if the original
+// invoice isn't found.
+export function journalFromCreditNote(cn, originalInvoice) {
+  const cur  = cn.currency || originalInvoice?.currency || 'NGN';
+  const rate = Number(cn.fxRate) || Number(originalInvoice?.fxRate) || 1;
+  const incAct = originalInvoice
+    ? (AR_INCOME_MAP[originalInvoice.category] || DEFAULT_INCOME)
+    : { code: '4500', name: 'Other Income' }; // contra-revenue fallback
+
+  const amount = Number(cn.amount) || 0;
+  if (amount <= 0) return null;
+
+  // Single balanced line: Dr Revenue (contra) / Cr Trade Receivables
+  // (reduces what the customer owes us)
+  const lines = [
+    jLine(
+      incAct.code, incAct.name,
+      A.TRADE_RECEIVABLES.code, A.TRADE_RECEIVABLES.name,
+      toNGN(amount, rate), cur, rate, amount,
+      `Credit note ${cn.cnNo} — reversal of ${cn.invoiceNo || 'invoice'}`,
+    ),
+  ];
+
+  return {
+    id:          `JE-AR-CN-${cn.id}`,
+    date:        cn.date || new Date().toISOString().split('T')[0],
+    ref:         cn.cnNo,
+    description: `Credit Note: ${cn.cnNo} — ${cn.client} (reverses ${cn.invoiceNo || 'invoice'})`,
+    source:      'ar',
+    sourceId:    cn.id,
     lines,
   };
 }
@@ -393,12 +543,12 @@ export function journalFromPayrollRun(run) {
   const net   = Number(run.totalNetPay) || 0;
 
   const lines = [
-    jLine(SALARY_EXPENSE.code, SALARY_EXPENSE.name, accts.paye.code, accts.paye.name, paye, 'NGN', 1, paye, `${run.staffType} PAYE — ${run.periodLabel}`),
-    jLine(SALARY_EXPENSE.code, SALARY_EXPENSE.name, accts.pension.code, accts.pension.name, pension, 'NGN', 1, pension, `${run.staffType} pension — ${run.periodLabel}`),
+    jLine(SALARY_EXPENSE.code, SALARY_EXPENSE.name, accts.paye.code, accts.paye.name, paye, 'NGN', 1, paye, `${run.staffType} PAYE — ${run.periodLabel}`, run.department || ''),
+    jLine(SALARY_EXPENSE.code, SALARY_EXPENSE.name, accts.pension.code, accts.pension.name, pension, 'NGN', 1, pension, `${run.staffType} pension — ${run.periodLabel}`, run.department || ''),
   ];
-  if (nhf > 0)   lines.push(jLine(SALARY_EXPENSE.code, SALARY_EXPENSE.name, NHF_PAYABLE.code, NHF_PAYABLE.name, nhf, 'NGN', 1, nhf, `NHF — ${run.periodLabel}`));
-  if (other > 0) lines.push(jLine(SALARY_EXPENSE.code, SALARY_EXPENSE.name, OTHER_ACCRUED.code, OTHER_ACCRUED.name, other, 'NGN', 1, other, `Other deductions (advances/loans/voluntary pension) — ${run.periodLabel}`));
-  lines.push(jLine(SALARY_EXPENSE.code, SALARY_EXPENSE.name, accts.netSalary.code, accts.netSalary.name, net, 'NGN', 1, net, `Net pay owed to ${run.staffType.toLowerCase()} staff — ${run.periodLabel}`));
+  if (nhf > 0)   lines.push(jLine(SALARY_EXPENSE.code, SALARY_EXPENSE.name, NHF_PAYABLE.code, NHF_PAYABLE.name, nhf, 'NGN', 1, nhf, `NHF — ${run.periodLabel}`, run.department || ''));
+  if (other > 0) lines.push(jLine(SALARY_EXPENSE.code, SALARY_EXPENSE.name, OTHER_ACCRUED.code, OTHER_ACCRUED.name, other, 'NGN', 1, other, `Other deductions (advances/loans/voluntary pension) — ${run.periodLabel}`, run.department || ''));
+  lines.push(jLine(SALARY_EXPENSE.code, SALARY_EXPENSE.name, accts.netSalary.code, accts.netSalary.name, net, 'NGN', 1, net, `Net pay owed to ${run.staffType.toLowerCase()} staff — ${run.periodLabel}`, run.department || ''));
 
   return {
     id:          `JE-PR-${run.id}`,
@@ -564,6 +714,48 @@ export function journalFromFixedAsset(asset) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+// FIXED ASSET — Periodic Depreciation Charge
+// ══════════════════════════════════════════════════════════════════════════════
+//
+//   Dr Depreciation Charges (9001)            amount    ← hits P&L
+//   Cr {Category} — Accumulated Depreciation   amount    ← hits Balance Sheet
+//
+// One entry per asset per period. The id format is
+// `JE-FA-DEP-{assetId}-{periodKey}` so Accounting.jsx can detect a re-post
+// and skip it. Caller is expected to have already verified:
+//   • asset is not voided / disposed
+//   • periodKey has not already been posted for this asset
+//   • amount > 0 (caller computes from cost / residual / months elapsed
+//     and caps at the remaining depreciable balance so we never over-dep)
+//
+// "amount" here is the periodic charge in NGN — depreciation only ever
+// posts in base currency for IFRS / Nigerian GAAP, so fxRate is 1 and
+// currency is NGN regardless of any FC cost.
+export function journalFromDepreciation(asset, periodKey, amount) {
+  const assetAcct   = FIXEDASSET_CATEGORY_MAP[asset.category] || DEFAULT_ASSET_ACCT;
+  const accumDepAcct = FIXEDASSET_ACCUMDEP_MAP[assetAcct.code]
+                       || { code: '200402', name: 'Office & Safety Equipment — Accumulated Depreciation' };
+
+  return {
+    id:          `JE-FA-DEP-${asset.id}-${periodKey}`,
+    date:        `${periodKey}-${new Date().getDate().toString().padStart(2,'0')}`, // best-effort day in month
+    ref:         asset.assetTag,
+    description: `Depreciation: ${asset.assetTag} — ${asset.description} (${periodKey})`,
+    source:      'fixedassets-dep',
+    sourceId:    asset.id,
+    periodKey,
+    lines: [
+      jLine(
+        DEPRECIATION_EXPENSE.code, DEPRECIATION_EXPENSE.name,
+        accumDepAcct.code, accumDepAcct.name,
+        amount, 'NGN', 1, amount, // FIX (T1-3): was Math.round(amount) twice — jLine() now does its own (kobo-precision) rounding
+        `Monthly depreciation charge — ${asset.category} — ${periodKey}`,
+      ),
+    ],
+  };
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // REVERSAL — Void a previously-posted entry
 // ══════════════════════════════════════════════════════════════════════════════
 //
@@ -586,4 +778,37 @@ export function reverseJournal(je, reason = 'Record voided') {
       crCode: l.drCode, crName: l.drName,
     })),
   };
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// DRIFT GUARD — every account code referenced above must exist in the real
+// chart of accounts (chartOfAccounts.js, which mirrors Accounting.jsx's live
+// COA). This used to be enforced only by a comment at the top of this file
+// ("must match DEFAULT_COA in Accounting.jsx exactly") — if the COA and this
+// file ever drifted apart, a posting would silently reference a nonexistent
+// account with no warning anywhere (it would just show as "Unknown" on the
+// Trial Balance). This turns that into a loud, immediate one instead.
+// Added 2026-07-23 audit — see QA_Security_DBA_Audit_2026-07-23.md.
+// ══════════════════════════════════════════════════════════════════════════════
+const REFERENCED_ACCOUNT_CODES = [
+  A.TRADE_RECEIVABLES.code, A.TRADE_PAYABLES.code, A.WHT_RECEIVABLE.code, A.INPUT_VAT.code,
+  A.SALES_VAT_PAYABLE.code, A.WHT_PAYABLE.code, A.NCDF_PAYABLE.code,
+  ...Object.values(AR_INCOME_MAP).map(a => a.code), DEFAULT_INCOME.code,
+  ...Object.values(AP_EXPENSE_MAP).map(a => a.code), DEFAULT_EXPENSE.code,
+  ...Object.values(PETTYCASH_EXPENSE_MAP).map(a => a.code), DEFAULT_PC_EXPENSE.code, IMPREST_CASH.code,
+  ADVANCE_FROM_CUSTOMER_TERMINAL.code, TERMINAL_REVENUE.code,
+  ...Object.values(FIXEDASSET_CATEGORY_MAP).map(a => a.code), DEFAULT_ASSET_ACCT.code,
+  ...Object.values(FIXEDASSET_ACCUMDEP_MAP).map(a => a.code),
+  DEPRECIATION_EXPENSE.code, CAPEX_SUSPENSE.code,
+  ...Object.values(PAYROLL_ACCTS).flatMap(group => Object.values(group).map(a => a.code)),
+  NHF_PAYABLE.code, OTHER_ACCRUED.code, SALARY_EXPENSE.code,
+];
+
+const _unknownAccountCodes = [...new Set(REFERENCED_ACCOUNT_CODES)].filter(code => !isKnownAccount(code));
+if (_unknownAccountCodes.length) {
+  console.error(
+    `[glPosting] ${_unknownAccountCodes.length} account code(s) referenced in this file don't exist in ` +
+    `the real chart of accounts (utils/chartOfAccounts.js) — postings to these codes will show as ` +
+    `"Unknown" on the Trial Balance: ${_unknownAccountCodes.join(', ')}`
+  );
 }

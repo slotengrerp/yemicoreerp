@@ -2,7 +2,7 @@
 // SLOT ENGINEERING — PETTY CASH MODULE v1.0
 // Fund management · disbursements · replenishment · approvals · print
 // ══════════════════════════════════════════════════════════════════════════════
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useApp }   from '../../context/AppContext';
 import { useTheme } from '../../context/ThemeContext';
 import { canDo }    from '../../utils/auth';
@@ -10,13 +10,26 @@ import { showToast, formatDate, generateId } from '../../utils/helpers';
 import { saveDBLocal } from '../../utils/db';
 import { logActivity }  from '../../utils/audit';
 import { printHeader, PRINT_CSS } from '../../utils/logo';
+import { initApproval, applyDecision, canApproveAtCurrentLevel, approvalSummary } from '../../utils/approvalEngine';
 
 const uid   = () => generateId();
 const today = () => new Date().toISOString().split('T')[0];
 const year  = () => new Date().getFullYear();
 const fmt   = n => '₦' + (Number(n)||0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 function nextNo(list) {
-  const nums = list.map(x => parseInt((x.voucherNo||'0').replace(/\D/g,''),10)).filter(Boolean);
+  // CRITICAL FIX: previously this scanned ALL entries (including REP- replenishments),
+  // stripped non-digits (turning 'REP-2026-0001' into '20260001'), and used Math.max
+  // to compute the next PCV number. Result: after one replenishment, the next PCV
+  // became 'PCV-2026-20260002' (8-digit "sequence" that padStart(4) couldn't fix).
+  // Now we filter to PCV-prefixed entries only and parse the trailing 4 digits.
+  const nums = list
+    .filter(x => (x.voucherNo || '').startsWith('PCV-'))
+    .map(x => {
+      // Match the last 4 digits after the year — PCV-YYYY-NNNN
+      const m = (x.voucherNo || '').match(/PCV-\d{4}-(\d+)/);
+      return m ? parseInt(m[1], 10) : 0;
+    })
+    .filter(Boolean);
   return `PCV-${year()}-${String(nums.length ? Math.max(...nums)+1 : 1).padStart(4,'0')}`;
 }
 
@@ -144,12 +157,34 @@ export default function PettyCash({ onNav }) {
   const { state, dispatch } = useApp();
   const { C } = useTheme();
   const { currentUser, db } = state;
-  const perms = { add: canDo(currentUser,'canAdd'), edit: canDo(currentUser,'canEdit'), del: canDo(currentUser,'canDelete') };
+  const perms = { add: canDo(currentUser,'canAdd','pettycash',state.appSettings), edit: canDo(currentUser,'canEdit','pettycash',state.appSettings), del: canDo(currentUser,'canDelete','pettycash',state.appSettings) };
   const isAdmin = currentUser?.role === 'admin';
 
-  const stored = db.pettycash?.length ? db.pettycash : SEED;
+  const stored = (db.pettycash?.length || state.appSettings?.dataWiped) ? (db.pettycash || []) : SEED;
   const [entries, setEntries] = useState(stored);
   const [fund, setFund] = useState(() => migrateFund(state.db.pettycash_fund));
+
+  // CRITICAL FIX: previously the `fund` useState ran ONCE on mount with
+  // migrateFund(state.db.pettycash_fund) — which returned DEFAULT_FUND on
+  // a fresh device (no localStorage yet). When cloud sync (App.jsx boot
+  // phase 2) later dispatched SET_DB with the real fund, this useState
+  // never updated — the displayed balance was wrong until the user did
+  // something that triggered setFund (and even then, it would decrement
+  // the STALE balance, making it more wrong). Now we sync from cloud when
+  // it arrives. We skip if the user has unsaved local edits (lastFundEditRef)
+  // to avoid clobbering their work-in-progress.
+  useEffect(() => {
+    if (state.db.pettycash_fund) {
+      setFund(f => {
+        // Only update if the cloud value differs from what we have —
+        // avoids re-render loops. We compare by JSON.stringify because
+        // shallow-compare wouldn't catch balance changes.
+        const cloudStr = JSON.stringify(state.db.pettycash_fund);
+        const localStr = JSON.stringify(f);
+        return cloudStr === localStr ? f : state.db.pettycash_fund;
+      });
+    }
+  }, [state.db.pettycash_fund]);
 
   const save = (data) => {
     setEntries(data);
@@ -187,26 +222,35 @@ export default function PettyCash({ onNav }) {
     if (!form.amount || Number(form.amount) <= 0) { showToast('Enter a valid amount','error'); return; }
     if (!form.description.trim()) { showToast('Description is required','error'); return; }
     if (Number(form.amount) > fund.balance) { showToast('Amount exceeds available fund balance','error'); return; }
-    const rec = { id:uid(), voucherNo:nextNo(entries), ...form, amount:Number(form.amount), status:'Pending', approvedBy:'', createdAt:new Date().toISOString() };
+    const approval = initApproval('pettycash', Number(form.amount), state.appSettings);
+    const rec = { id:uid(), voucherNo:nextNo(entries), ...form, amount:Number(form.amount), status:'Pending', approval, approvedBy:'', createdAt:new Date().toISOString() };
     save([...entries, rec]);
     logActivity(dispatch, `Petty cash voucher ${rec.voucherNo} submitted by ${rec.requestedBy}`, currentUser);
     showToast('Voucher submitted'); setModal(null); setForm(EMPTY);
   }
 
-  function handleApprove(id) {
+  function handleApprove(id, note = '') {
     const entry = entries.find(e=>e.id===id);
     if (!entry) return;
-    const newBalance = fund.balance - Number(entry.amount);
-    if (newBalance < 0) { showToast('Insufficient fund balance','error'); return; }
-    const updFund = { ...fund, balance: newBalance };
-    dispatch({ type:'UPDATE_MODULE', mod:'pettycash_fund', data:updFund }); setFund(updFund);
-    save(entries.map(e => e.id===id ? { ...e, status:'Approved', approvedBy:currentUser?.name||'Admin' } : e));
-    logActivity(dispatch, `Petty cash ${entry.voucherNo} approved`, currentUser);
-    showToast('Voucher approved');
+    const approval = entry.approval ? applyDecision(entry.approval, currentUser, 'Approved', note) : { status: 'Approved' };
+    // Fund balance is only debited once the FULL chain clears (multi-level
+    // vouchers above the band threshold need every level's sign-off before
+    // cash actually moves) — not on an intermediate level's approval.
+    if (approval.status === 'Approved') {
+      const newBalance = fund.balance - Number(entry.amount);
+      if (newBalance < 0) { showToast('Insufficient fund balance','error'); return; }
+      const updFund = { ...fund, balance: newBalance };
+      dispatch({ type:'UPDATE_MODULE', mod:'pettycash_fund', data:updFund }); setFund(updFund);
+    }
+    save(entries.map(e => e.id===id ? { ...e, approval, status: approval.status, approvedBy: approval.status === 'Approved' ? (currentUser?.name||'Admin') : e.approvedBy } : e));
+    logActivity(dispatch, `Petty cash ${entry.voucherNo} ${approval.status === 'Approved' ? 'approved' : 'progressed to next approval level'}`, currentUser);
+    showToast(approval.status === 'Approved' ? 'Voucher approved' : 'Approved at this level — next approver notified');
   }
 
-  function handleReject(id) {
-    save(entries.map(e => e.id===id ? { ...e, status:'Rejected', approvedBy:currentUser?.name||'Admin' } : e));
+  function handleReject(id, note = '') {
+    const entry = entries.find(e=>e.id===id);
+    const approval = entry?.approval ? applyDecision(entry.approval, currentUser, 'Rejected', note) : null;
+    save(entries.map(e => e.id===id ? { ...e, approval, status:'Rejected', approvedBy:currentUser?.name||'Admin' } : e));
     showToast('Voucher rejected');
   }
 
@@ -280,11 +324,16 @@ export default function PettyCash({ onNav }) {
                   <td style={td}><span style={{ fontSize:11, background:C.greenPale, color:C.green, padding:'2px 8px', borderRadius:20, border:'1px solid '+C.borderLight }}>{e.category}</span></td>
                   <td style={{ ...td, fontWeight:700, color:C.green }}>{fmt(e.amount)}</td>
                   <td style={{ ...td, textAlign:'center' }}>{e.receipt ? <span style={{ color:C.success, fontWeight:700 }}>✓</span> : <span style={{ color:C.danger }}>✗</span>}</td>
-                  <td style={td}><Tag status={e.status} /></td>
+                  <td style={td}>
+                    <Tag status={e.status} />
+                    {e.status === 'Pending' && e.approval?.requiredRoles?.length > 1 && (
+                      <div style={{ fontSize:9.5, color:C.amber, marginTop:2 }}>{approvalSummary(e.approval, state.appSettings)}</div>
+                    )}
+                  </td>
                   <td style={td}>
                     <div style={{ display:'flex', gap:5 }}>
                       <Btn sm variant="ghost" onClick={()=>printVoucher(e)}>🖨</Btn>
-                      {e.status === 'Pending' && isAdmin && (
+                      {e.status === 'Pending' && (canApproveAtCurrentLevel(e.approval, currentUser) || (isAdmin && !e.approval)) && (
                         <>
                           <Btn sm variant="outline" onClick={()=>handleApprove(e.id)}>Approve</Btn>
                           <Btn sm variant="danger" onClick={()=>handleReject(e.id)}>Reject</Btn>

@@ -30,3 +30,62 @@ export const BANK_ACCOUNTS = [
   { code:'3016', name:'Merchant Bank (A/C 1000159983)',          currency:'NGN' },
   { code:'3017', name:'Fidelity Bank PLC (A/C 4011553970)',      currency:'NGN' },
 ];
+
+// ════════════════════════════════════════════════════════════════════════════
+// Nigerian PAYE Calculator — Personal Income Tax Act (PITA) compliant
+//
+// CRITICAL FIX: previously the app applied the 7/11/15/19/21/24% bands
+// directly to gross × 12, omitting the Consolidated Relief Allowance (CRA).
+// Nigerian law requires CRA to be deducted BEFORE applying the bands:
+//
+//   CRA = max(₦200,000, 1% of gross) + 20% of gross
+//
+// So taxable income = gross − CRA, and the bands apply to that.
+// Without this fix, every employee was overpaying PAYE by ~30%.
+//
+// Bands (2024 onwards, post-2020 Finance Act):
+//   First       ₦300,000  →  7%
+//   Next        ₦300,000  → 11%
+//   Next        ₦500,000  → 15%
+//   Next        ₦500,000  → 19%
+//   Next    ₦1,600,000    → 21%
+//   Above  ₦3,200,000     → 24%  (i.e. everything above the sum of the above)
+//
+// Returns the MONTHLY PAYE (annual tax ÷ 12), rounded to the nearest naira.
+// ════════════════════════════════════════════════════════════════════════════
+export function calcPAYE_Nigeria(monthlyGross) {
+  const annualGross = Number(monthlyGross) * 12;
+  if (annualGross <= 0) return 0;
+  // Consolidated Relief Allowance
+  const cra = Math.max(200000, annualGross * 0.01) + (annualGross * 0.20);
+  const taxable = Math.max(0, annualGross - cra);
+  const bands = [
+    [300000,  7],
+    [300000, 11],
+    [500000, 15],
+    [500000, 19],
+    [1600000, 21],
+    [Infinity, 24],
+  ];
+  let tax = 0, remaining = taxable;
+  for (const [limit, rate] of bands) {
+    const slice = Math.min(remaining, limit);
+    tax += slice * (rate / 100);
+    remaining -= slice;
+    if (remaining <= 0) break;
+  }
+  return Math.round(tax / 12);
+}
+
+// NHF (National Housing Fund) — 2.5% of basic, but exempt if gross < ₦3,000/yr
+// (effectively everyone with a salary pays, but we keep the legal check).
+export function calcNHF_Nigeria(basic) {
+  if ((Number(basic) || 0) * 12 < 3000) return 0;
+  return Math.round(Number(basic) * 0.025);
+}
+
+// Pension (employee contribution) — 8% of (basic + housing + transport)
+// per PRA 2014. Some employers negotiate lower, but 8% is the statutory default.
+export function calcPension_Nigeria(basic, housing, transport) {
+  return Math.round(((Number(basic) || 0) + (Number(housing) || 0) + (Number(transport) || 0)) * 0.08);
+}

@@ -123,4 +123,32 @@ export const MODULE_COLUMNS = {
     columns: ['voucherNo','date','payee','category','purpose','amount','requestedBy','approvedBy','status'],
     example: [{ voucherNo:'PCV-2025-001', date:'2025-01-10', payee:'Fuel Station', category:'Fuel & Transport', purpose:'Generator fuel', amount:15000, requestedBy:'Bello Usman', approvedBy:'Manager', status:'Approved' }],
   },
+  fixedassets: {
+    label: 'Fixed Assets',
+    columns: ['description','category','serialNo','location','department','purchaseDate','cost','residualValue','usefulLifeYrs','condition','assignedTo','notes'],
+    example: [{ description:'Caterpillar 320D Excavator', category:'Plant & Equipment', serialNo:'CAT320D-2021-001', location:'Bonny Island Site', department:'Engineering', purchaseDate:'2021-06-01', cost:85000000, residualValue:8500000, usefulLifeYrs:10, condition:'Good', assignedTo:'Site Engineering Team', notes:'' }],
+  },
+  salesOrders: {
+    label: 'Sales Orders',
+    columns: ['client','clientCode','projectRef','date','expectedDelivery','currency','status','description','qty','unit','unitPrice','notes'],
+    example: [{ client:'Nigeria LNG Limited', clientCode:'NLNG NGN', projectRef:'NLNG HRSS-Q3', date:'2026-07-01', expectedDelivery:'2026-07-15', currency:'NGN', status:'Confirmed', description:'Engineering & Technical Support — Q3 retainer', qty:3, unit:'month', unitPrice:4500000, notes:'' }],
+    note: 'Each row becomes one Sales Order with a single line item (description/qty/unit/unitPrice). For orders needing multiple line items, import the first line then add the rest directly in Sales Orders.',
+  },
+  ap_bills: {
+    label: 'Accounts Payable Bills',
+    columns: ['vendor','vendorName','currency','fxRate','category','date','dueDate','projectCode','description','amount','vatAmount','whtRate','whtAmount','netPayable','status','notes'],
+    example: [{ vendor:'WORLDWIDE ENERGY LOG', vendorName:'Worldwide Energy Logistics Ltd', currency:'NGN', fxRate:1, category:'Logistics', date:'2026-06-01', dueDate:'2026-07-01', projectCode:'NLNG HRSS', description:'Logistics & Haulage Services', amount:1850000, vatAmount:138750, whtRate:5, whtAmount:92500, netPayable:1896250, status:'Unpaid', notes:'' }],
+  },
+  fleet_roster: {
+    label: 'Fleet Roster',
+    columns: ['vehicleNo','vehicleType','make','model','year','engineNo','chassisNo','assignedDriver','assignedUnit','currentLocation','vehicleLicenseExpiry','insuranceCertExpiry','roadWorthinessExpiry','currentKm','status'],
+    example: [{ vehicleNo:'AA-001-PH', vehicleType:'SUV', make:'Toyota', model:'Land Cruiser 200', year:2020, engineNo:'ENG-FL01-2020', chassisNo:'CHS-FL01-2020', assignedDriver:'Ernest Ojukwu', assignedUnit:'Management', currentLocation:'Port Harcourt HQ', vehicleLicenseExpiry:'2026-12-31', insuranceCertExpiry:'2026-12-31', roadWorthinessExpiry:'2026-09-30', currentKm:'0', status:'Active' }],
+    note: 'Imports into the vehicle roster only — maintenance/repair history is a separate record type not covered by import.',
+  },
+  terminal_containers: {
+    label: 'Terminal Containers',
+    columns: ['containerNo','containerType','size','portType','shippingCompany','shippingVessel','consigneeName','materialDescription','billOfLading','noOfContainers','status'],
+    example: [{ containerNo:'MSCU1234567', containerType:'20ft DV', size:'20ft', portType:'Sea', shippingCompany:'MSC Mediterranean Shipping', shippingVessel:'MSC LUNA', consigneeName:'SLOT Engineering Nigeria Ltd', materialDescription:'Industrial Pipes & Fittings', billOfLading:'MSCUB123456', noOfContainers:1, status:'Released' }],
+    note: 'Imports into Containers only — Bills of Lading, Charges, Logistics, and Advances are separate record types not covered by import.',
+  },
 };

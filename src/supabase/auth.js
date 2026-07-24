@@ -1,9 +1,7 @@
 // ══════════════════════════════════════════════════════════════════════════════
-// SLOT Engineering — Supabase Auth Bridge v1.0
+// SLOT Engineering — Supabase Auth Bridge v1.1
 // ══════════════════════════════════════════════════════════════════════════════
-// This is the NEW login path, added alongside the existing utils/auth.js
-// (not replacing it yet). It exists so we can test real Supabase Auth
-// end-to-end before switching App.jsx's login screen over to it.
+// This is the login + user-management path used throughout the app.
 //
 // HOW THIS FITS WITH THE EXISTING ROLE SYSTEM:
 //   - Supabase Auth (this file)   → handles password + session ONLY
@@ -15,6 +13,12 @@
 // matching `auth_user_id = auth.uid()`, then merged into the same shape the
 // rest of the app already expects ({ id, name, username, role, modules }),
 // so existing components don't need to change.
+//
+// v1.1 adds: onSupabaseAuthChange, requestPasswordReset, fetchAppUsers,
+// updateUserProfile, updateUserPassword — completing the migration of the
+// Users module off the old local getUsers()/saveUsers()/hashPassword()
+// store in utils/auth.js (that store no longer exists; see the comment
+// block at the top of utils/auth.js).
 // ══════════════════════════════════════════════════════════════════════════════
 
 import { supabase } from './client';
@@ -119,43 +123,238 @@ export async function restoreSupabaseSession() {
 }
 
 /**
- * Admin-only: create a brand new login. This creates BOTH the Supabase Auth
- * account (email+password) AND the linked app_users row in one call, so
- * admins never have to deal with the two-table linkage manually.
+ * Subscribe to Supabase Auth state changes (SIGNED_IN, SIGNED_OUT,
+ * TOKEN_REFRESHED, USER_UPDATED, etc). Call once at app boot, typically
+ * right after restoreSupabaseSession(), so App.jsx stays in sync if the
+ * session changes in another tab or expires server-side.
  *
- * Requires the caller to already be signed in as an admin — RLS on
- * app_users blocks non-admins from inserting new rows (see 002_row_level_security.sql).
+ * callback receives (event, session) exactly as Supabase provides them —
+ * App.jsx decides what to do with each event (e.g. re-run
+ * restoreSupabaseSession() on SIGNED_IN, clear currentUser on SIGNED_OUT).
+ *
+ * Returns an unsubscribe function. Call it in a useEffect cleanup:
+ *   useEffect(() => {
+ *     const unsubscribe = onSupabaseAuthChange((event, session) => { ... });
+ *     return unsubscribe;
+ *   }, []);
  */
-export async function createSupabaseUser({ email, password, name, username, role, modules, companyId }) {
+export function onSupabaseAuthChange(callback) {
+  if (!supabase) return () => {};
+  const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
+    callback(event, session);
+  });
+  return () => listener?.subscription?.unsubscribe();
+}
+
+/**
+ * Send a Supabase password-reset email to the given address. The user
+ * clicks the link in the email and is taken to redirectTo (defaults to
+ * the current app origin), where your reset-password screen should call
+ * supabase.auth.updateUser({ password }) to finish the flow.
+ *
+ * Used both for "Forgot password?" on LoginScreen and for the admin-side
+ * "Send Password Reset Email" action in Users.jsx.
+ */
+export async function requestPasswordReset(email, redirectTo) {
   if (!supabase) return { success: false, error: 'Supabase is not configured' };
 
-  // Step 1 — create the Auth account.
-  // Note: signUp() on the client creates the account AND signs in as them,
-  // which would kick the admin out of their own session. We use Supabase's
-  // admin API for this in production (via an Edge Function with the service
-  // role key, never exposed to the browser) — see AUTH_SETUP_NOTES.md.
-  // For now this client-side version is for initial setup/testing only.
-  const { data: authData, error: authError } = await supabase.auth.signUp({
-    email: email.trim().toLowerCase(),
-    password,
+  const { error } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), {
+    redirectTo: redirectTo || `${window.location.origin}/reset-password`,
   });
-  if (authError) return { success: false, error: authError.message };
 
-  // Step 2 — link the app_users row
-  const { data: profile, error: profileError } = await supabase
+  if (error) return { success: false, error: error.message };
+  return { success: true };
+}
+
+/**
+ * Admin-only: create a brand new login — both the Supabase Auth account
+ * (email+password) AND the linked app_users row, in one call, via the
+ * create-user Edge Function (supabase/functions/create-user/index.ts).
+ * The service role key this needs never reaches the browser — it lives
+ * only in the Edge Function's server-side environment.
+ *
+ * Requires the caller to already be signed in via Supabase Auth as an
+ * active admin — the Edge Function itself re-checks this server-side
+ * before doing anything privileged, so this isn't just a client-side gate.
+ */
+export async function createUserWithCloudLogin({ email, password, name, username, phone, role, modules }) {
+  if (!supabase) return { success: false, error: 'Supabase is not configured' };
+
+  const { data: sessionData } = await supabase.auth.getSession();
+  if (!sessionData?.session) {
+    return { success: false, error: 'You must be signed in via cloud login to create a cloud login for someone else' };
+  }
+
+  const { data, error } = await supabase.functions.invoke('create-user', {
+    body: { email, password, name, username, phone, role, modules },
+  });
+
+  if (error) {
+    // On a non-2xx response, supabase-js puts the raw Response on
+    // error.context — the Edge Function's own { error: "..." } body is in
+    // there, not in error.message (which is just "non-2xx status code").
+    let message = error.message || 'Could not create the user';
+    try {
+      const body = await error.context?.json?.();
+      if (body?.error) message = body.error;
+    } catch {
+      // error.context wasn't parseable JSON (e.g. a network-level failure
+      // rather than the function itself returning an error) — keep the
+      // generic message above.
+    }
+    return { success: false, error: message };
+  }
+
+  if (data?.error) return { success: false, error: data.error };
+  return { success: true, profile: data.profile };
+}
+
+/**
+ * Fetch every app_users row, for the Users admin screen. This is the
+ * single source of truth the table lists from — there is no local
+ * getUsers()/saveUsers() store anymore.
+ *
+ * NOTE: relies on Row Level Security allowing an active admin to select
+ * all rows in app_users (not just their own). If your RLS policy only
+ * allows a user to select their own row, you'll need an admin-scoped
+ * policy (e.g. "allow select where requesting user's app_users.role =
+ * 'admin'") for this to return the full list.
+ */
+export async function fetchAppUsers() {
+  if (!supabase) return { success: false, error: 'Supabase is not configured', users: [] };
+
+  const { data, error } = await supabase
     .from('app_users')
-    .insert({
-      company_id: companyId,
-      auth_user_id: authData.user.id,
-      username,
-      name,
-      role,
-      modules: modules || [],
-      status: 'Active',
-    })
+    .select('id, company_id, auth_user_id, username, name, email, phone, role, modules, status, created_at')
+    .order('created_at', { ascending: true });
+
+  if (error) return { success: false, error: error.message, users: [] };
+  return { success: true, users: data || [] };
+}
+
+/**
+ * Update an existing user's profile fields (name, phone, role, modules,
+ * status). This is a direct table update, not an Edge Function — it does
+ * NOT touch Supabase Auth or the password, only the app_users row.
+ *
+ * Relies on RLS allowing an active admin to update other users' rows.
+ */
+export async function updateUserProfile(userId, updates) {
+  if (!supabase) return { success: false, error: 'Supabase is not configured' };
+
+  const { data, error } = await supabase
+    .from('app_users')
+    .update(updates)
+    .eq('id', userId)
     .select()
     .single();
 
-  if (profileError) return { success: false, error: profileError.message };
-  return { success: true, profile };
+  if (error) return { success: false, error: error.message };
+  return { success: true, profile: data };
+}
+
+/**
+ * Admin-only: create a new user. Same as createUserWithCloudLogin — kept
+ * as a separate exported name because Users.jsx v2.0 imports it as
+ * createSupabaseUser. Both names point at the same implementation so
+ * either import works.
+ */
+export async function createSupabaseUser(args) {
+  return createUserWithCloudLogin(args);
+}
+
+/**
+ * Admin-only: update an existing user's profile fields (name, phone,
+ * role, modules, status). Same as updateUserProfile — kept as a separate
+ * exported name because Users.jsx v2.0 imports it as updateSupabaseUser
+ * and calls it as updateSupabaseUser(userId, updates).
+ *
+ * NOTE: this is a direct app_users table update via RLS, not routed
+ * through an Edge Function. A comment in the Users.jsx that calls this
+ * mentions routing through "the manage-users Edge Function" for future
+ * server-side validation (e.g. blocking demotion of the last admin) —
+ * that validation doesn't exist yet. If you add it later, this is the
+ * function to change: swap the table update below for a
+ * supabase.functions.invoke('...') call instead.
+ */
+export async function updateSupabaseUser(userId, updates) {
+  return updateUserProfile(userId, updates);
+}
+
+/** Admin-only: set a user's app_users.status to 'Inactive'. */
+export async function disableSupabaseUser(userId) {
+  return updateUserProfile(userId, { status: 'Inactive' });
+}
+
+/** Admin-only: set a user's app_users.status back to 'Active'. */
+export async function enableSupabaseUser(userId) {
+  return updateUserProfile(userId, { status: 'Active' });
+}
+
+/**
+ * Admin-only: send a password-reset EMAIL to a user, looked up by their
+ * app_users.id (not their Supabase Auth UUID). This does NOT set a new
+ * password directly and does NOT require an Edge Function or service
+ * role — supabase.auth.resetPasswordForEmail() is a public, anon-key-safe
+ * call. The user clicks the emailed link and sets their own new password.
+ *
+ * For an admin to set a password directly instead (no email round-trip),
+ * use updateUserPassword() below, which does go through the
+ * update-user-password Edge Function.
+ */
+export async function adminResetPassword(userId) {
+  if (!supabase) return { success: false, error: 'Supabase is not configured' };
+
+  const { data: user, error: lookupError } = await supabase
+    .from('app_users')
+    .select('email')
+    .eq('id', userId)
+    .single();
+
+  if (lookupError || !user?.email) {
+    return { success: false, error: 'Could not find this user\'s email address' };
+  }
+
+  return requestPasswordReset(user.email);
+}
+
+/**
+ * Admin-only: set a NEW password for an existing user, via the
+ * update-user-password Edge Function (supabase/functions/update-user-password/index.ts).
+ * Mirrors createUserWithCloudLogin — the service role key needed to call
+ * supabase.auth.admin.updateUserById() never reaches the browser, and the
+ * Edge Function re-verifies the caller is an active admin server-side.
+ *
+ * targetAuthUserId is the Supabase Auth UUID (app_users.auth_user_id) of
+ * the user whose password is being changed — NOT the app_users.id.
+ */
+export async function updateUserPassword(targetAuthUserId, newPassword) {
+  if (!supabase) return { success: false, error: 'Supabase is not configured' };
+
+  const { data: sessionData } = await supabase.auth.getSession();
+  if (!sessionData?.session) {
+    return { success: false, error: 'You must be signed in via cloud login to change another user\'s password' };
+  }
+
+  if (!targetAuthUserId) {
+    return { success: false, error: 'This user has no cloud login yet — nothing to update. Create one first.' };
+  }
+
+  const { data, error } = await supabase.functions.invoke('update-user-password', {
+    body: { authUserId: targetAuthUserId, newPassword },
+  });
+
+  if (error) {
+    let message = error.message || 'Could not update the password';
+    try {
+      const body = await error.context?.json?.();
+      if (body?.error) message = body.error;
+    } catch {
+      // not parseable — keep generic message
+    }
+    return { success: false, error: message };
+  }
+
+  if (data?.error) return { success: false, error: data.error };
+  return { success: true };
 }

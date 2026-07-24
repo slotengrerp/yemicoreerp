@@ -106,7 +106,7 @@ export default function Analytics({ onNav }) {
   const nlng        = db.nlng        || [];
   const slot        = db.slot        || [];
   const procurement = db.procurement?.pos || [];  // db.procurement is {rfqs,pos,waybills,invoices}
-  const journals    = acctData?.journalEntries || [];
+  const journals    = acctData?.journals || []; // v2: key was renamed from journalEntries to journals
 
   // ── Invoice revenue by month ───────────────────────────────────────────────
   const revenueByMonth = useMemo(() => {

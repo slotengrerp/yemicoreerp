@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Lint
+        # Lint is currently non-blocking (292 pre-existing errors). Once
+        # cleanup is complete, change this to fail the build on any error.
+        run: npm run lint
+        continue-on-error: true
+
+      - name: Test
+        run: npm test
+        env:
+          # Tests run against the legacy sync engine (no Supabase needed)
+          VITE_USE_PER_RECORD_SYNC: 'false'
+
+      - name: Build
+        run: npm run build
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: dist
+          path: dist/
+          retention-days: 7

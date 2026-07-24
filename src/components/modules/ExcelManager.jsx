@@ -46,9 +46,21 @@ export default function ExcelManager() {
 
   const modKeys = Object.keys(MODULE_COLUMNS);
   const cfg     = MODULE_COLUMNS[selectedMod];
-  // db.procurement is {rfqs, pos, waybills, invoices} — export/import the POs (.pos)
-  const dbRows  = selectedMod === 'procurement'
-    ? (db.procurement?.pos || [])
+
+  // Some modules don't live as a flat db[key] array — they're a sub-array
+  // inside a parent object (db.procurement.pos, db.ap.bills, etc.). This map
+  // is the single source of truth for that, used by both export (reading
+  // current rows) and import (merging new rows back in) below.
+  const NESTED_TARGETS = {
+    procurement:         { parentKey: 'procurement', childKey: 'pos' },
+    ap_bills:            { parentKey: 'ap',           childKey: 'bills' },
+    fleet_roster:        { parentKey: 'fleet',         childKey: 'fleet' },
+    terminal_containers: { parentKey: 'terminal',      childKey: 'containers' },
+  };
+
+  const nested  = NESTED_TARGETS[selectedMod];
+  const dbRows  = nested
+    ? (db[nested.parentKey]?.[nested.childKey] || [])
     : (Array.isArray(db[selectedMod]) ? db[selectedMod] : []);
 
   // ── Export ────────────────────────────────────────────────────────────────
@@ -116,22 +128,43 @@ export default function ExcelManager() {
     if (!preview) return;
     const { rows, modKey } = preview;
 
-    // Normalise: add id + createdAt if missing
-    const normalised = rows.map(row => ({
-      id: generateId(),
-      ...row,
-      createdAt: row.createdAt || new Date().toISOString(),
-    }));
+    // Sales Orders is a special row shape: each imported row becomes ONE
+    // order with a SINGLE line item built from description/qty/unit/
+    // unitPrice — see the module's `note` in excelIO.js for the limitation
+    // this implies (multi-line orders need the extra lines added manually
+    // after import).
+    const normalised = rows.map(row => {
+      if (modKey === 'salesOrders') {
+        const { description, qty, unit, unitPrice, ...rest } = row;
+        return {
+          id: generateId(),
+          ...rest,
+          items: [{ id: generateId(), description: description||'', qty: Number(qty)||1, unit: unit||'unit', unitPrice: Number(unitPrice)||0, orderedQty: Number(qty)||1, invoicedQty: 0 }],
+          invoices: [],
+          createdAt: row.createdAt || new Date().toISOString(),
+        };
+      }
+      return { id: generateId(), ...row, createdAt: row.createdAt || new Date().toISOString() };
+    });
 
-    const existing = Array.isArray(db[modKey]) ? db[modKey] : [];
-    const merged   = [...existing, ...normalised];
+    const nestedTarget = NESTED_TARGETS[modKey];
+    const existing = nestedTarget
+      ? (db[nestedTarget.parentKey]?.[nestedTarget.childKey] || [])
+      : (Array.isArray(db[modKey]) ? db[modKey] : []);
+    const merged = [...existing, ...normalised];
 
-    // procurement is an object — only update the .pos array, keep rfqs/waybills/invoices intact
-    const importData = modKey === 'procurement'
-      ? { ...db.procurement, pos: merged }
+    // Nested modules (procurement.pos, ap.bills, fleet.fleet,
+    // terminal.containers) need their PARENT object preserved — only the
+    // one child array is replaced, everything else in the parent stays
+    // exactly as it was. Flat modules (fixedassets, salesOrders, etc.) just
+    // get their top-level array replaced directly.
+    const dbKey = nestedTarget ? nestedTarget.parentKey : modKey;
+    const importData = nestedTarget
+      ? { ...db[nestedTarget.parentKey], [nestedTarget.childKey]: merged }
       : merged;
-    dispatch({ type:'UPDATE_MODULE', mod: modKey, data: importData });
-    saveDBLocal({ ...db, [modKey]: merged }, state.activity);
+
+    dispatch({ type:'UPDATE_MODULE', mod: dbKey, data: importData });
+    saveDBLocal({ ...db, [dbKey]: importData }, state.activity);
     logActivity(dispatch, `Imported ${normalised.length} rows into ${MODULE_COLUMNS[modKey].label} from ${preview.file}`, currentUser, { module:modKey, action:'create' });
     showToast(`${normalised.length} rows imported into ${MODULE_COLUMNS[modKey].label}`);
     setPreview(null);
@@ -163,6 +196,11 @@ export default function ExcelManager() {
         <div style={{ marginTop:12, fontSize:11.5, color:C.textMuted }}>
           Selected: <strong style={{ color:C.text }}>{cfg.label}</strong> · {dbRows.length} records in database
         </div>
+        {cfg.note && (
+          <div style={{ marginTop:10, padding:'8px 12px', background:'rgba(201,122,10,.08)', border:'1px solid rgba(201,122,10,.2)', borderLeft:'3px solid '+C.amber, borderRadius:6, fontSize:11.5, color:C.amber }}>
+            {cfg.note}
+          </div>
+        )}
       </Card>
 
       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16 }}>

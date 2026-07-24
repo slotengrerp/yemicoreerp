@@ -11,6 +11,7 @@ import { saveDBLocal } from '../../utils/db';
 import { logActivity }  from '../../utils/audit';
 import { Users, DollarSign, UserCheck, UserX } from 'lucide-react';
 import { SLOT_LOGO_B64, SLOT_BRAND, printHeader, PRINT_CSS } from '../../utils/logo';
+import { calcPAYE_Nigeria } from '../../utils/financeConstants';
 import { getProjects } from '../../utils/projectMaster';
 
 const DEPARTMENTS = ['Engineering','HSE','Operations','Admin','Procurement','Finance','Mechanical','Electrical','Civil','IT','Legal','Logistics'];
@@ -90,10 +91,8 @@ function printPayslip(s, period, company) {
 
   // PAYE (simplified progressive — Nigerian tax table, applied monthly on annualised gross)
   function calcPAYE(annual) {
-    const bands = [[300000,7],[300000,11],[500000,15],[500000,19],[1600000,21],[Infinity,24]];
-    let tax=0, rem=annual;
-    for(const [limit,rate] of bands){ const slice=Math.min(rem,limit); tax+=slice*(rate/100); rem-=slice; if(rem<=0)break; }
-    return Math.round(tax/12);
+    // CRITICAL FIX: now uses shared PITA-compliant calc with CRA deduction.
+    return calcPAYE_Nigeria(annual / 12);
   }
 
   // Employee Pension — 8% statutory contribution on (Basic + Housing + Transport)
@@ -259,7 +258,7 @@ function StaffModal({ modal, onSave, onClose, projects }) {
             <div style={{ fontSize:16, fontWeight:700, color:C.text }}>{isEdit?'Edit Staff Record':'Add New Contract Staff'}</div>
             <div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>NLNG Contract Staff · SLOT Engineering</div>
           </div>
-          <button onClick={onClose} style={{ background:'none', border:'none', fontSize:22, color:C.textMuted, cursor:'pointer' }}>×</button>
+          <button onClick={onClose} aria-label="Close dialog" style={{ background:'none', border:'none', fontSize:22, color:C.textMuted, cursor:'pointer' }}>×</button>
         </div>
         <div style={{ padding:'0 24px 20px' }}>
           <SecLabel label="Personal Information" />
@@ -379,7 +378,7 @@ export default function ContractStaff() {
       const extraEarnings=(Number(s.bonnyAllowance)||0)+(Number(s.leaveAllowance)||0)+(Number(s.eoyBonus)||0)+(Number(s.overtimeAllowance)||0);
       const gross=basic+housing+transport+extraEarnings;
       const pension=Math.round((basic+housing+transport)*0.08);
-      const paye=(()=>{ const bands=[[300000,7],[300000,11],[500000,15],[500000,19],[1600000,21],[Infinity,24]]; let tax=0,rem=gross*12; for(const [lim,rate] of bands){const sl=Math.min(rem,lim);tax+=sl*(rate/100);rem-=sl;if(rem<=0)break;} return Math.round(tax/12); })();
+      const paye=calcPAYE_Nigeria(gross);
       const otherDeductions=(Number(s.voluntaryPension)||0)+(Number(s.salaryAdvance)||0)+(Number(s.loan)||0);
       const netPay = gross - pension - paye - otherDeductions;
       return { staffId:s.id, refId:s.refId, fullName:s.fullName, department:s.department, projectCode:s.projectCode||'',
@@ -552,7 +551,7 @@ export default function ContractStaff() {
                     const extraEarnings=(Number(s.bonnyAllowance)||0)+(Number(s.leaveAllowance)||0)+(Number(s.eoyBonus)||0)+(Number(s.overtimeAllowance)||0);
                     const gross=basic+housing+transport+extraEarnings;
                     const pension=Math.round((basic+housing+transport)*0.08);
-                    const paye=(()=>{ const bands=[[300000,7],[300000,11],[500000,15],[500000,19],[1600000,21],[Infinity,24]]; let tax=0,rem=gross*12; for(const [lim,rate] of bands){const sl=Math.min(rem,lim);tax+=sl*(rate/100);rem-=sl;if(rem<=0)break;} return Math.round(tax/12); })();
+                    const paye=calcPAYE_Nigeria(gross);
                     const otherDeductions=(Number(s.voluntaryPension)||0)+(Number(s.salaryAdvance)||0)+(Number(s.loan)||0);
                     const totalDeduct=pension+paye+otherDeductions;
                     const netPay=gross-totalDeduct;

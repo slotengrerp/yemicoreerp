@@ -40,13 +40,18 @@ function printHandover(h) {
 
 // ── Persistence ───────────────────────────────────────────────────────────────
 // ── Fleet data loader: central store → old private key → SEED ────────────────
-function migrateFleet(dbFleet) {
+function migrateFleet(dbFleet, dataWiped) {
   const hasData = obj => obj && (
     obj.fleet?.length || obj.services?.length || obj.repairs?.length ||
     obj.breakdowns?.length || obj.requests?.length
   );
   // 1. Central store has data → use it
   if (hasData(dbFleet)) return dbFleet;
+  // 1b. Deliberately wiped (Backup → Wipe All Data) → empty means empty;
+  // don't fall through to the legacy key or the inline SEED below. (Falling
+  // back to SEED here, even as an edge-case safety net, would defeat the
+  // entire point of this branch.)
+  if (dataWiped) return dbFleet || { fleet: [], services: [], maintLog: [], repairs: [], breakdowns: [], requests: [], handovers: [], facilitySchedule: [], calibration: [] };
   // 2. Old private localStorage key (pre-migration) → migrate once
   try {
     const raw = localStorage.getItem('slot_fleet');
@@ -213,7 +218,7 @@ function FleetModal({ vehicle, onSave, onClose }) {
           </div>
           <div style={{ display:'flex', gap:8 }}>
             {isView && <STag status={f.status} />}
-            <button onClick={onClose} style={{ background:'none', border:'none', fontSize:22, color:C.textMuted, cursor:'pointer' }}>×</button>
+            <button onClick={onClose} aria-label="Close dialog" style={{ background:'none', border:'none', fontSize:22, color:C.textMuted, cursor:'pointer' }}>×</button>
           </div>
         </div>
 
@@ -269,7 +274,7 @@ function ServiceModal({ rec, fleet, onSave, onClose }) {
             <div style={{ fontSize:16, fontWeight:700, color:C.text }}>🔧 {isView ? 'Service Record — '+f.vehicleNo : 'New Routine Service Record'}</div>
             <div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>SLOT-FMA-001 · Routine Service Record</div>
           </div>
-          <button onClick={onClose} style={{ background:'none', border:'none', fontSize:22, color:C.textMuted, cursor:'pointer' }}>×</button>
+          <button onClick={onClose} aria-label="Close dialog" style={{ background:'none', border:'none', fontSize:22, color:C.textMuted, cursor:'pointer' }}>×</button>
         </div>
 
         {!isView && <div style={{ marginBottom:14 }}>
@@ -330,7 +335,7 @@ function RepairModal({ rec, fleet, onSave, onClose, onPostToAccounting }) {
             {isView && f.postedToAccounting && (
               <span style={{ fontSize:11, color:C.green, fontWeight:700 }}>✓ Posted to Accounting</span>
             )}
-            <button onClick={onClose} style={{ background:'none', border:'none', fontSize:22, color:C.textMuted, cursor:'pointer' }}>×</button>
+            <button onClick={onClose} aria-label="Close dialog" style={{ background:'none', border:'none', fontSize:22, color:C.textMuted, cursor:'pointer' }}>×</button>
           </div>
         </div>
 
@@ -376,7 +381,7 @@ function BreakdownModal({ rec, fleet, onSave, onClose }) {
           </div>
           <div style={{ display:'flex', gap:8 }}>
             {isView && <STag status={f.status} />}
-            <button onClick={onClose} style={{ background:'none', border:'none', fontSize:22, color:C.textMuted, cursor:'pointer' }}>×</button>
+            <button onClick={onClose} aria-label="Close dialog" style={{ background:'none', border:'none', fontSize:22, color:C.textMuted, cursor:'pointer' }}>×</button>
           </div>
         </div>
 
@@ -430,7 +435,7 @@ function RequestModal({ rec, onSave, onClose }) {
           </div>
           <div style={{ display:'flex', gap:8 }}>
             {isView && <STag status={f.status} />}
-            <button onClick={onClose} style={{ background:'none', border:'none', fontSize:22, color:C.textMuted, cursor:'pointer' }}>×</button>
+            <button onClick={onClose} aria-label="Close dialog" style={{ background:'none', border:'none', fontSize:22, color:C.textMuted, cursor:'pointer' }}>×</button>
           </div>
         </div>
 
@@ -496,7 +501,7 @@ function HandoverModal({ rec, fleet, onSave, onClose }) {
             <div style={{ fontSize:16, fontWeight:700, color:C.text }}>🤝 {isView ? 'Vehicle Handover — '+f.vehicleNo : 'New Vehicle Handover Form'}</div>
             <div style={{ fontSize:11, color:C.textMuted }}>SLOT-FMA-005 · Vehicles Handover Form</div>
           </div>
-          <button onClick={onClose} style={{ background:'none', border:'none', fontSize:22, color:C.textMuted, cursor:'pointer' }}>×</button>
+          <button onClick={onClose} aria-label="Close dialog" style={{ background:'none', border:'none', fontSize:22, color:C.textMuted, cursor:'pointer' }}>×</button>
         </div>
 
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:14 }}>
@@ -597,7 +602,7 @@ function CalibrationModal({ rec, fleet, onSave, onClose }) {
       <div style={{ background:C.bgCard, border:'1px solid '+C.border, borderRadius:14, width:'100%', maxWidth:560, maxHeight:'90vh', overflow:'auto', boxShadow:C.shadowCard }}>
         <div style={{ padding:'16px 20px', background:'linear-gradient(135deg,#0F3A1A,#1A5C2A)', borderRadius:'14px 14px 0 0', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
           <div style={{ fontSize:14, fontWeight:700, color:'#fff' }}>🎯 {rec ? 'Edit' : 'Add'} Calibration / Certification</div>
-          <button onClick={onClose} style={{ background:'none', border:'none', color:'#fff', fontSize:18, cursor:'pointer' }}>✕</button>
+          <button onClick={onClose} aria-label="Close dialog" style={{ background:'none', border:'none', color:'#fff', fontSize:18, cursor:'pointer' }}>✕</button>
         </div>
         <div style={{ padding:20, display:'flex', flexDirection:'column', gap:14 }}>
 
@@ -690,7 +695,7 @@ export default function FleetMaintenance({ onNav }) {
   const { currentUser } = state;
   const perms = { add:canDo(currentUser,'canAdd'), edit:canDo(currentUser,'canEdit'), del:canDo(currentUser,'canDelete') };
 
-  const saved = migrateFleet(state.db.fleet);
+  const saved = migrateFleet(state.db.fleet, state.appSettings?.dataWiped);
   const [fleet,     setFleet]    = useState(saved?.fleet     || SEED.fleet);
   const [services,  setServices] = useState(saved?.services  || SEED.services);
   const [maintLog,  setMaintLog] = useState(saved?.maintLog  || SEED.maintLog);

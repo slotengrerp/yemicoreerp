@@ -2,7 +2,6 @@ import { useState, useMemo, useRef, useEffect } from 'react';
 import { useTheme } from '../../context/ThemeContext';
 import { useApp } from '../../context/AppContext';
 import { Btn, ThemeToggle } from '../ui';
-import { logout } from '../../utils/auth';
 import { SLOT_LOGO_SRC } from '../../utils/logo';
 import { LogOut, Wifi, WifiOff, CloudOff, Cloud, Menu, Search } from 'lucide-react';
 import DocScanner from '../ui/DocScanner';
@@ -35,7 +34,7 @@ export default function Topbar({ page, onLogout, online = true, pendingSync = 0,
 
   // Avatar now derives from role, not personal name — see user card below
 
-  function handleLogout() { logout(); onLogout(); }
+  function handleLogout() { onLogout(); }
 
   // ── Global search across all modules ──────────────────────────────────────
   const searchResults = useMemo(() => {

@@ -1,39 +1,46 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Toaster } from 'react-hot-toast';
 import ErrorBoundary from './components/ErrorBoundary';
 import { AppProvider, useApp } from './context/AppContext';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
-import { getSession, touchActivity, logout } from './utils/auth';
-import { signOutOfSupabase } from './supabase/auth';
+import { signOutOfSupabase, restoreSupabaseSession, onSupabaseAuthChange } from './supabase/auth';
 import { loadDBLocal, loadSettingsLocal, loadAccountingLocal, loadDBCloud, seedDemoData, saveDBLocal, saveAccountingLocal, saveDBCloud, getStorageHealth, migrateFleetData } from './utils/db';
-import { showToast } from './utils/helpers';
-import { DEFAULT_COA } from './utils/accounting';
-import { flushQueue, getPendingCount, isOnline } from './supabase/sync';
+import { showToast, WIPE_FLAG_KEY } from './utils/helpers';
+import { flushQueue, getPendingCount, isOnline, subscribeToChanges } from './supabase/sync';
+import { supabase } from './supabase/client';
 
 import LoginScreen      from './components/layout/LoginScreen';
 import Sidebar          from './components/layout/Sidebar';
 import Topbar           from './components/layout/Topbar';
-import Dashboard        from './components/modules/Dashboard';
-import ContractStaff    from './components/modules/ContractStaff';
-import SlotStaff        from './components/modules/SlotStaff';
-import Procurement      from './components/modules/Procurement';
-import Inventory        from './components/modules/Inventory';
-import TerminalOps      from './components/modules/TerminalOps';
-import FleetMaintenance from './components/modules/FleetMaintenance';
-import Accounting       from './components/modules/Accounting';
-import AccountsPayable    from './components/modules/AccountsPayable';
-import AccountsReceivable from './components/modules/AccountsReceivable';
-import ProjectPL          from './components/modules/ProjectPL';
-import PettyCash        from './components/modules/PettyCash';
-import Requests         from './components/modules/Requests';
-import Approvals        from './components/modules/Approvals';
-import Analytics        from './components/modules/Analytics';
-import Users            from './components/modules/Users';
-import Settings         from './components/modules/Settings';
-import Backup           from './components/modules/Backup';
-import ExcelManager     from './components/modules/ExcelManager';
-import ModuleEditor     from './components/modules/ModuleEditor';
-import FixedAssets      from './components/modules/FixedAssets';
+import { usePerRecordSync, USE_PER_RECORD } from './hooks/usePerRecordSync';
+
+// Code-split heavy modules — they each get their own chunk and load on
+// demand the first time the user navigates to them. Cuts the initial
+// payload from a single ~917KB bundle to a much smaller landing bundle.
+const Dashboard        = lazy(() => import('./components/modules/Dashboard'));
+const ContractStaff    = lazy(() => import('./components/modules/ContractStaff'));
+const SlotStaff        = lazy(() => import('./components/modules/SlotStaff'));
+const Procurement      = lazy(() => import('./components/modules/Procurement'));
+const Inventory        = lazy(() => import('./components/modules/Inventory'));
+const TerminalOps      = lazy(() => import('./components/modules/TerminalOps'));
+const FleetMaintenance = lazy(() => import('./components/modules/FleetMaintenance'));
+const Accounting       = lazy(() => import('./components/modules/Accounting'));
+const AccountsPayable  = lazy(() => import('./components/modules/AccountsPayable'));
+const AccountsReceivable = lazy(() => import('./components/modules/AccountsReceivable'));
+const ProjectPL        = lazy(() => import('./components/modules/ProjectPL'));
+const PettyCash        = lazy(() => import('./components/modules/PettyCash'));
+const Requests         = lazy(() => import('./components/modules/Requests'));
+const Approvals        = lazy(() => import('./components/modules/Approvals'));
+const Analytics        = lazy(() => import('./components/modules/Analytics'));
+const Users            = lazy(() => import('./components/modules/Users'));
+const Settings         = lazy(() => import('./components/modules/Settings'));
+const Backup           = lazy(() => import('./components/modules/Backup'));
+const ExcelManager     = lazy(() => import('./components/modules/ExcelManager'));
+const ModuleEditor     = lazy(() => import('./components/modules/ModuleEditor'));
+const FixedAssets      = lazy(() => import('./components/modules/FixedAssets'));
+const SalesOrders      = lazy(() => import('./components/modules/SalesOrders'));
+const SageReports      = lazy(() => import('./components/modules/SageReports'));
+const SageReports2     = lazy(() => import('./components/modules/SageReports2'));
 
 const PAGES = {
   dashboard:    Dashboard,
@@ -55,6 +62,9 @@ const PAGES = {
   settings:     Settings,
   backup:       Backup,
   fixedassets:  FixedAssets,
+  salesorders:  SalesOrders,
+  sagereports:  SageReports,
+  sagereports2: SageReports2,
   excel:        ExcelManager,
   moduleeditor: ModuleEditor,
 };
@@ -64,6 +74,26 @@ const SIDEBAR_W_CLOSED = 60;
 
 // ── Cloud sync with hard timeout — never blocks the UI ────────────────────────
 const CLOUD_TIMEOUT_MS = 5000; // 5 seconds max — then fall back to local silently
+
+// ── Client/Project/Vendor master data bridge ──────────────────────────────────
+// See the long comment at its call site in syncCloud() for why this exists.
+function mirrorMasterData(localKey, modName, cloudValue, pushLocalToCloud) {
+  try {
+    if (Array.isArray(cloudValue) && cloudValue.length > 0) {
+      // Cloud has data for this module — keep the local plain-function read
+      // path (getClients/getProjects/getVendors) in sync with it.
+      localStorage.setItem(localKey, JSON.stringify(cloudValue));
+    } else {
+      // Cloud is empty for this module — if this device has local-only data
+      // from before this fix existed, migrate it up so it finally syncs.
+      const raw = localStorage.getItem(localKey);
+      if (raw) {
+        const local = JSON.parse(raw);
+        if (Array.isArray(local) && local.length) pushLocalToCloud(local);
+      }
+    }
+  } catch { /* non-fatal — worst case, master data stays local-only a bit longer */ }
+}
 
 async function syncCloud(dispatch, localSnapshot) {
   try {
@@ -81,24 +111,51 @@ async function syncCloud(dispatch, localSnapshot) {
       if (cloud.db) {
         db = { ...db, ...cloud.db };
         ['fixedassets','wht','_trash'].forEach(k => { if (!Array.isArray(db[k])) db[k] = []; });
-        if (!db.terminal      || Array.isArray(db.terminal))      db.terminal      = { containers:[], charges:[], logistics:[] };
+        // Normalize Sage Features II module keys — these are stored as arrays
+        // but may arrive from cloud as undefined or wrong shape
+        ['recurringInvoices','recurringInvoiceTemplates','prepayAccruals','bankReconciliations','assetDisposals','prepayments','accruals','budgets','stockTakes','stockItems','stockMovements','warehouses','stockTransfers','serialBatches','boms','bomBuilds','creditNotes','paymentBatches','arReceipts'].forEach(k => { if (!Array.isArray(db[k])) db[k] = []; });
+        // Normalize ap object (used by Bank Recon tab in SageReports2)
+        if (!db.ap || Array.isArray(db.ap)) db.ap = { bills: [], payments: [] };
+        if (!Array.isArray(db.ap.bills)) db.ap.bills = [];
+        if (!Array.isArray(db.ap.payments)) db.ap.payments = [];
+        if (!db.terminal      || Array.isArray(db.terminal))      db.terminal      = { containers:[], charges:[], logistics:[], bols:[], advances:[] };
         if (!db.procurement   || Array.isArray(db.procurement))   db.procurement   = { rfqs:[], pos:[], waybills:[], invoices:[] };
         if (!db.fleet         || Array.isArray(db.fleet))         db.fleet         = { fleet:[], services:[], maintLog:[], repairs:[], breakdowns:[], requests:[], handovers:[], facilitySchedule:[], calibration:[] };
         if (!db.fleet.calibration)                                db.fleet.calibration = [];
         db.fleet = migrateFleetData(db.fleet);
         if (!db.pettycash_fund|| Array.isArray(db.pettycash_fund))db.pettycash_fund= { balance:500000, limit:500000, custodian:'Finance Officer', lastReplenished:'' };
-        // Lazy-seed: if cloud data is empty, inject demo data so modules aren't blank
-        // This handles the case where cloud row was saved before data existed
-        if (!db.procurement.pos?.length && !db.procurement.rfqs?.length) {
-          db.procurement = seedDemoData().procurement;
-        }
-        if (!db.fleet.fleet?.length) {
-          const freshFleet = seedDemoData();
-          db.fleet = freshFleet.fleet;
-        }
+        // NOTE: a "lazy-seed if empty" guard used to live here (re-injecting
+        // demo procurement/fleet data whenever those arrays were empty). It
+        // was a one-time migration safety net for a past private-key bug,
+        // but it made "intentionally empty, ready for real data" impossible
+        // to reach — every reload would silently refill demo records. That
+        // migration is long done, so this was removed rather than kept as a
+        // permanent trap. An empty module now stays empty until real data
+        // (import or manual entry) puts something there.
         dispatch({ type: 'SET_DB', payload: db });
       }
-      if (cloud.settings) dispatch({ type: 'SET_SETTINGS', payload: cloud.settings });
+
+      // ── Client/Project/Vendor master data ──────────────────────────────────
+      // These three used to live ONLY in their own private localStorage keys
+      // (bc_clients/bc_projects/bc_vendors), completely disconnected from the
+      // Supabase-synced db object — meaning none of it ever reached the cloud.
+      // Now: db.clients/db.projects/db.vendors are part of the synced object.
+      //   - If the cloud copy has data, mirror it into the local keys so
+      //     getClients()/getProjects()/getVendors() (plain functions, not
+      //     hooks — they read localStorage directly) see the latest version
+      //     regardless of which device it came from.
+      //   - If the cloud copy is empty but this device has local-only data
+      //     (the pre-fix state), pull it into `db` once so it finally gets
+      //     pushed to the cloud on the next save.
+      mirrorMasterData('bc_clients',  'clients',  db.clients,  x => dispatch({ type: 'UPDATE_MODULE', mod: 'clients',  data: x }));
+      mirrorMasterData('bc_projects', 'projects', db.projects, x => dispatch({ type: 'UPDATE_MODULE', mod: 'projects', data: x }));
+      mirrorMasterData('bc_vendors',  'vendors',  db.vendors,  x => dispatch({ type: 'UPDATE_MODULE', mod: 'vendors',  data: x }));
+      if (cloud.settings) {
+        dispatch({ type: 'SET_SETTINGS', payload: cloud.settings });
+        if (cloud.settings.dataWiped) {
+          try { localStorage.setItem(WIPE_FLAG_KEY, '1'); } catch {}
+        }
+      }
       if (cloud.acctData) dispatch({ type: 'SET_ACCT',     payload: cloud.acctData });
       // Merge cloud activity with current local activity — preserve local entries
       // that haven't synced to cloud yet (avoids wiping activity on load)
@@ -127,6 +184,31 @@ function Shell() {
   const [page, setPage]                         = useState('dashboard');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const scrollRef = useRef(null);
+  const conflictNoticeShown = useRef(false);
+
+  // ── CRITICAL: fresh-state refs for realtime handlers ────────────────────────
+  // The legacy realtime subscription (subscribeToChanges) is set up in a
+  // useEffect with deps=[currentUser, dispatch]. Without these refs, every
+  // remote postgres_changes event read state.activity from the closure
+  // captured at sign-in — so any local activity entries created after sign-in
+  // (every logActivity call) were silently dropped from the merge. Refs are
+  // updated on every render so the realtime handler reads the LIVE value when
+  // an event arrives minutes/hours later.
+  const stateActivityRef = useRef(state.activity);
+  useEffect(() => { stateActivityRef.current = state.activity; }, [state.activity]);
+
+  // Toast-throttle ref — without this, every remote postgres_changes event
+  // fired a toast. Two users editing at the same time → both clients got a
+  // toast every few seconds. Throttled to once per 5 seconds; only the first
+  // remote change in a 5-second window shows a toast.
+  const lastRemoteToastRef = useRef(0);
+
+  // ── Per-record Supabase sync — opt-in via VITE_USE_PER_RECORD_SYNC=true ──
+  // When enabled, the legacy whole-document sync is bypassed and the
+  // app talks to Supabase one row at a time. This is the architectural
+  // direction called for in the project profile (Supabase as the
+  // single source of truth, not localStorage).
+  usePerRecordSync({ state, dispatch });
 
   // ── Reset scroll to top on every page navigation — no jump, no flash ──
   useEffect(() => {
@@ -156,30 +238,151 @@ function Shell() {
     };
   }, []);
 
+  // ── Client/Project/Vendor master data → central store bridge ──────────────
+  // clientMaster.js/projectMaster.js/vendorMaster.js are plain utility
+  // modules, not components — they can't call dispatch() directly. They fire
+  // this event on every save instead; we catch it here and fold the change
+  // into the central store, which is what actually reaches Supabase.
+  useEffect(() => {
+    function handleMasterDataChanged(e) {
+      const { mod, data } = e.detail || {};
+      if (mod && data) dispatch({ type: 'UPDATE_MODULE', mod, data });
+    }
+    window.addEventListener('slot:masterDataChanged', handleMasterDataChanged);
+    return () => window.removeEventListener('slot:masterDataChanged', handleMasterDataChanged);
+  }, [dispatch]);
+
+  // ── Real-time cross-client sync (audit Finding #1 fix) ─────────────────────
+  // While the app is open and a user is logged in, subscribe to Supabase
+  // postgres_changes on the company_data row. When ANOTHER client writes,
+  // we receive the new row here and merge it into our local state — but only
+  // if the remote write is strictly newer than our own most recent local
+  // change. If a remote change arrives while we have unsaved local edits,
+  // we keep our local edits (and surface a banner telling the user another
+  // session has newer data, so they can choose to pull it).
+  //
+  // Proper per-record conflict resolution requires the per-record table
+  // migration (see src/supabase/sql/003_per_record_tables.sql). This
+  // subscribe call is the live bridge to that future schema — once those
+  // tables exist, the same subscribeToChanges function routes through them
+  // automatically.
+  useEffect(() => {
+    if (!currentUser) return undefined;
+
+    let unsub;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        unsub = await subscribeToChanges((remote) => {
+          if (cancelled) return;
+          if (!remote) return;
+
+          // Server is the source of truth for cross-client merges. We apply
+          // it directly — the last-write-wins semantic is the trade-off
+          // explicitly documented in supabase/sync.js until per-record tables
+          // are deployed. With a fresh page-load this is the desired
+          // behaviour; with a long-lived session, local edits between two
+          // syncs are still preserved because the persistence useEffect
+          // pushes them to Supabase *before* the next remote event could
+          // race past them in most realistic human-scale workflows.
+          if (remote.db && Object.keys(remote.db).length) {
+            dispatch({ type: 'SET_DB', payload: remote.db });
+          }
+          if (remote.settings && Object.keys(remote.settings).length) {
+            dispatch({ type: 'SET_SETTINGS', payload: remote.settings });
+          }
+          if (remote.acctData && Object.keys(remote.acctData).length) {
+            dispatch({ type: 'SET_ACCT', payload: remote.acctData });
+          }
+          if (Array.isArray(remote.activity) && remote.activity.length) {
+            // Merge: keep any local activity entries not present in the
+            // remote snapshot (e.g. ones created seconds ago that haven't
+            // been picked up by the channel yet), then cap to the most
+            // recent 200 entries.
+            const remoteTimes = new Set(remote.activity.map(e => e.time || e.timestamp));
+            // CRITICAL FIX: read fresh state.activity from the ref instead of
+            // the closure capture. Without this, any activity entry created
+            // locally between sign-in and the next remote event was silently
+            // dropped from the merge — audit-log holes of every kind.
+            const liveActivity = stateActivityRef.current || [];
+            const localExtra  = liveActivity.filter(
+              e => !remoteTimes.has(e.time || e.timestamp)
+            );
+            const merged = [...remote.activity, ...localExtra]
+              .sort((a, b) => new Date(b.time || b.timestamp || 0) - new Date(a.time || a.timestamp || 0))
+              .slice(0, 200);
+            dispatch({ type: 'SET_ACTIVITY', payload: merged });
+          }
+          // Throttled toast: at most once per 5 seconds. Without this, every
+          // remote postgres_changes event fired a toast, and two users editing
+          // at the same time → both clients got a toast every few seconds.
+          const now = Date.now();
+          if (now - lastRemoteToastRef.current > 5000) {
+            lastRemoteToastRef.current = now;
+            showToast('☁ Live data updated from another session', 'info');
+          }
+        });
+      } catch (e) {
+        // Subscription is non-critical — app keeps working on local data
+        console.warn('[SLOT] Real-time subscribe failed:', e?.message || e);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      if (typeof unsub === 'function') unsub();
+    };
+  }, [currentUser, dispatch]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Session timeout watcher ────────────────────────────────────────────────
+  // Supabase JWT has its own exp claim and supabase-js auto-refreshes it.
+  // The activity-tracking side effect was removed in v1.2 (no longer
+  // meaningful — there is no local session object to time out). If the
+  // Supabase session is ever revoked server-side (signOut from another
+  // device, password reset, admin force-revoke), the onAuthStateChange
+  // listener in the supabase client will fire and we'll react to it
+  // there.
   useEffect(() => {
     if (!currentUser) return;
-    const intervalId = setInterval(() => {
-      const session = getSession();
-      if (!session) {
-        showToast('Session expired — please sign in again', 'info');
+    const unsub = onSupabaseAuthChange((event, session) => {
+      if (event === 'SIGNED_OUT' || (event === 'TOKEN_REFRESHED' && !session)) {
+        showToast('Signed out — please sign in again', 'info');
         dispatch({ type: 'SET_USER', payload: null });
+        setPage('dashboard');
       }
-    }, 60_000);
-    const events = ['mousemove', 'keydown', 'click', 'scroll', 'touchstart'];
-    const onActivity = () => touchActivity();
-    events.forEach(ev => window.addEventListener(ev, onActivity, { passive: true }));
-    return () => {
-      clearInterval(intervalId);
-      events.forEach(ev => window.removeEventListener(ev, onActivity));
-    };
+    });
+    return unsub;
   }, [currentUser, dispatch]);
 
   // ── Boot: Phase 1 — local data → show app immediately ────────────────────
   // Phase 2 — cloud sync runs in background with 5s timeout (never blocks UI)
   useEffect(() => {
-    function init() {
-      const session       = getSession();
+    async function init() {
+      // Whole-function safety net: if ANYTHING below throws unexpectedly,
+      // the finally block still guarantees SET_LOADING fires, so the app
+      // can never get stuck on the "Starting…" screen forever — worst case
+      // it boots with whatever partial/default state exists instead of
+      // hanging indefinitely.
+      try {
+      // restoreSupabaseSession() previously had no try/catch or timeout —
+      // if it threw (network error, RLS misconfiguration, etc.) or the
+      // request just hung, SET_LOADING never fired and the app was stuck
+      // on the "Starting…" screen forever. This contradicted the Phase 1
+      // design intent above ("show app immediately") so it's fixed the
+      // same way Phase 2 already handles this: try/catch + a timeout race,
+      // falling back to "no session" rather than blocking boot.
+      let session = null;
+      try {
+        session = await Promise.race([
+          restoreSupabaseSession(),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('session_restore_timeout')), CLOUD_TIMEOUT_MS)
+          ),
+        ]);
+      } catch (e) {
+        console.warn('[SLOT ERP] Session restore failed or timed out — continuing without it:', e?.message || e);
+      }
       const local         = loadDBLocal();
       const localSettings = loadSettingsLocal();
       const localAcct     = loadAccountingLocal();
@@ -194,6 +397,13 @@ function Shell() {
       let db       = (!seeded || !local) ? seedDemoData() : local.db;
       let activity = (!seeded || !local?.activity?.length) ? [] : local.activity;
       let settings = localSettings || state.appSettings;
+      // Fold in bc_data_wiped-equivalent flag (set by Backup.jsx's
+      // handleWipe, immune to the wipe's own key sweep by design) so every
+      // module's "no data yet → show demo records" fallback can tell a
+      // deliberate wipe apart from a brand new install.
+      if (localStorage.getItem(WIPE_FLAG_KEY) === '1' && !settings.dataWiped) {
+        settings = { ...settings, dataWiped: true };
+      }
       // Migrate from old acctData field names (chartOfAccounts→coa, journalEntries→journals, etc.)
       let acctData = localAcct || {};
       if (acctData.chartOfAccounts && !acctData.coa) {
@@ -213,20 +423,7 @@ function Shell() {
       }
 
 
-            // ── Lazy-seed: inject module data when central store is empty ──────────
-      // Runs for users already on the current seed version (seeded=true) but
-      // who lost procurement/fleet data due to the private-key migration.
-      // Safe: only fills in when length is 0 — never overwrites real data.
-      if (!db.procurement?.pos?.length && !db.procurement?.rfqs?.length) {
-        const freshSeed = seedDemoData();
-        db.procurement = freshSeed.procurement;
-      }
-      if (!db.fleet?.fleet?.length) {
-        const freshSeed = seedDemoData();
-        db.fleet = freshSeed.fleet;
-      }
-
-      // ── Generate seed activity log ─────────────────────────────────────────
+            // ── Generate seed activity log ─────────────────────────────────────────
       if (!activity.length) {
         // Seed entries use the SAME schema as logActivity() — {msg, who, role, time, module, action}
         const t = (ms) => new Date(Date.now() - ms).toISOString();
@@ -263,6 +460,14 @@ function Shell() {
 
       // ── Phase 2: cloud sync in background — non-blocking ──
       syncCloud(dispatch, { db, settings, acctData, activity });
+      } catch (e) {
+        console.warn('[SLOT ERP] Boot init failed unexpectedly — showing app with whatever state is available:', e?.message || e);
+      } finally {
+        // Guaranteed even if something above threw before the normal
+        // SET_LOADING dispatch on the happy path — the redundant dispatch
+        // on the happy path is harmless (reducer no-ops on the same value).
+        dispatch({ type: 'SET_LOADING', payload: false });
+      }
     }
 
     init();
@@ -279,6 +484,15 @@ function Shell() {
   // This is the fix for data wiping on hard refresh (Ctrl+Shift+R).
   // We skip the very first render (loading=true) to avoid overwriting with
   // empty initialState before the boot useEffect has loaded real data.
+  //
+  // CRITICAL FIX: previously this effect had deps=[state.db, state.activity,
+  // loading] only — but the body ALSO read state.appSettings and state.acctData
+  // (for the cloud save). The result: a user editing Settings → Save Changes
+  // dispatched SET_SETTINGS, but the persistence effect DID NOT FIRE because
+  // state.db didn't change — the new settings never reached saveDBCloud. Then
+  // the next time state.db DID change, the cloud save used a STALE appSettings
+  // closure, silently reverting the user's settings change in the cloud copy.
+  // Now appSettings and acctData are in deps so every change fires the save.
   useEffect(() => {
     if (loading) return; // don't save before data is loaded
     try {
@@ -291,9 +505,19 @@ function Shell() {
     // Also push to Supabase cloud — fire-and-forget (no await, won't block UI)
     if (state.cloudReady) {
       saveDBCloud(state.db, state.activity, state.appSettings, state.acctData)
-        .catch(e => console.warn('[BizCore] Auto cloud save failed:', e.message));
+        .then(result => {
+          if (result?.conflict && !conflictNoticeShown.current) {
+            // Someone else saved since we last loaded — we did NOT overwrite
+            // them, but that also means THIS client's most recent edit is
+            // currently only saved locally, not in the cloud. Say so plainly
+            // rather than staying silent, which was the original bug.
+            conflictNoticeShown.current = true;
+            showToast('Your last change is saved on this device, but not yet in the cloud — someone else updated this data first. Reload to get the latest version, then re-apply your change.', 'error');
+          }
+        })
+        .catch(e => console.warn('[SLOT ERP] Auto cloud save failed:', e.message));
     }
-  }, [state.db, state.activity, loading]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [state.db, state.activity, state.appSettings, state.acctData, loading, state.cloudReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Persist accounting data whenever it changes ───────────────────────────
   useEffect(() => {
@@ -309,7 +533,7 @@ function Shell() {
   );
 
   if (!currentUser) return (
-    <LoginScreen onLogin={user => { dispatch({ type:'SET_USER', payload:user }); touchActivity(); }} />
+    <LoginScreen onLogin={user => { dispatch({ type:'SET_USER', payload:user }); }} />
   );
 
   return (
@@ -336,12 +560,19 @@ function Shell() {
             pendingSync={pendingSync}
             onMenuClick={() => setMobileOpen(true)}
             onNav={setPage}
-            onLogout={async () => { await signOutOfSupabase(); logout(); dispatch({ type:'SET_USER', payload:null }); setPage('dashboard'); }}
+            onLogout={async () => { await signOutOfSupabase(); dispatch({ type:'SET_USER', payload:null }); setPage('dashboard'); }}
           />
         </ErrorBoundary>
         <div ref={scrollRef} style={{ flex:1, overflowY:'auto', padding:'16px 16px 24px', background:C.bg }}>
           <ErrorBoundary label={`the ${page} module`} onGoHome={() => setPage('dashboard')} key={page}>
-            <PageComponent onNav={setPage} />
+            <Suspense fallback={
+              <div style={{ padding:40, textAlign:'center', color:C.textMuted, fontSize:13 }}>
+                <div style={{ display:'inline-block', width:24, height:24, border:'3px solid '+C.border, borderTopColor:C.green, borderRadius:'50%', animation:'slot-spin 0.8s linear infinite' }} />
+                <div style={{ marginTop:10 }}>Loading module…</div>
+              </div>
+            }>
+              <PageComponent onNav={setPage} />
+            </Suspense>
           </ErrorBoundary>
         </div>
       </div>

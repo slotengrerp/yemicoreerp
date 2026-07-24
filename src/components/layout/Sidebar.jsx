@@ -36,6 +36,7 @@ const NAV = [
   // FINANCE
   { id: 'accounting',   label: 'Accounting',          icon: '📒', section: 'FINANCE' },
   { id: 'ap',           label: 'Accounts Payable',    icon: '📤', section: 'FINANCE' },
+  { id: 'salesorders',  label: 'Sales Orders',        icon: '📋', section: 'FINANCE' },
   { id: 'invoices',     label: 'Accounts Receivable', icon: '📥', section: 'FINANCE' },
   { id: 'projectpl',    label: 'Project P&L',         icon: '📐', section: 'FINANCE' },
   { id: 'pettycash',    label: 'Petty Cash',          icon: '💵', section: 'FINANCE' },
@@ -43,6 +44,8 @@ const NAV = [
   { id: 'approvals',    label: 'Approvals',           icon: '✅', section: 'FINANCE', badge: true },
   // REPORTS
   { id: 'analytics',    label: 'Analytics',           icon: '📈', section: 'REPORTS' },
+  { id: 'sagereports',  label: 'Sage Reports',        icon: '📑', section: 'REPORTS' },
+  { id: 'sagereports2', label: 'Sage Features II',    icon: '📚', section: 'REPORTS' },
   { id: 'excel',        label: 'Excel Import/Export', icon: '📊', section: 'REPORTS', adminOnly: true },
   // SYSTEM
   { id: 'users',        label: 'Users',               icon: '👥', section: 'SYSTEM', adminOnly: true },
@@ -437,6 +440,7 @@ export default function Sidebar({ active, onNav, collapsed, onCollapse, mobileOp
         if (item.id === 'accounting') return isAdmin || isAccountant;
         if (item.id === 'approvals')  return isAdmin || role === 'manager' || isAccountant;
         if (item.id === 'invoices')   return isAdmin || isAccountant || (currentUser?.modules || []).includes('invoices');
+        if (item.id === 'salesorders')return isAdmin || isAccountant || (currentUser?.modules || []).includes('salesorders');
         if (item.id === 'ap')         return isAdmin || isAccountant || (currentUser?.modules || []).includes('ap');
         if (item.id === 'projectpl')  return isAdmin || isAccountant || role === 'manager';
         if (item.id === 'pettycash')  return isAdmin || isAccountant || (currentUser?.modules || []).includes('pettycash');

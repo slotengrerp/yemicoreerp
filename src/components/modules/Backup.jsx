@@ -5,12 +5,13 @@
 import { useState, useRef } from 'react';
 import { useApp }   from '../../context/AppContext';
 import { useTheme } from '../../context/ThemeContext';
-import { showToast, formatDate, formatDateTime, totalRecords } from '../../utils/helpers';
+import { showToast, formatDate, formatDateTime, totalRecords, WIPE_FLAG_KEY } from '../../utils/helpers';
 import { saveDBLocal, loadDBLocal, saveDBCloud, loadDBCloud, saveSettingsLocal, getStorageHealth } from '../../utils/db';
-import { getUsers, saveUsers } from '../../utils/auth';
 import { logActivity } from '../../utils/audit';
 import { getVendors, saveVendors } from '../../utils/vendorMaster';
 import { getClients, saveClients } from '../../utils/clientMaster';
+import { saveProjects } from '../../utils/projectMaster';
+import { SLOT_BRAND } from '../../utils/logo';
 
 const BACKUP_HISTORY_KEY = 'bc_backup_history';
 function loadHistory()    { try { const r=localStorage.getItem(BACKUP_HISTORY_KEY); return r?JSON.parse(r):[]; } catch { return []; } }
@@ -107,12 +108,11 @@ export default function Backup() {
   function handleLocalBackup() {
     try {
       const payload = {
-        _meta: { version:'2.0', app:'BizCore ERP', company:appSettings?.brand?.name||'SLOT Engineering', exportedAt:new Date().toISOString(), exportedBy:currentUser?.name||'Admin', totalRecords:dbStats.total },
+        _meta: { version:'2.0', app:SLOT_BRAND.short, company:appSettings?.brand?.name||SLOT_BRAND.name, exportedAt:new Date().toISOString(), exportedBy:currentUser?.name||'Admin', totalRecords:dbStats.total },
         db, activity: activity||[], settings: appSettings, acctData,
-        // FIX: users included with hashed passwords so restore works.
-        // SHA-256 hashes are safe to store — they cannot be reversed.
-        users: getUsers(),
-        // FIX: include vendor and client masters in backup
+        // User accounts live in Supabase Auth + app_users table — not in
+        // the backup file. v1.2 backup files do not include user records.
+        // vendors and clients (master data) are still local.
         vendors: getVendors(),
         clients: getClients(),
       };
@@ -120,7 +120,7 @@ export default function Backup() {
       const url   = URL.createObjectURL(blob);
       const a     = document.createElement('a');
       a.href      = url;
-      a.download  = `bizcore_backup_${new Date().toISOString().slice(0,10)}.json`;
+      a.download  = `${SLOT_BRAND.initials.toLowerCase()}-erp_backup_${new Date().toISOString().slice(0,10)}.json`;
       a.click();
       URL.revokeObjectURL(url);
       pushHistory({ type:'Local Export', records:dbStats.total, status:'Success' });
@@ -185,8 +185,9 @@ export default function Backup() {
         saveDBLocal(dbData, actData);
         if (sets) { dispatch({ type:'SET_SETTINGS', payload:sets }); saveSettingsLocal(sets); }
         if (acct) dispatch({ type:'SET_ACCT', payload:acct });
-        // FIX: restore users (with hashed passwords), vendors and clients
-        if (payload.users?.length) saveUsers(payload.users);
+        // User accounts come from Supabase, not the backup file. Restoring
+        // an old v1.x backup that includes a `users` field is silently
+        // ignored — no user records are written.
         if (payload.vendors?.length) saveVendors(payload.vendors);
         if (payload.clients?.length) saveClients(payload.clients);
         pushHistory({ type:'File Restore', file:file.name, records:totalRecords(dbData), status:'Success' });
@@ -221,15 +222,86 @@ export default function Backup() {
   }
 
   // ── WIPE DATA ─────────────────────────────────────────────────────────────
-  function handleWipe() {
-    const confirm1 = window.confirm('⚠️ DANGER: This will permanently delete ALL local data. Are you absolutely sure?');
+  // Recursively empties every array in a nested object while preserving its
+  // shape — used so wiping doesn't turn e.g. db.fleet (an object with
+  // several sub-arrays) into a bare [], which would break every module that
+  // expects db.fleet.fleet / db.fleet.services / etc. to exist as arrays.
+  // Scalar fields (numbers, strings — e.g. pettycash_fund.balance) are left
+  // as-is; adjust those manually afterward if you want a different starting
+  // value.
+  function clearDeep(obj) {
+    if (Array.isArray(obj)) return [];
+    if (obj && typeof obj === 'object') {
+      const out = {};
+      for (const k of Object.keys(obj)) out[k] = clearDeep(obj[k]);
+      return out;
+    }
+    return obj;
+  }
+
+  async function handleWipe() {
+    const confirm1 = window.confirm('⚠️ DANGER: This will permanently delete ALL data — locally AND in the cloud. Are you absolutely sure?');
     if (!confirm1) return;
     const confirm2 = window.prompt('Type "DELETE ALL" to confirm:');
     if (confirm2 !== 'DELETE ALL') { showToast('Wipe cancelled'); return; }
     try {
-      const keys = Object.keys(localStorage).filter(k => k.startsWith('bc_') || k.startsWith('slot_'));
+      // ── Strategy ────────────────────────────────────────────────────────
+      // If we simply delete all localStorage keys, the next boot sees
+      // loadDBLocal() → null, hits (!seeded || !local) → true, and fires
+      // seedDemoData() — silently undoing the wipe before the UI even
+      // renders. Instead, we clear everything THEN write a minimal empty
+      // database so the boot sequence sees a valid db, skips seeding, and
+      // the app starts clean.
+      // ─────────────────────────────────────────────────────────────────────
+
+      // 1) Clear ALL app-related localStorage keys
+      const keys = Object.keys(localStorage).filter(k =>
+        k.startsWith('bc_') || k.startsWith('slot_')
+      );
       keys.forEach(k => localStorage.removeItem(k));
-      showToast('All data wiped — reloading…');
+
+      // 1b) Master data (clients/vendors/projects) needs the SAME treatment
+      // as db/accounting below: getClients()/getVendors()/getProjects() only
+      // reseed when their localStorage key is missing entirely, not when
+      // it's an explicit empty array — but the sweep above just deleted
+      // bc_clients/bc_vendors/bc_projects outright, which is indistinguishable
+      // from "never set". Writing them back as [] via their own save
+      // functions (rather than a raw localStorage.setItem) keeps this in
+      // sync with however those functions decide to persist/dispatch.
+      saveClients([]);
+      saveVendors([]);
+      saveProjects([]);
+
+      // 2) Write seed version gate — without this, the app re-seeds
+      localStorage.setItem('slot_seed_version', 'slot-seed-v3');
+
+      // 2b) Mark this install as deliberately wiped. Every module's "no data
+      // yet → show demo records" fallback (Procurement, FleetMaintenance,
+      // PettyCash, Requests, SalesOrders, AccountsReceivable, Invoices,
+      // FixedAssets, Accounting) checks this before falling back to its
+      // inline SEED constant — without it, an empty array after a wipe
+      // looks identical to an empty array on a brand-new install, and the
+      // demo data floods right back in even though bc_db/bc_accounting are
+      // correctly emptied below.
+      localStorage.setItem(WIPE_FLAG_KEY, '1');
+      const wipedSettings = { ...appSettings, dataWiped: true };
+
+      // 3) Write a minimal empty database — so loadDBLocal() returns a real
+      //    (but empty) db object, and the boot condition (!seeded || !local)
+      //    evaluates to false. The schema normalization in loadDBLocal()
+      //    fills in any missing sub-arrays on read.
+      const emptyDb = clearDeep(db);
+      const emptyAcct = { journals: [], coa: state.acctData?.coa || [], bankStmt: [], vatAdj: [], whtEntries: [], assets: [] };
+      saveDBLocal(emptyDb, []);
+      try { localStorage.setItem('bc_accounting', JSON.stringify(emptyAcct)); } catch {}
+
+      // 4) Push empty dataset to cloud (if connected) so it doesn't restore
+      //    old data on next sync
+      if (cloudReady) {
+        await saveDBCloud(emptyDb, [], wipedSettings, emptyAcct);
+      }
+
+      showToast('All data wiped locally and in the cloud — reloading…');
       setTimeout(() => window.location.reload(), 1500);
     } catch(e) {
       showToast('Wipe failed: '+e.message,'error');
@@ -297,7 +369,7 @@ export default function Backup() {
       <Section icon="📂" title="Restore from File" sub="Import a previously exported JSON backup" accent={C.amber}>
         <div style={{ display:'flex', alignItems:'center', gap:16 }}>
           <div style={{ flex:1, fontSize:12.5, color:C.textMid, lineHeight:1.7 }}>
-            Select a <code style={{ fontFamily:'monospace', fontSize:12, background:C.greenPale, padding:'1px 5px', borderRadius:4 }}>.json</code> backup file previously exported from BizCore. <strong style={{ color:C.danger }}>Warning: this will overwrite all current data.</strong>
+            Select a <code style={{ fontFamily:'monospace', fontSize:12, background:C.greenPale, padding:'1px 5px', borderRadius:4 }}>.json</code> backup file previously exported from {SLOT_BRAND.short}. <strong style={{ color:C.danger }}>Warning: this will overwrite all current data.</strong>
           </div>
           <div>
             <input ref={fileRef} type="file" accept=".json" onChange={handleFileRestore} style={{ display:'none' }} />
@@ -354,9 +426,12 @@ export default function Backup() {
       <Section icon="⚠️" title="Danger Zone" sub="Irreversible actions — use with extreme caution" accent={C.danger}>
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:16 }}>
           <div style={{ fontSize:12.5, color:C.textMid, lineHeight:1.7 }}>
-            <strong style={{ color:C.danger }}>Wipe all local data</strong> — permanently deletes all records, settings, and user data from local storage. This cannot be undone. Export a backup first.
+            <strong style={{ color:C.danger }}>Wipe all data</strong> — permanently deletes all records locally AND in the cloud (company details, approval rules, and permissions are kept). This cannot be undone. Export a backup first.
           </div>
           <Btn variant="danger" onClick={handleWipe} style={{ flexShrink:0 }}>🗑 Wipe All Data</Btn>
+        </div>
+        <div style={{ marginTop:12, padding:'10px 14px', background:'rgba(217,119,6,.08)', border:'1px solid rgba(217,119,6,.2)', borderLeft:'4px solid '+C.amber, borderRadius:8, fontSize:11.5, color:C.amber }}>
+          If per-record sync (VITE_USE_PER_RECORD_SYNC) is turned on, this button does not clear the separate per-record Supabase tables — those need clearing directly in the Supabase SQL Editor. Most setups aren't using that mode yet, but check with your developer if you're unsure.
         </div>
       </Section>
     </div>

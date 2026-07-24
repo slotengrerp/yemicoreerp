@@ -12,6 +12,7 @@ import { getDeepLinkTab } from '../../utils/helpers';
 import { saveDBLocal } from '../../utils/db';
 import { logActivity }  from '../../utils/audit';
 import { printHeader, PRINT_CSS } from '../../utils/logo';
+import { initApproval, applyDecision, canApproveAtCurrentLevel, approvalSummary } from '../../utils/approvalEngine';
 
 const uid   = () => generateId();
 const today = () => new Date().toISOString().split('T')[0];
@@ -142,10 +143,10 @@ export default function Requests({ onNav }) {
   const { state, dispatch } = useApp();
   const { C } = useTheme();
   const { currentUser, db } = state;
-  const perms  = { add: canDo(currentUser,'canAdd'), edit: canDo(currentUser,'canEdit'), del: canDo(currentUser,'canDelete') };
+  const perms  = { add: canDo(currentUser,'canAdd','request',state.appSettings), edit: canDo(currentUser,'canEdit','request',state.appSettings), del: canDo(currentUser,'canDelete','request',state.appSettings) };
   const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'manager';
 
-  const stored = db.request?.length ? db.request : SEED;
+  const stored = (db.request?.length || state.appSettings?.dataWiped) ? (db.request || []) : SEED;
   const [reqs, setReqs] = useState(stored);
 
   const save = (data) => {
@@ -193,6 +194,7 @@ export default function Requests({ onNav }) {
     const rec = {
       id: uid(), requestNo: nextNo(reqs, form.type), ...form,
       status: asDraft ? 'Draft' : 'Submitted',
+      approval: asDraft ? null : initApproval('requests', 0, state.appSettings),
       approvedBy:'', approvedDate:'', approvalNote:'',
       createdAt: new Date().toISOString(),
     };
@@ -204,7 +206,8 @@ export default function Requests({ onNav }) {
 
   function handleApprove(id) {
     const r = reqs.find(x=>x.id===id);
-    const updated = reqs.map(x => x.id===id ? { ...x, status:'Approved', approvedBy:currentUser?.name||'Admin', approvedDate:today(), approvalNote:approvalForm.note } : x);
+    const approval = r.approval ? applyDecision(r.approval, currentUser, 'Approved', approvalForm.note) : null;
+    const updated = reqs.map(x => x.id===id ? { ...x, approval, status: approval ? approval.status : 'Approved', approvedBy:currentUser?.name||'Admin', approvedDate:today(), approvalNote:approvalForm.note } : x);
     save(updated);
     logActivity(dispatch, `Request ${r?.requestNo} approved by ${currentUser?.name}`, currentUser);
     showToast('Request approved'); setSel2(null); setModal(null); setAF({ note:'' });
@@ -212,7 +215,8 @@ export default function Requests({ onNav }) {
 
   function handleReject(id) {
     const r = reqs.find(x=>x.id===id);
-    const updated = reqs.map(x => x.id===id ? { ...x, status:'Rejected', approvedBy:currentUser?.name||'Admin', approvedDate:today(), approvalNote:approvalForm.note } : x);
+    const approval = r.approval ? applyDecision(r.approval, currentUser, 'Rejected', approvalForm.note) : null;
+    const updated = reqs.map(x => x.id===id ? { ...x, approval, status: approval ? approval.status : 'Rejected', approvedBy:currentUser?.name||'Admin', approvedDate:today(), approvalNote:approvalForm.note } : x);
     save(updated);
     logActivity(dispatch, `Request ${r?.requestNo} rejected`, currentUser);
     showToast('Request rejected'); setSel2(null); setModal(null); setAF({ note:'' });
@@ -327,7 +331,7 @@ export default function Requests({ onNav }) {
                   <td style={td}>
                     <div style={{ display:'flex', gap:5 }}>
                       <Btn sm variant="ghost" onClick={()=>{ setSel2(r); setAF({ note:'' }); setModal('view'); }}>View</Btn>
-                      {isAdmin && (r.status==='Submitted'||r.status==='Pending') && <Btn sm variant="success" onClick={()=>{ setSel2(r); setAF({ note:'' }); setModal('approve'); }}>Review</Btn>}
+                      {(canApproveAtCurrentLevel(r.approval, currentUser) || (isAdmin && !r.approval)) && (r.status==='Submitted'||r.status==='Pending') && <Btn sm variant="success" onClick={()=>{ setSel2(r); setAF({ note:'' }); setModal('approve'); }}>Review</Btn>}
                       <Btn sm variant="ghost" onClick={()=>printRequest(r)}>🖨</Btn>
                       {perms.del && r.status==='Draft' && <Btn sm variant="danger" onClick={()=>setDelId(r.id)}>✕</Btn>}
                     </div>
@@ -451,11 +455,14 @@ export default function Requests({ onNav }) {
             <div style={{ fontSize:16, fontWeight:700, color:C.text, marginBottom:4 }}>Review Request</div>
             <div style={{ fontSize:12, color:C.textMuted, marginBottom:16 }}>{sel2.requestNo} · {sel2.requestedBy} · {sel2.type}</div>
             <div style={{ background:C.greenPale, borderRadius:8, padding:'11px 14px', fontSize:13, marginBottom:16 }}><strong>{sel2.subject}</strong><br/><span style={{ color:C.textMid, fontSize:12 }}>{sel2.description}</span></div>
+            {sel2.approval && <div style={{ fontSize:12, fontWeight:600, color:C.amber, marginBottom:12 }}>{approvalSummary(sel2.approval, state.appSettings)}</div>}
             <FG label="Approval Note (optional)"><textarea style={{ ...inp, height:70 }} value={approvalForm.note} onChange={e=>setAF(f=>({...f,note:e.target.value}))} placeholder="Add a comment or instruction…" /></FG>
             <div style={{ display:'flex', justifyContent:'flex-end', gap:10, marginTop:20 }}>
               <Btn variant="ghost" onClick={()=>setModal(null)}>Cancel</Btn>
-              <Btn variant="danger" onClick={()=>handleReject(sel2.id)}>Reject</Btn>
-              <Btn variant="success" onClick={()=>handleApprove(sel2.id)}>Approve</Btn>
+              {(canApproveAtCurrentLevel(sel2.approval, currentUser) || (isAdmin && !sel2.approval)) && <>
+                <Btn variant="danger" onClick={()=>handleReject(sel2.id)}>Reject</Btn>
+                <Btn variant="success" onClick={()=>handleApprove(sel2.id)}>Approve</Btn>
+              </>}
             </div>
           </Card>
         </Overlay>

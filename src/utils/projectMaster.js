@@ -45,6 +45,7 @@ export function getProjects() {
 
 export function saveProjects(projects) {
   try { localStorage.setItem(PROJECT_KEY, JSON.stringify(projects)); } catch {}
+  try { window.dispatchEvent(new CustomEvent('slot:masterDataChanged', { detail: { mod: 'projects', data: projects } })); } catch {}
 }
 
 export function addProject(project) {

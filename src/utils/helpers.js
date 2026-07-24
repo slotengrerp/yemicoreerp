@@ -14,6 +14,13 @@ export const STORAGE = {
   backupHistory:    PREFIX + 'backup_history',
 };
 
+// Deliberately does NOT start with 'bc_' or 'slot_' — Backup.jsx's "Wipe All
+// Data" clears every key with those prefixes, and this flag needs to survive
+// that exact sweep. It's what lets each module's "no data yet → show demo
+// records" fallback tell "brand new install" apart from "deliberately
+// emptied for testing" — otherwise both look identical: an empty array.
+export const WIPE_FLAG_KEY = 'slot_erp_data_wiped';
+
 export const MODULE_IDS = ['nlng', 'procurement', 'inventory', 'vehicles', 'invoices', 'slot', 'request', 'pettycash'];
 export const EXTENDED_IDS = ['fixedassets', 'wht'];
 // terminal is in MODULE_IDS but stored as an object { containers, charges, logistics }
@@ -69,7 +76,7 @@ export function totalRecords(db) {
 
 
 // ── Deep-link navigation helpers ───────────────────────────────────────────────
-// Dashboard alert banners write: sessionStorage.setItem('bizcore_nav_tab_MODULE', 'tabkey')
+// Dashboard alert banners write: sessionStorage.setItem('slot_erp_nav_tab_MODULE', 'tabkey')
 // Each module reads this on mount to jump to the right sub-tab automatically.
 
 /**
@@ -81,7 +88,7 @@ export function totalRecords(db) {
  */
 export function getDeepLinkTab(moduleId, defaultTab) {
   try {
-    const key = 'bizcore_nav_tab_' + moduleId;
+    const key = 'slot_erp_nav_tab_' + moduleId;
     const stored = sessionStorage.getItem(key);
     if (stored) {
       sessionStorage.removeItem(key); // consume once
@@ -99,5 +106,5 @@ export function getDeepLinkTab(moduleId, defaultTab) {
  *   onNav('accounting');
  */
 export function writeDeepLink(moduleId, tabKey) {
-  try { sessionStorage.setItem('bizcore_nav_tab_' + moduleId, tabKey); } catch {}
+  try { sessionStorage.setItem('slot_erp_nav_tab_' + moduleId, tabKey); } catch {}
 }

@@ -36,6 +36,9 @@
     "vitest": "^4.1.10"
   },
   "optionalDependencies": {
-    "@sentry/react": "^8.0.0"
+    "@sentry/react": "^8.55.2"
+  },
+  "engines": {
+    "node": ">=20 <22"
   }
 }

@@ -35,5 +35,14 @@ yarn-error.log*
 # Firebase deploy cache (local artifact, not source)
 .firebase/
 
+# Supabase CLI local state (contains project ref / pooler host, not source)
+supabase/.temp/
+
 # Test artifacts
 coverage/
+
+# Build/test diagnostic logs
+build.log
+lint.log
+npm-install.log
+test.log

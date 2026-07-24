@@ -19,13 +19,21 @@ function safeWrite(key, value) {
   const data = JSON.stringify(value);
   const used = localStorageUsedBytes();
   const incoming = data.length * 2;
-  if (used + incoming > QUOTA_LIMIT_BYTES) {
+  // CRITICAL FIX: previously `used + incoming > QUOTA_LIMIT_BYTES` double-
+  // counted the value already stored at `key`. If `bc_db` held 4 MB and the
+  // new value was also ~4 MB, `used` included the OLD 4 MB so the check
+  // summed to 8 MB and blocked the write — even though the NET storage after
+  // the write would be ~4 MB. Subtract the old value's size to get the true
+  // post-write total.
+  const oldValueLen = (() => { try { return (localStorage.getItem(key)?.length || 0) * 2; } catch { return 0; } })();
+  const netAfter = used - oldValueLen + incoming;
+  if (netAfter > QUOTA_LIMIT_BYTES) {
     console.error('[SLOT ERP] localStorage quota exceeded — write blocked.');
     return { ok: false, quota: 'full' };
   }
   try {
     localStorage.setItem(key, data);
-    return { ok: true, quota: (used + incoming) > QUOTA_WARN_BYTES ? 'warning' : 'ok' };
+    return { ok: true, quota: netAfter > QUOTA_WARN_BYTES ? 'warning' : 'ok' };
   } catch (e) {
     console.error('[SLOT ERP] localStorage write error:', e);
     return { ok: false, quota: 'full' };
@@ -158,7 +166,7 @@ export function loadDBLocal() {
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     const db = parsed.db || parsed;
-    [...MODULE_IDS, ...EXTENDED_IDS, '_trash'].forEach(k => { if (!Array.isArray(db[k])) db[k] = []; });
+    [...MODULE_IDS, ...EXTENDED_IDS, '_trash', 'creditNotes', 'paymentBatches', 'recurringInvoiceTemplates', 'recurringInvoices', 'prepayAccruals', 'bankReconciliations', 'assetDisposals', 'prepayments', 'accruals', 'budgets', 'stockTakes', 'stockItems', 'stockMovements', 'warehouses', 'stockTransfers', 'serialBatches', 'boms', 'bomBuilds'].forEach(k => { if (!Array.isArray(db[k])) db[k] = []; });
     if (!db.terminal    || Array.isArray(db.terminal))    db.terminal    = { containers: [], charges: [], logistics: [] };
     if (!db.procurement || Array.isArray(db.procurement)) db.procurement = { rfqs: [], pos: [], waybills: [], invoices: [] };
     if (!db.fleet          || Array.isArray(db.fleet))          db.fleet          = { fleet: [], services: [], maintLog: [], repairs: [], breakdowns: [], requests: [], handovers: [], facilitySchedule: [], calibration: [] };
@@ -198,12 +206,16 @@ export async function saveSettingsCloud(settings) {
   } catch { return false; }
 }
 
+// Returns the full sync.js result object — { ok, conflict?, serverData?, queued? } —
+// so callers (App.jsx) can react to a conflict instead of it being swallowed
+// into a plain boolean, which was hiding the "someone else saved" case entirely.
 export async function saveDBCloud(db, activity, settings, acctData) {
   try {
     // saveToSupabase(db, acctData, settings, activity) — positional args, must match sync.js signature
-    await saveToSupabase(db, acctData, settings, activity);
-    return true;
-  } catch { return false; }
+    return await saveToSupabase(db, acctData, settings, activity);
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -453,6 +465,18 @@ export function seedDemoData() {
       { id:'wh04',whtRef:'WHT-2026-0004',date:'2026-04-30',vendor:'Stallion Group Nigeria',        invoiceRef:'SINV-2026-0008',grossAmount:875000, whtRate:5,whtAmount:43750,  netPaid:831250, remittedDate:'',           remittanceRef:'',status:'Pending Remittance',createdAt:'2026-04-30T08:00:00Z' },
       { id:'wh05',whtRef:'WHT-2026-0005',date:'2026-05-31',vendor:'Adeola Clearing Agency Ltd',    invoiceRef:'SINV-2026-0010',grossAmount:437000, whtRate:5,whtAmount:21850,  netPaid:415150, remittedDate:'',           remittanceRef:'',status:'Pending Remittance',createdAt:'2026-05-31T08:00:00Z' },
     ],
+
+    // ── Sage Feature II module keys — initialized empty on fresh seed ────────
+    recurringInvoices: [],       // SageReports2 reads this key
+    arReceipts: [],              // Bank reconciliation reads this
+    ap: { bills: [], payments: [] },  // Bank reconciliation reads this
+    prepayAccruals: [],          // Prepayments & accruals tab
+    bankReconciliations: [],     // Bank reconciliation records
+    assetDisposals: [],          // Asset disposal records
+    budgets: [],                 // Budget vs actual tab
+    stockTakes: [],              // Stock take records
+    stockItems: [],              // Stock item master
+    stockMovements: [],          // Stock movement history
 
     _trash: [],
   };

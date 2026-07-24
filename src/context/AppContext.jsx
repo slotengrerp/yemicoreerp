@@ -7,7 +7,30 @@ const initialState = {
     nlng: [], procurement: [], inventory: [], vehicles: [],
     invoices: [], slot: [], request: [], pettycash: [],
     terminal: { containers: [], charges: [], logistics: [] },
-    fixedassets: [], wht: [], _trash: []
+    fixedassets: [], wht: [], _trash: [],
+    // Sage-style collections added by SageReports module:
+    creditNotes: [],              // AR credit notes (link to original invoice)
+    paymentBatches: [],           // AP batch payment runs (one batch = many bills)
+    // Tier 2 collections:
+    recurringInvoiceTemplates: [],// Recurring invoice templates (monthly/quarterly/yearly)
+    recurringInvoices: [],        // Runtime key that SageReports2 uses for recurring templates
+    prepayAccruals: [],           // Prepayments & accruals (combined key)
+    bankReconciliations: [],      // Bank reconciliation records
+    assetDisposals: [],           // Asset disposal records
+    prepayments: [],              // Prepayments (Dr Prepaid / Cr Bank, reversed monthly)
+    accruals: [],                 // Accruals (Dr Expense / Cr Accrued, reversed on payment)
+    budgets: [],                  // Annual budgets per account
+    stockTakes: [],               // Physical stock take records
+    stockItems: [],               // Stock item master data
+    stockMovements: [],           // Stock movement history
+    arReceipts: [],               // AR receipt records (used by bank rec)
+    ap: { bills: [], payments: [] }, // AP payment records (used by bank rec)
+    // Tier 3 collections:
+    warehouses: [],               // Multi-warehouse master
+    stockTransfers: [],           // Inter-warehouse transfer records
+    serialBatches: [],            // Serial number / batch lot tracking
+    boms: [],                     // Bill of Materials definitions
+    bomBuilds: [],                // BOM assembly build history
   },
   acctData: {
     journals: [], coa: [], bankStmt: [], vatAdj: [], whtEntries: [], assets: []
@@ -31,7 +54,7 @@ function reducer(state, action) {
     case 'SET_DB':          return { ...state, db: action.payload };
     case 'UPDATE_MODULE':   return { ...state, db: { ...state.db, [action.mod]: action.data } };
     case 'SET_ACCT':        return { ...state, acctData: action.payload };
-    case 'ADD_ACTIVITY':    return { ...state, activity: [action.payload, ...state.activity].slice(0, 50) };
+    case 'ADD_ACTIVITY':    return { ...state, activity: [action.payload, ...state.activity].slice(0, 500) };
     case 'SET_SETTINGS':    return { ...state, appSettings: action.payload };
     case 'SET_CLOUD':       return { ...state, cloudReady: action.payload };
     case 'SET_OFFLINE':     return { ...state, offlineMode: action.payload };
