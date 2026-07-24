@@ -163,3 +163,11 @@ sole system of record with no fallback.
   again without an explicit go-ahead this time** — a clean build alone
   gave false confidence last time; it can't catch a runtime-only bug like
   this one.
+- **Resolved.** Added a regression test that reproduces the exact bug
+  (verified it fails against the old code, passes against the fix — see
+  `src/hooks/__tests__/usePerRecordSync.test.jsx`), full suite still green
+  (12 files, 24 tests). Local test (flag on, `npm run dev`): logged in,
+  used nearly every module, left it running — no reload loop, no false
+  conflict messages. Cleared for production deploy. Next: `npm run build
+  && firebase deploy`, then Step 3 (Settings → System → backfill button)
+  and Step 4 (spot-check a real record against the Supabase table editor).
