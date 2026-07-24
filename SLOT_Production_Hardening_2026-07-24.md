@@ -98,3 +98,34 @@ can actually do — see the parallel-run tracker
 Until both of those are done, I'd treat this as: safe for daily use
 alongside Sage as a second system you're validating, not yet safe as the
 sole system of record with no fallback.
+
+## 5. Follow-up — same day, after connecting live database access
+
+- `007_security_hardening.sql` ran successfully against the live project.
+  Role-gated RLS on `payroll_runs`/`journal_entries`, all 12 indexes, and the
+  `app_users` email unique constraint are live and verified — zero duplicate
+  emails, so the constraint applied cleanly with no manual cleanup needed.
+- Migrations 003–006 confirmed landed on the live project: all 6 tables the
+  sync cutover needs exist, and all 18 tables from 006 are in the realtime
+  publication. They're empty (0 rows) — expected, the flag hasn't flipped yet
+  so no backfill has run. **Step 1 of the sync cutover (section 3) is now
+  confirmed clean** — the flag flip is unblocked whenever you're ready for
+  Step 2.
+- New finding, live-database-only (the 2026-07-23 audit read code, not the
+  database, so this couldn't have shown up there): `company_data` — the
+  legacy blob table the app is actually running on right now — had a
+  leftover **"Allow all"** policy sitting alongside the correct restrictive
+  ones from `002_rls.sql`. A one-word naming mismatch (`"Allow all for now"`
+  vs. the live `"Allow all"`) meant the old draft policy was never actually
+  dropped, and it silently overrode the real protection ever since. Anyone
+  holding the anon key — which is meant to be public, that part's normal —
+  could read and write the entire company_data row directly, bypassing the
+  app and every role check in it. Fixed and verified:
+  `008_rls_gap_and_search_path.sql` ran against the live project — confirmed
+  `company_data` now has exactly the 2 correct policies (the leftover is
+  gone), all 5 functions have `search_path` pinned, and a fresh security
+  advisor scan no longer flags either issue.
+- Informational, no action needed: `company_records`, a 472-row table live
+  in the database that nothing in the current codebase references — looks
+  like leftover data from an earlier design iteration, not something live
+  code touches today.
