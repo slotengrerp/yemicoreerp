@@ -39,6 +39,8 @@ import { createClient } from 'npm:@supabase/supabase-js@2';
 // in line for consistent defense-in-depth.
 const ALLOWED_ORIGINS = [
   'https://erp.slotengineering.com',
+  'https://yemicoreerp.web.app',
+  'https://yemicoreerp.firebaseapp.com',
   'http://localhost:5173',
   'http://127.0.0.1:5173',
 ];

@@ -30,8 +30,16 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
+// erp.slotengineering.com is the intended long-term custom domain, but the
+// app is served from Firebase Hosting today (yemicoreerp.web.app is the URL
+// SLOT are testing on) — and until 2026-07-27 neither Firebase domain was on
+// this list, so every call from the live site was blocked by CORS. Firebase
+// serves the same site on both .web.app and .firebaseapp.com, so both are
+// listed. Trim this back once the custom domain is live.
 const ALLOWED_ORIGINS = [
   'https://erp.slotengineering.com',
+  'https://yemicoreerp.web.app',
+  'https://yemicoreerp.firebaseapp.com',
   'http://localhost:5173',
   'http://127.0.0.1:5173',
 ];

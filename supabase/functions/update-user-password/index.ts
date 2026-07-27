@@ -22,8 +22,13 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
+// See the note in notify/index.ts — the live site is served from Firebase
+// Hosting (yemicoreerp.web.app), which was never on this allowlist, so admin
+// password resets were failing CORS from the real production URL.
 const ALLOWED_ORIGINS = [
   'https://erp.slotengineering.com',
+  'https://yemicoreerp.web.app',
+  'https://yemicoreerp.firebaseapp.com',
   'http://localhost:5173',
   'http://127.0.0.1:5173',
 ];

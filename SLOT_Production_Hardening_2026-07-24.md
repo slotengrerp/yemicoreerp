@@ -171,3 +171,110 @@ sole system of record with no fallback.
   conflict messages. Cleared for production deploy. Next: `npm run build
   && firebase deploy`, then Step 3 (Settings → System → backfill button)
   and Step 4 (spot-check a real record against the Supabase table editor).
+- **Second backfill bug, same day: `voided` column missing on vendors/
+  clients/projects.** Those three are master data (standing entities, not
+  transactions) — deliberately built without a `voided` column in
+  `003_per_record_tables.sql`. But `saveRecord()`, `loadAll()`, and
+  `backfillFromBlob()` in `syncPerRecord.js` sent/selected `voided`
+  unconditionally for every table. Fixed by gating on a `NO_VOID_TABLES`
+  set — see `src/supabase/sql` comments and the regression test at
+  `src/supabase/__tests__/syncPerRecord.voided.test.js` (verified it fails
+  against the old code, passes against the fix).
+- **Third backfill bug, same day: `id` column type wrong on ~20 tables.**
+  After the `voided` fix, vendors/clients/projects failed again with
+  `invalid input syntax for type uuid: "v001"`. Checked the whole app's id
+  generation: nothing anywhere produces UUIDs — seed/legacy data uses short
+  human ids (v001, inv1...), everything created through the UI uses
+  `generateId()` (a base-36 string), and journal entries use deterministic
+  prefixed ids (`JE-AR-INV-{id}`) that the GL's duplicate-post guard
+  depends on. Every per-record table was built with `id UUID` regardless.
+  vendors/clients/projects only hit it first because they're the only
+  tables with real pre-loaded data this early — every other table would
+  have hit the identical error the first time a real invoice, sales order,
+  or journal entry was saved. Fixed with
+  `010_fix_record_id_column_types.sql` — changed `id` to `TEXT` on all 20
+  affected tables in one migration, applied and verified live (`activity`
+  correctly left as `uuid`, it's the one table that never gets an
+  app-supplied id). No app code changes needed for this one — the code was
+  always sending the right values.
+- **Folder/shell access dropped mid-session, same day.** Bash lost its
+  mount partway through debugging the `voided` fix; file edits kept
+  working throughout (this doc and every code fix after that point were
+  still written directly), but build/test/git commands needed the folder
+  reconnected and the app restarted to fully recover.
+- **Fourth bug, same day: the legacy sync engine was never actually
+  disabled.** After a clean backfill, the old conflict/"Live data updated
+  from another session" messages kept appearing exactly as before, plus a
+  new symptom — the app periodically going blank for a few seconds and
+  recovering. Root cause: three places in `App.jsx` — the boot-time
+  `syncCloud()` call, the legacy realtime subscription, and the
+  auto-save-to-cloud effect — never actually checked
+  `VITE_USE_PER_RECORD_SYNC`. `usePerRecordSync.js`'s own header comment
+  claims "the legacy whole-document sync is bypassed" once the flag is on,
+  but nothing enforced that; both engines were running at once. The legacy
+  realtime handler also unconditionally replaced `state.db` wholesale on
+  every remote change, racing against the per-record engine's own
+  narrower updates — almost certainly the cause of the periodic blanking.
+  Fixed by gating all three on `!USE_PER_RECORD`, so the legacy engine now
+  actually turns off when the per-record engine is on, matching what the
+  comment always claimed. Build verified clean and the full test suite
+  (13 files, 27 tests) still green in a sandbox copy — a local test (like
+  the crash-loop fix) is the next step before redeploying, and this one
+  still needs to be committed to git once folder/shell access is back.
+- **Fifth bug, same day: fix #4 above introduced a real regression —
+  "cloud" status got stuck permanently off.** After testing fix #4
+  locally, the pop-ups were gone (confirmed working) but two new symptoms
+  showed up: the sidebar/topbar cloud badge stuck on "Local only" /
+  "Connecting…", and Settings changes silently stopped reaching the cloud.
+  Root cause: `dispatch({type:'SET_CLOUD', payload:true})` — the one line
+  in the whole app that marks the cloud connection ready — lives *inside*
+  the legacy `syncCloud()` function. Fix #4 wrapped the entire call to
+  `syncCloud()` in `if (!USE_PER_RECORD)`, so that dispatch stopped firing
+  at all once the per-record engine was on, and `cloudReady` was
+  permanently stuck at its default `false`. This wasn't just cosmetic:
+  Settings.jsx gates every cloud save on `if (cloudReady) saveSettingsCloud(...)`
+  — so with `cloudReady` stuck false, changes in Settings (including
+  custom role definitions) were saving locally only, silently, with no
+  error. Fixed by dispatching `SET_CLOUD:true` directly in the `else`
+  branch — per-record mode doesn't need the legacy blob round-trip to know
+  the cloud connection is up, Phase 1 of boot already confirms a live
+  session by that point. Verified in a sandbox copy: clean build, and the
+  two directly-relevant regression test files plus 3 other component test
+  files (10 tests) all still green. Still needs: your local test (confirm
+  the cloud badge shows "Live"/"Cloud Synced" and a Settings change
+  actually appears in Supabase), then a git commit once folder/shell
+  access is back.
+- **Separately noticed, not yet fixed — needs your go-ahead:** Settings
+  saves still write to the legacy `company_data.settings` blob
+  (`saveSettingsCloud`), but the per-record engine's startup load reads
+  settings from the new `app_settings` table (`loadAppSettings`). These
+  are two different tables. Net effect: a Settings change (e.g. a new
+  custom role) saves fine and works immediately on the device that made
+  it, but won't show up for a *different* device/session until someone
+  wires the write side to the new table too. Not urgent — nothing crashes,
+  and this predates today's bugs — but worth closing before multiple
+  admins are actively managing roles/settings day to day.
+- **Sixth bug, same day: "the app refreshes itself" on every browser tab
+  switch — real root cause found and fixed.** Precise repro from testing:
+  switch to another browser tab and back within a minute, and the app
+  reloads — every single time, no cooldown, confirmed by clicking back and
+  forth 10 times in 1 minute. Root cause: this is documented, longstanding
+  `supabase-js` behavior, not a bug specific to this app — the Supabase
+  client attaches its own tab-visibility listener and re-validates the
+  session every time the tab regains focus, and genuinely fires a real
+  `SIGNED_IN` event even when nothing changed (same user, same session).
+  See supabase/supabase-js#716, #1618, #1708 and supabase/supabase#7250.
+  The crash-loop fix earlier today (filtering to `event === 'SIGNED_IN'`)
+  was necessary but not sufficient — it correctly told apart the synthetic
+  replay from a real event, but had no way to tell a real-but-harmless
+  refire apart from a real-and-genuine new sign-in, since both are the
+  same event name. Fixed in `usePerRecordSync.js` by tracking the
+  last-seen signed-in user id and only reloading when it actually changes
+  (a genuine new or different sign-in) — a same-user refire is now
+  ignored. Two new regression tests added (one per scenario) alongside the
+  existing crash-loop test; confirmed the new "ignore same-user refire"
+  test fails against the old code (reloaded 3 times, matching the
+  "10 times in 1 minute" report) and passes against the fix. Full local
+  suite (4 files touched by today's changes, 11 tests) green, build clean.
+  Still needs: your local test (switch tabs several times, confirm no
+  reload), then a git commit once folder/shell access is back.
