@@ -49,7 +49,7 @@ export default function MfaNudge() {
   }, [currentUser?.id]);
 
   function snooze() {
-    try { localStorage.setItem(SNOOZE_KEY, String(Date.now() + SNOOZE_DAYS * 24 * 60 * 60 * 1000)); } catch {}
+    try { localStorage.setItem(SNOOZE_KEY, String(Date.now() + SNOOZE_DAYS * 24 * 60 * 60 * 1000)); } catch { /* storage disabled — nudge just reappears next session */ }
     setVisible(false);
   }
 

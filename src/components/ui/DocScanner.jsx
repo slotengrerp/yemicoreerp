@@ -224,7 +224,7 @@ export default function DocScanner({ onClose, onSave }) {
   // plain inline `style` objects don't support a `:hover` pseudo-selector key
   // (that only works with CSS-in-JS libraries this app doesn't use), so a
   // ':hover' entry here would be silently ignored by the browser.
-  const card = (accent) => ({
+  const card = () => ({
     padding: '28px 20px', border: `2px dashed ${C.border}`, borderRadius: 12,
     textAlign: 'center', cursor: 'pointer', transition: 'all 0.18s',
     flex: 1,
@@ -270,7 +270,7 @@ export default function DocScanner({ onClose, onSave }) {
             {/* Camera */}
             <div
               onClick={startCamera}
-              style={{ ...card(C.green), display: 'flex', flexDirection: 'column', alignItems: 'center' }}
+              style={{ ...card(), display: 'flex', flexDirection: 'column', alignItems: 'center' }}
               onMouseEnter={e => { e.currentTarget.style.borderColor = C.green; e.currentTarget.style.background = C.greenPale; }}
               onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.background = 'transparent'; }}
             >
@@ -283,7 +283,7 @@ export default function DocScanner({ onClose, onSave }) {
             {/* File */}
             <div
               onClick={handleFileUpload}
-              style={{ ...card('#9B59B6'), display: 'flex', flexDirection: 'column', alignItems: 'center' }}
+              style={{ ...card(), display: 'flex', flexDirection: 'column', alignItems: 'center' }}
               onMouseEnter={e => { e.currentTarget.style.borderColor = '#9B59B6'; e.currentTarget.style.background = 'rgba(155,89,182,0.06)'; }}
               onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.background = 'transparent'; }}
             >
