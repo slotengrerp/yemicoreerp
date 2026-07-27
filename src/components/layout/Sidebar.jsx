@@ -56,6 +56,10 @@ const NAV = [
 
 const SECTIONS = ['MAIN', 'HR', 'OPERATIONS', 'FINANCE', 'REPORTS', 'SYSTEM'];
 
+// Injected by vite.config.js `define` at build time. Guarded so dev server,
+// vitest, and any non-Vite consumer don't crash on an undefined global.
+const BUILD_ID = typeof __BUILD_ID__ !== 'undefined' ? __BUILD_ID__ : 'dev';
+
 const SECTION_META = {
   MAIN:       { label: 'Main',       icon: '🏠', accent: '#4CAF64', bg: 'rgba(76,175,100,0.12)' },
   HR:         { label: 'HR',         icon: '👥', accent: '#9B88E8', bg: 'rgba(155,136,232,0.12)' },
@@ -232,6 +236,7 @@ function NavContent({
             <div>
               <div style={{ fontSize:12, fontWeight:800, color:'#FFFFFF', lineHeight:1.3 }}>SLOT Engineering</div>
               <div style={{ fontSize:9, color:'rgba(255,255,255,0.5)', marginTop:2, letterSpacing:'0.5px' }}>NIGERIA LIMITED · ERP v3.0</div>
+              <div title="Build currently running in your browser — if this doesn't change after a deploy, you're on a cached bundle" style={{ fontSize:8, color:'rgba(255,255,255,0.32)', marginTop:1, fontFamily:'monospace' }}>{BUILD_ID}</div>
             </div>
           </div>
         )}

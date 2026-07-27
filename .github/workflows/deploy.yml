@@ -5,18 +5,26 @@ on:
     branches: [main, master]
   workflow_dispatch:
 
-# Only run if CI passed — gates deploys behind the lint/test/build check
 concurrency:
   group: deploy-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   deploy:
+    # NOTE (corrected 2026-07-27): the comments here used to claim "only run
+    # if CI passed — gates deploys behind the lint/test/build check". That was
+    # never true. `needs:` can only reference jobs in THIS workflow file, and
+    # ci.yml is a separate workflow, so `needs: []` + `if: success()` gates on
+    # nothing at all — both workflows fire in parallel on the same push and
+    # this one deploys regardless of whether CI went red.
+    #
+    # Leaving the behaviour as-is on purpose (a red lint should not block a
+    # deploy today), but the comments now say what actually happens. If real
+    # gating is ever wanted, it needs `on: workflow_run:` keyed to the CI
+    # workflow, not `needs:`.
     needs: []
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # Run only after the CI workflow on the same SHA completes successfully
-    if: ${{ success() }}
 
     steps:
       - name: Checkout

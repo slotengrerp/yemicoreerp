@@ -3,6 +3,17 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
+  // Build stamp — surfaced in the sidebar footer. Exists because "is my fix
+  // actually deployed, or am I looking at a cached/old bundle?" cost a full
+  // debugging cycle on 2026-07-27: a confirmed-correct fix was pushed to
+  // main, but there was no way to tell from inside the running app whether
+  // the browser was executing it. Now there is.
+  define: {
+    __BUILD_ID__: JSON.stringify(
+      (process.env.VERCEL_GIT_COMMIT_SHA || process.env.GITHUB_SHA || 'local').slice(0, 7) +
+      ' · ' + new Date().toISOString().slice(0, 16).replace('T', ' ') + 'Z'
+    ),
+  },
   test: {
     environment: 'jsdom',
     globals: true,

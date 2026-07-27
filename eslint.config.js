@@ -14,7 +14,8 @@ export default defineConfig([
       reactRefresh.configs.vite,
     ],
     languageOptions: {
-      globals: globals.browser,
+      // __BUILD_ID__ is injected by vite.config.js `define` at build time.
+      globals: { ...globals.browser, __BUILD_ID__: 'readonly' },
       parserOptions: { ecmaFeatures: { jsx: true } },
     },
   },
