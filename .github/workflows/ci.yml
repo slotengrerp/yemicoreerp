@@ -25,11 +25,14 @@ jobs:
         run: npm ci --no-audit --no-fund
 
       - name: Lint
-        # Was non-blocking while 292 pre-existing errors were cleared. As of
-        # the 2026-07-27 diagnostic audit, `eslint .` runs clean (0 errors,
-        # 0 warnings) — re-verified directly, not just from this comment.
-        # Blocking again so a regression fails CI instead of only reporting.
+        # REVERTED 2026-07-27: briefly made this blocking after a sandbox
+        # `npx eslint .` run showed 0 errors, but that sandbox had a
+        # partially-broken node_modules and its eslint resolution was not
+        # trustworthy — a real `npm ci` + `npm run lint` (this exact CI job)
+        # showed the 293 pre-existing errors are still there. Back to
+        # non-blocking until those are actually cleared file by file.
         run: npm run lint
+        continue-on-error: true
 
       - name: Test
         run: npm test
