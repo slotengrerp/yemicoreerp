@@ -33,6 +33,8 @@ function getRecordList(db, key) {
     case 'terminalCharges':    return db?.terminal?.charges  || [];
     case 'terminalBols':       return db?.terminal?.bols     || [];
     case 'terminalAdvances':   return db?.terminal?.advances || [];
+    case 'terminalConsignees':        return db?.terminal?.consignees        || [];
+    case 'terminalShippingCompanies': return db?.terminal?.shippingCompanies || [];
     case 'fleetRepairs':       return db?.fleet?.repairs     || [];
     case 'recurringTemplates': return db?.recurringTemplates || [];
     case 'stockItems':         return db?.stockItems         || [];
@@ -158,6 +160,16 @@ export function usePerRecordSync({ state, dispatch }) {
                   ...(db.terminal || {}),
                   charges: (db.terminal?.charges || []).filter(r => r.id !== old),
                 }});
+              } else if (key === 'terminalConsignees') {
+                dispatch({ type: 'UPDATE_MODULE', mod: 'terminal', data: {
+                  ...(db.terminal || {}),
+                  consignees: (db.terminal?.consignees || []).filter(r => r.id !== old),
+                }});
+              } else if (key === 'terminalShippingCompanies') {
+                dispatch({ type: 'UPDATE_MODULE', mod: 'terminal', data: {
+                  ...(db.terminal || {}),
+                  shippingCompanies: (db.terminal?.shippingCompanies || []).filter(r => r.id !== old),
+                }});
               } else if (key === 'fleetRepairs') {
                 dispatch({ type: 'UPDATE_MODULE', mod: 'fleet', data: {
                   ...(db.fleet || {}),
@@ -177,6 +189,12 @@ export function usePerRecordSync({ state, dispatch }) {
               } else if (key === 'terminalAdvances') {
                 const next = [...(db.terminal?.advances || []).filter(r => r.id !== newRow.id), newRow];
                 dispatch({ type: 'UPDATE_MODULE', mod: 'terminal', data: { ...(db.terminal || {}), advances: next } });
+              } else if (key === 'terminalConsignees') {
+                const next = [...(db.terminal?.consignees || []).filter(r => r.id !== newRow.id), newRow];
+                dispatch({ type: 'UPDATE_MODULE', mod: 'terminal', data: { ...(db.terminal || {}), consignees: next } });
+              } else if (key === 'terminalShippingCompanies') {
+                const next = [...(db.terminal?.shippingCompanies || []).filter(r => r.id !== newRow.id), newRow];
+                dispatch({ type: 'UPDATE_MODULE', mod: 'terminal', data: { ...(db.terminal || {}), shippingCompanies: next } });
               } else if (key === 'fleetRepairs') {
                 const next = [...(db.fleet?.repairs || []).filter(r => r.id !== newRow.id), newRow];
                 dispatch({ type: 'UPDATE_MODULE', mod: 'fleet', data: { ...(db.fleet || {}), repairs: next } });
@@ -208,15 +226,38 @@ export function usePerRecordSync({ state, dispatch }) {
     // infinite reload loop for anyone who was already signed in, which is
     // everyone except a brand-new login. This is what caused the crash-loop
     // reported immediately after this flag was first turned on in
-    // production. It would also have silently reloaded the page on every
-    // background TOKEN_REFRESHED (Supabase auto-refreshes the JWT well
-    // before it expires), interrupting active work every time, even once
-    // the startup loop was fixed.
+    // production. Filtering to event === 'SIGNED_IN' fixed that one.
     //
-    // Only a genuine new sign-in should trigger this — matches the pattern
-    // App.jsx already uses correctly for its own onAuthStateChange listener.
-    const unsubAuth = supabaseAuthChange((event) => {
-      if (event === 'SIGNED_IN') window.location.reload();
+    // SECOND BUG FIXED 2026-07-24, same day: filtering on event name alone
+    // wasn't enough. supabase-js's own GoTrueClient attaches a
+    // visibilitychange listener and re-validates the session every time the
+    // browser tab regains focus — and it genuinely fires a real 'SIGNED_IN'
+    // event even though nothing actually changed (same user, same session).
+    // This is documented, longstanding supabase-js behavior, not something
+    // specific to this app — see supabase/supabase-js#716, #1618, #1708 and
+    // supabase/supabase#7250. Net effect here: switching to another browser
+    // tab and back reloaded the whole page every single time, no matter how
+    // many times per minute — reported as "the app refreshes itself."
+    //
+    // Fix: only reload when the signed-in user's id actually changed from
+    // what we last saw (a real new sign-in, or a different user than
+    // before) — not just because Supabase re-announced the same session.
+    let lastUserId; // undefined until the first INITIAL/SIGNED_IN/SIGNED_OUT event
+    const unsubAuth = supabaseAuthChange((event, session) => {
+      if (event === 'SIGNED_OUT') { lastUserId = null; return; }
+      if (event !== 'INITIAL' && event !== 'SIGNED_IN') return;
+      const incomingId = session?.user?.id ?? null;
+      if (event === 'INITIAL') {
+        // First replay on subscribe — just record the baseline, don't reload.
+        lastUserId = incomingId;
+        return;
+      }
+      // event === 'SIGNED_IN'
+      if (lastUserId !== undefined && incomingId === lastUserId) {
+        return; // same user as before — tab-focus refire, not a real sign-in
+      }
+      lastUserId = incomingId;
+      window.location.reload();
     });
 
     return () => {

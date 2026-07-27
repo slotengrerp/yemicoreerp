@@ -53,6 +53,8 @@ export const RECORD_TABLES = {
   terminalCharges: 'terminal_charges',
   terminalBols:    'terminal_bols',
   terminalAdvances:'terminal_advances',
+  terminalConsignees:        'terminal_consignees',
+  terminalShippingCompanies: 'terminal_shipping_companies',
   // Fleet — split by sub-collection
   fleetRepairs:    'fleet_repairs',
   // Inventory costing
@@ -68,6 +70,20 @@ export const RECORD_TABLES = {
   projects:        'projects',
 };
 
+// ── Tables with no `voided` column ────────────────────────────────────────────
+// vendors/clients/projects are standing reference entities, not transactions
+// you reverse or cancel (see 003_per_record_tables.sql — created deliberately
+// without a voided column, unlike every transactional table). saveRecord(),
+// loadAll(), and backfillFromBlob() all used to send/select `voided`
+// unconditionally for every table in RECORD_TABLES, which fails against
+// Supabase's schema cache for these three specifically ("Could not find the
+// 'voided' column ... in the schema cache") — surfaced loudly by the backfill
+// button's per-table results, but the same assumption also made loadAll()
+// silently return an empty list for these three on every load, and would have
+// made saveRecord() silently fail to save any vendor/client/project edit once
+// live. Fixed 2026-07-24 by gating on this set instead of assuming.
+const NO_VOID_TABLES = new Set(['vendors', 'clients', 'projects']);
+
 // ── Sub-collection reader ────────────────────────────────────────────────────
 // Returns the list of records for a given db key. Centralised here so
 // callers (saveAll, loadAll, backfill) all walk the same tree.
@@ -76,6 +92,8 @@ function getRecordList(db, key) {
     case 'terminalCharges':  return db?.terminal?.charges  || [];
     case 'terminalBols':     return db?.terminal?.bols     || [];
     case 'terminalAdvances': return db?.terminal?.advances || [];
+    case 'terminalConsignees':        return db?.terminal?.consignees        || [];
+    case 'terminalShippingCompanies': return db?.terminal?.shippingCompanies || [];
     case 'fleetRepairs':     return db?.fleet?.repairs     || [];
     case 'recurringTemplates':return db?.recurringTemplates|| [];
     case 'stockItems':       return db?.stockItems        || [];
@@ -94,16 +112,17 @@ export async function saveRecord(table, record) {
   if (!record?.id) return { ok: false, error: 'record.id required' };
   if (!RECORD_TABLES[table]) return { ok: false, error: `unknown table: ${table}` };
 
-  const isVoided = record.voided === true
-    || record.status === 'Cancelled'
-    || record.status === 'Rejected';
   const row = {
     id:         record.id,
     company_id: COMPANY_ID,
     data:       record,
-    voided:     isVoided,
     updated_at: new Date().toISOString(),
   };
+  if (!NO_VOID_TABLES.has(RECORD_TABLES[table])) {
+    row.voided = record.voided === true
+      || record.status === 'Cancelled'
+      || record.status === 'Rejected';
+  }
   if (!record.createdAt) row.created_at = new Date().toISOString();
 
   try {
@@ -151,9 +170,10 @@ export async function loadAll() {
   // Promise.all fires them concurrently instead.
   const entries = await Promise.all(Object.keys(RECORD_TABLES).map(async key => {
     try {
+      const cols = NO_VOID_TABLES.has(RECORD_TABLES[key]) ? 'id, data, updated_at' : 'id, data, voided, updated_at';
       const { data, error } = await supabase
         .from(RECORD_TABLES[key])
-        .select('id, data, voided, updated_at')
+        .select(cols)
         .eq('company_id', COMPANY_ID);
       if (error) throw error;
       return [key, (data || []).map(r => ({ ...r.data, _updated_at: r.updated_at, _voided: r.voided }))];
@@ -167,6 +187,8 @@ export async function loadAll() {
     if (key === 'terminalCharges')       out.terminal.charges  = records;
     else if (key === 'terminalBols')     out.terminal.bols     = records;
     else if (key === 'terminalAdvances') out.terminal.advances = records;
+    else if (key === 'terminalConsignees')        out.terminal.consignees        = records;
+    else if (key === 'terminalShippingCompanies') out.terminal.shippingCompanies = records;
     else if (key === 'fleetRepairs')     out.fleet.repairs     = records;
     else                                 out[key] = records;
   }
@@ -290,13 +312,19 @@ export async function backfillFromBlob(legacyDb) {
       results.push({ table: RECORD_TABLES[key], count: 0, ok: true, skipped: 'empty' });
       continue;
     }
-    const rows = list.map(rec => ({
-      id:         rec.id,
-      company_id: COMPANY_ID,
-      data:       rec,
-      voided:     rec.voided === true || rec.status === 'Cancelled' || rec.status === 'Rejected',
-      updated_at: new Date().toISOString(),
-    }));
+    const noVoid = NO_VOID_TABLES.has(RECORD_TABLES[key]);
+    const rows = list.map(rec => {
+      const row = {
+        id:         rec.id,
+        company_id: COMPANY_ID,
+        data:       rec,
+        updated_at: new Date().toISOString(),
+      };
+      if (!noVoid) {
+        row.voided = rec.voided === true || rec.status === 'Cancelled' || rec.status === 'Rejected';
+      }
+      return row;
+    });
     try {
       // chunked insert to keep individual requests small
       const CHUNK = 100;

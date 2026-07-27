@@ -94,11 +94,31 @@ const SEED = {
       applications:[],balanceRemaining:2500000,status:'Open',notes:'Pre-paid clearing for NLNG cargo',
       linkToBillOfLadingId:'bol2',createdAt:'2026-04-25T08:00:00Z' },
   ],
+  // Consignee master — cargo recipients. Containers reference these by
+  // `consigneeId`; `consigneeName` stays on the container as a cached
+  // display field (auto-filled on selection) so every existing filter,
+  // print sheet, and report that reads consigneeName keeps working
+  // unchanged. Added to close gap B.2 in
+  // SLOT_BillOfLading_Schema_Audit_2026-07-25.md.
+  consignees: [
+    { id:'cons1',name:'SLOT Engineering Nigeria Ltd',address:'',phone:'',email:'',createdAt:'2026-04-01T00:00:00Z' },
+    { id:'cons2',name:'Nigerian LNG Complex',address:'',phone:'',email:'',createdAt:'2026-04-01T00:00:00Z' },
+  ],
+  // Shipping company master — carriers. Referenced by BoLs and containers
+  // via `shippingCompanyId`; `shippingCompany` stays as a cached display
+  // field, same reasoning as consignees. Closes gap B.3.
+  shippingCompanies: [
+    { id:'sc1',name:'MSC Mediterranean Shipping',createdAt:'2026-04-01T00:00:00Z' },
+    { id:'sc2',name:'Hapag-Lloyd AG',createdAt:'2026-04-01T00:00:00Z' },
+    { id:'sc3',name:'CMA CGM',createdAt:'2026-04-01T00:00:00Z' },
+    { id:'sc4',name:'Ethiopian Airlines Cargo',createdAt:'2026-04-01T00:00:00Z' },
+  ],
 };
 
 const TABS = [
   { key:'containers', label:'📦  Container Registry' },
   { key:'bols',       label:'📄  Bill of Lading'     },
+  { key:'masters',    label:'🏢  Master Data'         },
   { key:'charges',    label:'💰  Clearing & Charges' },
   { key:'logistics',  label:'🚢  Logistics & Transit'},
   { key:'advances',   label:'💵  Advance Payments'    },
@@ -289,6 +309,8 @@ export default function TerminalOps({ onNav }) {
   const charges   =(termData.charges||[]).filter(c=>!c.voided);
   const logistics =(termData.logistics||[]).filter(l=>!l.voided);
   const advances  =(termData.advances||[]).filter(a=>!a.voided);
+  const consignees=(termData.consignees||[]).filter(c=>!c.voided);
+  const shippingCompanies=(termData.shippingCompanies||[]).filter(s=>!s.voided);
 
   // Read deep-link tab from sessionStorage (set by Dashboard alert banners)
   const [tab,setTab] = useState(() => {
@@ -306,6 +328,13 @@ export default function TerminalOps({ onNav }) {
     dispatch({type:'UPDATE_MODULE',mod:'terminal',data:next});
     saveDBLocal({...db,terminal:next},state.activity);
   }
+  // Naive plural→singular for activity-log text (matches every section name
+  // except 'shippingCompanies', where a trailing-'s' slice would produce
+  // the wrong word — "shippingCompanie" — so that one is special-cased.
+  function singularOf(section) {
+    if (section === 'shippingCompanies') return 'shipping company';
+    return section.slice(0,-1);
+  }
   function deleteItem(section,id) {
     if (section === 'charges' || section === 'advances') {
       // Charges/advances can reach the GL once posted — void instead of removing, so
@@ -318,9 +347,26 @@ export default function TerminalOps({ onNav }) {
       showToast('Voided','error');
       return;
     }
+    if (section === 'bols') {
+      // FIX (found while verifying this upgrade): deleting a BoL used to
+      // leave its child containers pointing at a bolId that no longer
+      // exists — a dangling reference with no UI indication why the
+      // container quietly stopped showing under any BoL. Unlink them
+      // instead; the free-text billOfLading field is left as-is so the
+      // historical "this arrived under BoL X" breadcrumb survives.
+      const next = {
+        ...termData,
+        bols: termData.bols.filter(x=>x.id!==id),
+        containers: (termData.containers||[]).map(c => c.bolId===id ? {...c, bolId:null} : c),
+      };
+      persist(next);
+      logActivity(dispatch,'Deleted terminal bill of lading (unlinked its containers)',currentUser);
+      showToast('Deleted','error');
+      return;
+    }
     const next={...termData,[section]:termData[section].filter(x=>x.id!==id)};
     persist(next);
-    logActivity(dispatch,'Deleted terminal '+section.slice(0,-1),currentUser);
+    logActivity(dispatch,'Deleted terminal '+singularOf(section),currentUser);
     showToast('Deleted','error');
   }
   function saveItem(section,item) {
@@ -328,7 +374,7 @@ export default function TerminalOps({ onNav }) {
     const isEdit=list.some(x=>x.id===item.id);
     const next={...termData,[section]:isEdit?list.map(x=>x.id===item.id?item:x):[...list,item]};
     persist(next);
-    logActivity(dispatch,(isEdit?'Updated':'Added')+' terminal '+section.slice(0,-1),currentUser);
+    logActivity(dispatch,(isEdit?'Updated':'Added')+' terminal '+singularOf(section),currentUser);
     showToast(isEdit?'Updated':'Saved');
     setModal(null);
   }
@@ -364,6 +410,17 @@ export default function TerminalOps({ onNav }) {
     const q=search.toLowerCase();
     return q?list.filter(x=>fields.some(f=>(x[f]||'').toString().toLowerCase().includes(q))):list;
   }
+  // FIX (schema audit B.5): every cross-collection lookup that resolves a
+  // charge/logistics/advance record back to "its" container used to match
+  // on containerNo text alone — if a container number is ever reused on a
+  // later shipment, that would silently cross-associate history between
+  // shipments. Prefer the stable containerId link when present; fall back
+  // to containerNo for records saved before this upgrade. Centralised here
+  // so charges, BoL roll-ups, and reports all resolve it the same way.
+  function belongsToContainer(record, container) {
+    if (!record || !container) return false;
+    return record.containerId ? record.containerId === container.id : record.containerNo === container.containerNo;
+  }
 
   return (
     <div style={{display:'flex',flexDirection:'column',gap:16}}>
@@ -389,6 +446,8 @@ export default function TerminalOps({ onNav }) {
           {tab!=='reports'&&<input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search…" style={inpSt}/>}
           {perms.add&&tab==='containers'&&<Btn onClick={()=>setModal({type:'cont_add',data:{id:generateId(),status:'Arrived',portType:'Sea',noOfContainers:1,createdAt:new Date().toISOString()}})}>+ Add Container</Btn>}
           {perms.add&&tab==='bols'      &&<Btn onClick={()=>setModal({type:'bol_add',data:{id:generateId(),status:'In Transit',totalContainers:1,createdAt:new Date().toISOString()}})}>+ Add Bill of Lading</Btn>}
+          {perms.add&&tab==='masters'   &&<Btn onClick={()=>setModal({type:'cons_add',data:{id:generateId(),createdAt:new Date().toISOString()}})}>+ Add Consignee</Btn>}
+          {perms.add&&tab==='masters'   &&<Btn variant="outline" onClick={()=>setModal({type:'sc_add',data:{id:generateId(),createdAt:new Date().toISOString()}})}>+ Add Shipping Company</Btn>}
           {perms.add&&tab==='charges'   &&<Btn onClick={()=>setModal({type:'chg_add',data:{id:generateId(),postedToAccounting:false,createdAt:new Date().toISOString()}})}>+ Add Charge Record</Btn>}
           {perms.add&&tab==='logistics' &&<Btn onClick={()=>setModal({type:'log_add',data:{id:generateId(),noOfContainers:1,status:'Transit Applied',createdAt:new Date().toISOString()}})}>+ Add Transit Record</Btn>}
           {perms.add&&tab==='advances'  &&<Btn onClick={()=>setModal({type:'adv_add',data:{id:generateId(),currency:'NGN',amount:0,containersCovered:[],applications:[],status:'Open',createdAt:new Date().toISOString()}})}>+ Record Advance Payment</Btn>}
@@ -434,6 +493,58 @@ export default function TerminalOps({ onNav }) {
             </table>
           )}
 
+          {/* ── TAB: MASTER DATA (Consignees & Shipping Companies) ──────── */}
+          {tab==='masters'&&(
+            <div style={{display:'flex',flexDirection:'column',gap:20}}>
+              <div style={{padding:'10px 14px',background:'rgba(26,92,138,.08)',border:'1px solid rgba(26,92,138,.2)',borderLeft:'4px solid '+C.info,borderRadius:8,fontSize:11.5,color:C.info,lineHeight:1.6}}>
+                💡 Consignees and Shipping Companies added here become selectable on the Container and Bill of Lading forms, instead of being typed fresh on every record.
+              </div>
+              <div>
+                <div style={{fontWeight:700,fontSize:13,marginBottom:8,color:C.text}}>📋 Consignees ({consignees.length})</div>
+                <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+                  <thead><tr>{['Name','Address','Phone','Email',''].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
+                  <tbody>
+                    {consignees.length===0&&<tr><td colSpan={5} style={{textAlign:'center',padding:20,color:C.textMuted}}>No consignees yet — click "+ Add Consignee" above.</td></tr>}
+                    {consignees.map((c,i)=>(
+                      <tr key={c.id}>
+                        <td style={{...td(i),fontWeight:600}}>{c.name}</td>
+                        <td style={{...td(i),color:C.textMuted}}>{c.address||'—'}</td>
+                        <td style={td(i)}>{c.phone||'—'}</td>
+                        <td style={td(i)}>{c.email||'—'}</td>
+                        <td style={td(i)}>
+                          <div style={{display:'flex',gap:4}}>
+                            {perms.edit&&<Btn variant="outline" sm onClick={()=>setModal({type:'cons_edit',data:{...c}})}>Edit</Btn>}
+                            {perms.del &&<Btn variant="danger"  sm onClick={()=>deleteItem('consignees',c.id)}>Del</Btn>}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div>
+                <div style={{fontWeight:700,fontSize:13,marginBottom:8,color:C.text}}>🚢 Shipping Companies ({shippingCompanies.length})</div>
+                <table style={{width:'100%',borderCollapse:'collapse',fontSize:12,maxWidth:500}}>
+                  <thead><tr>{['Name',''].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
+                  <tbody>
+                    {shippingCompanies.length===0&&<tr><td colSpan={2} style={{textAlign:'center',padding:20,color:C.textMuted}}>No shipping companies yet</td></tr>}
+                    {shippingCompanies.map((s,i)=>(
+                      <tr key={s.id}>
+                        <td style={{...td(i),fontWeight:600}}>{s.name}</td>
+                        <td style={td(i)}>
+                          <div style={{display:'flex',gap:4}}>
+                            {perms.edit&&<Btn variant="outline" sm onClick={()=>setModal({type:'sc_edit',data:{...s}})}>Edit</Btn>}
+                            {perms.del &&<Btn variant="danger"  sm onClick={()=>deleteItem('shippingCompanies',s.id)}>Del</Btn>}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
           {/* ── TAB 2: CLEARING & CHARGES (Image 1 — Slot Terminal) ───── */}
           {tab==='charges'&&(
             <table style={{width:'100%',borderCollapse:'collapse',fontSize:12,minWidth:1050}}>
@@ -441,7 +552,7 @@ export default function TerminalOps({ onNav }) {
               <tbody>
                 {fl(charges,['containerNo','agentName','receiptNo']).length===0&&<tr><td colSpan={13} style={{textAlign:'center',padding:32,color:C.textMuted}}>No charge records found</td></tr>}
                 {fl(charges,['containerNo','agentName','receiptNo']).map((c,i)=>{
-                  const cont=containers.find(x=>x.containerNo===c.containerNo)||{};
+                  const cont=containers.find(x=>belongsToContainer(c,x))||{};
                   return (
                     <tr key={c.id}>
                       <td style={td(i)}>{i+1}</td>
@@ -534,8 +645,16 @@ export default function TerminalOps({ onNav }) {
                 ? <div style={{textAlign:'center',padding:40,color:C.textMuted,background:C.bgCard,borderRadius:10,border:'1px dashed '+C.border}}>No Bills of Lading recorded yet. Add one above to start grouping containers under a parent BoL.</div>
                 : fl(bols,['billOfLadingNo','shippingCompany','shippingVessel','portOfDischarge','status']).map((bol, i) => {
                   const childContainers = containers.filter(c => c.bolId === bol.id);
-                  const childLogistics  = logistics.filter(l => l.bolId === bol.id);
-                  const totalCharges    = charges.filter(c => childContainers.some(cc => cc.containerNo === c.containerNo)).reduce((s,c)=>s+(Number(c.totalAmount)||0),0);
+                  // FIX (found while verifying this upgrade): LogisticsModal
+                  // never actually set `bolId` on a transit record — there
+                  // was no field or auto-fill for it — so this used to be
+                  // an always-empty match for any logistics record created
+                  // after the hardcoded seed data (l1/l2 above). Deriving
+                  // it through the container's own (reliable) bolId instead
+                  // fixes both new records and any that were already
+                  // silently un-linked.
+                  const childLogistics  = logistics.filter(l => childContainers.some(cc => belongsToContainer(l, cc)));
+                  const totalCharges    = charges.filter(c => childContainers.some(cc => belongsToContainer(c,cc))).reduce((s,c)=>s+(Number(c.totalAmount)||0),0);
                   const distinctConsignees = Array.from(new Set(childContainers.map(c => c.consigneeName).filter(Boolean)));
                   const allReleased = childContainers.length > 0 && childContainers.every(c => c.status === 'Released');
                   const anyHeld = childContainers.some(c => c.status === 'Held');
@@ -731,9 +850,9 @@ export default function TerminalOps({ onNav }) {
               {/* Containers pending logistics record */}
               <div style={{background:C.bgCard,border:'1px solid '+C.border,borderRadius:10,padding:14}}>
                 <div style={{fontWeight:700,fontSize:13,marginBottom:10,color:C.text}}>Containers Without a Logistics Record</div>
-                {containers.filter(c=>!logistics.some(l=>l.containerNo===c.containerNo)).length===0
+                {containers.filter(c=>!logistics.some(l=>belongsToContainer(l,c))).length===0
                   ?<div style={{fontSize:12,color:C.success}}>✓ All containers have a logistics/transit record</div>
-                  :containers.filter(c=>!logistics.some(l=>l.containerNo===c.containerNo)).map((c,i)=>(
+                  :containers.filter(c=>!logistics.some(l=>belongsToContainer(l,c))).map((c,i)=>(
                     <div key={c.id} style={{display:'flex',justifyContent:'space-between',padding:'6px 0',borderBottom:'0.5px solid '+C.borderLight,fontSize:12}}>
                       <span style={{fontFamily:'monospace',color:C.green,fontWeight:700}}>{c.containerNo}</span>
                       <span style={{color:C.textMuted}}>{c.consigneeName}</span>
@@ -751,9 +870,11 @@ export default function TerminalOps({ onNav }) {
         <Overlay onClose={()=>setModal(null)}>
           {['cont_add','cont_edit','cont_view'].includes(modal.type)&&
             <ContainerModal data={modal.data} readonly={modal.type==='cont_view'} containers={containers} bols={bols}
+              consignees={consignees} shippingCompanies={shippingCompanies}
               onSave={d=>saveItem('containers',d)} onClose={()=>setModal(null)}/>}
           {['bol_add','bol_edit','bol_view'].includes(modal.type)&&
             <BoLModal data={modal.data} readonly={modal.type==='bol_view'} containers={containers}
+              shippingCompanies={shippingCompanies}
               onSave={d=>saveItem('bols',d)} onClose={()=>setModal(null)}/>}
           {['chg_add','chg_edit'].includes(modal.type)&&
             <ChargeModal data={modal.data} containers={containers}
@@ -764,6 +885,12 @@ export default function TerminalOps({ onNav }) {
           {['adv_add','adv_edit','adv_view'].includes(modal.type)&&
             <AdvanceModal data={modal.data} readonly={modal.type==='adv_view'} containers={containers}
               onSave={d=>saveItem('advances',d)} onClose={()=>setModal(null)}/>}
+          {['cons_add','cons_edit'].includes(modal.type)&&
+            <ConsigneeModal data={modal.data}
+              onSave={d=>saveItem('consignees',d)} onClose={()=>setModal(null)}/>}
+          {['sc_add','sc_edit'].includes(modal.type)&&
+            <ShippingCompanyModal data={modal.data}
+              onSave={d=>saveItem('shippingCompanies',d)} onClose={()=>setModal(null)}/>}
         </Overlay>
       )}
     </div>
@@ -771,7 +898,7 @@ export default function TerminalOps({ onNav }) {
 }
 
 // ── Container Modal ─────────────────────────────────────────────────────────
-function ContainerModal({data,readonly,containers,bols,onSave,onClose}) {
+function ContainerModal({data,readonly,containers,bols,consignees,shippingCompanies,onSave,onClose}) {
   const {C}=useTheme();
   const [f,setF]=useState({...data});
   const set=k=>e=>setF(p=>({...p,[k]:e.target.value}));
@@ -797,9 +924,21 @@ function ContainerModal({data,readonly,containers,bols,onSave,onClose}) {
         </LBL>
         <LBL t="Bill of Lading No (free-text)"><input style={{...inp,fontFamily:'monospace'}} value={f.billOfLading||''} onChange={set('billOfLading')} readOnly={readonly}/></LBL>
         <LBL t="Status"><select style={inp} value={f.status||'Arrived'} onChange={set('status')} disabled={readonly}>{STATUS_ALL.map(s=><option key={s}>{s}</option>)}</select></LBL>
-        <LBL t="Shipping Company" ><input style={inp} value={f.shippingCompany||''} onChange={set('shippingCompany')} readOnly={readonly}/></LBL>
+        <LBL t="Shipping Company (from master)">
+          <select style={inp} value={f.shippingCompanyId||''} onChange={e=>{const shippingCompanyId=e.target.value;const sc=(shippingCompanies||[]).find(x=>x.id===shippingCompanyId);setF(p=>({...p,shippingCompanyId,shippingCompany:sc?.name||p.shippingCompany}));}} disabled={readonly}>
+            <option value="">— Not linked / type below —</option>
+            {(shippingCompanies||[]).map(sc=><option key={sc.id} value={sc.id}>{sc.name}</option>)}
+          </select>
+        </LBL>
+        <LBL t="Shipping Company (free-text)" ><input style={inp} value={f.shippingCompany||''} onChange={set('shippingCompany')} readOnly={readonly}/></LBL>
         <LBL t="Shipping Vessel"  ><input style={inp} value={f.shippingVessel||''} onChange={set('shippingVessel')} readOnly={readonly}/></LBL>
-        <div style={{display:'flex',flexDirection:'column',gap:4,gridColumn:'1/-1'}}><label style={{fontSize:11,fontWeight:600,color:C.textMid}}>Name of Consignee</label><input style={inp} value={f.consigneeName||''} onChange={set('consigneeName')} readOnly={readonly}/></div>
+        <LBL t="Consignee (from master)">
+          <select style={inp} value={f.consigneeId||''} onChange={e=>{const consigneeId=e.target.value;const cons=(consignees||[]).find(x=>x.id===consigneeId);setF(p=>({...p,consigneeId,consigneeName:cons?.name||p.consigneeName}));}} disabled={readonly}>
+            <option value="">— Not linked / type below —</option>
+            {(consignees||[]).map(cons=><option key={cons.id} value={cons.id}>{cons.name}</option>)}
+          </select>
+        </LBL>
+        <div style={{display:'flex',flexDirection:'column',gap:4}}><label style={{fontSize:11,fontWeight:600,color:C.textMid}}>Name of Consignee (free-text)</label><input style={inp} value={f.consigneeName||''} onChange={set('consigneeName')} readOnly={readonly}/></div>
         <div style={{display:'flex',flexDirection:'column',gap:4,gridColumn:'1/-1'}}><label style={{fontSize:11,fontWeight:600,color:C.textMid}}>Material Description / Packages</label><input style={inp} value={f.materialDescription||''} onChange={set('materialDescription')} readOnly={readonly}/></div>
         {readonly&&<div style={{gridColumn:'1/-1'}}><div style={{fontSize:11,fontWeight:600,color:C.textMid,marginBottom:6}}>Status Pipeline</div><div style={{padding:'10px 0'}}><Pipeline status={f.status}/></div></div>}
       </div>
@@ -811,7 +950,15 @@ function ContainerModal({data,readonly,containers,bols,onSave,onClose}) {
 // ── Charge Modal (Image 1 — Slot Terminal) ──────────────────────────────────
 function ChargeModal({data,containers,onSave,onClose}) {
   const {C}=useTheme();
-  const [f,setF]=useState({...data});
+  // FIX (schema audit B.5): resolve a stable containerId for legacy records
+  // that only have containerNo, so the select below stays populated on edit
+  // and new saves carry a real ID instead of a re-usable text number.
+  const initial = { ...data };
+  if (!initial.containerId && initial.containerNo) {
+    const match = (containers||[]).find(c => c.containerNo === initial.containerNo);
+    if (match) initial.containerId = match.id;
+  }
+  const [f,setF]=useState(initial);
   const calc=next=>{next.totalAmount=(Number(next.equipmentCharge)||0)+(Number(next.terminalCharge)||0)+(Number(next.storageCharge)||0);return next;};
   const set=k=>e=>{const v=e.target.value;setF(p=>calc({...p,[k]:v}));};
   const inp={padding:'7px 10px',borderRadius:7,border:'1px solid '+C.border,background:C.bgCard,color:C.text,fontSize:13,outline:'none',fontFamily:'inherit',width:'100%'};
@@ -824,9 +971,9 @@ function ChargeModal({data,containers,onSave,onClose}) {
       </div>
       <div style={{padding:20,display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
         <LBL t="Container No" full>
-          <select style={inp} value={f.containerNo||''} onChange={set('containerNo')}>
+          <select style={inp} value={f.containerId||''} onChange={e=>{const containerId=e.target.value;const cont=(containers||[]).find(c=>c.id===containerId);setF(p=>calc({...p,containerId,containerNo:cont?.containerNo||p.containerNo}));}}>
             <option value="">Select container…</option>
-            {containers.map(c=><option key={c.id} value={c.containerNo}>{c.containerNo} — {c.consigneeName}</option>)}
+            {containers.map(c=><option key={c.id} value={c.id}>{c.containerNo} — {c.consigneeName}</option>)}
           </select>
         </LBL>
         <LBL t="Arrival Date"><input style={inp} type="date" value={f.arrivalDate||''} onChange={set('arrivalDate')}/></LBL>
@@ -858,15 +1005,26 @@ function ChargeModal({data,containers,onSave,onClose}) {
 // ── Logistics Modal (Image 2 — Floping Logistics) ──────────────────────────
 function LogisticsModal({data,containers,onSave,onClose}) {
   const {C}=useTheme();
-  const [f,setF]=useState({...data});
+  // FIX (schema audit B.5): same containerId backfill as ChargeModal, so
+  // editing a legacy (containerNo-only) transit record still shows the
+  // right container selected.
+  const initial = { ...data };
+  if (!initial.containerId && initial.containerNo) {
+    const match = (containers||[]).find(c => c.containerNo === initial.containerNo);
+    if (match) initial.containerId = match.id;
+  }
+  const [f,setF]=useState(initial);
   const set=k=>e=>setF(p=>({...p,[k]:e.target.value}));
   const inp={padding:'7px 10px',borderRadius:7,border:'1px solid '+C.border,background:C.bgCard,color:C.text,fontSize:13,outline:'none',fontFamily:'inherit',width:'100%'};
   const LBL=({t,full,children})=><div style={{display:'flex',flexDirection:'column',gap:4,gridColumn:full?'1/-1':undefined}}><label style={{fontSize:11,fontWeight:600,color:C.textMid}}>{t}</label>{children}</div>;
 
-  function autoFillFromContainer(containerNo) {
-    const cont=containers.find(c=>c.containerNo===containerNo);
-    if(cont) setF(p=>({...p,containerNo,billOfLading:cont.billOfLading||p.billOfLading,containerSize:cont.size||p.containerSize,materialDescription:cont.materialDescription||p.materialDescription,consigneeName:cont.consigneeName||p.consigneeName,shippingCompany:cont.shippingCompany||p.shippingCompany,shippingVessel:cont.shippingVessel||p.shippingVessel,noOfContainers:cont.noOfContainers||p.noOfContainers}));
-    else setF(p=>({...p,containerNo}));
+  function autoFillFromContainer(containerId) {
+    const cont=containers.find(c=>c.id===containerId);
+    // Also carries over the container's bolId (not just billOfLading text)
+    // so this transit record shows up under the right BoL card — see the
+    // childLogistics fix in the main render for why this was missing before.
+    if(cont) setF(p=>({...p,containerId:cont.id,containerNo:cont.containerNo,bolId:cont.bolId||p.bolId,billOfLading:cont.billOfLading||p.billOfLading,containerSize:cont.size||p.containerSize,materialDescription:cont.materialDescription||p.materialDescription,consigneeName:cont.consigneeName||p.consigneeName,shippingCompany:cont.shippingCompany||p.shippingCompany,shippingVessel:cont.shippingVessel||p.shippingVessel,noOfContainers:cont.noOfContainers||p.noOfContainers}));
+    else setF(p=>({...p,containerId,containerNo:''}));
   }
 
   return (
@@ -877,9 +1035,9 @@ function LogisticsModal({data,containers,onSave,onClose}) {
       </div>
       <div style={{padding:20,display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
         <LBL t="Container No (auto-fills from registry)" full>
-          <select style={inp} value={f.containerNo||''} onChange={e=>autoFillFromContainer(e.target.value)}>
+          <select style={inp} value={f.containerId||''} onChange={e=>autoFillFromContainer(e.target.value)}>
             <option value="">Select container…</option>
-            {containers.map(c=><option key={c.id} value={c.containerNo}>{c.containerNo} — {c.consigneeName}</option>)}
+            {containers.map(c=><option key={c.id} value={c.id}>{c.containerNo} — {c.consigneeName}</option>)}
           </select>
         </LBL>
         <LBL t="Date of Transit Application"><input style={inp} type="date" value={f.transitApplicationDate||''} onChange={set('transitApplicationDate')}/></LBL>
@@ -906,13 +1064,18 @@ function LogisticsModal({data,containers,onSave,onClose}) {
 }
 
 // ── Bill of Lading Modal ────────────────────────────────────────────────────
-function BoLModal({data,readonly,containers,onSave,onClose}) {
+function BoLModal({data,readonly,containers,shippingCompanies,onSave,onClose}) {
   const {C}=useTheme();
   const [f,setF]=useState({...data});
   const set=k=>e=>setF(p=>({...p,[k]:e.target.value}));
   const inp={padding:'7px 10px',borderRadius:7,border:'1px solid '+C.border,background:readonly?C.bgAlt:C.bgCard,color:C.text,fontSize:13,outline:'none',fontFamily:'inherit',width:'100%'};
   const LBL=({t,full,children})=><div style={{display:'flex',flexDirection:'column',gap:4,gridColumn:full?'1/-1':undefined}}><label style={{fontSize:11,fontWeight:600,color:C.textMid}}>{t}</label>{children}</div>;
-  const childContainers = containers.filter(c => c.bolId === f.id || c.billOfLading === f.billOfLadingNo);
+  // FIX (schema audit B.4): this used to also match on `c.billOfLading ===
+  // f.billOfLadingNo` (free-text), which could disagree with the main BoL
+  // tab's count (which has always used bolId only — see the childContainers
+  // line in the main render). Collapsed to the single bolId FK so both
+  // views always agree on which containers belong to this BoL.
+  const childContainers = containers.filter(c => c.bolId === f.id);
   return (
     <div style={{background:C.bgCard,borderRadius:12,border:'1px solid '+C.border,overflow:'hidden'}}>
       <div style={{padding:'14px 20px',background:'linear-gradient(135deg,#0F3A1A,#1A5C2A)',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
@@ -923,7 +1086,13 @@ function BoLModal({data,readonly,containers,onSave,onClose}) {
         <LBL t="Bill of Lading No *" full>
           <input style={{...inp,fontFamily:'monospace',fontWeight:700,color:C.green}} value={f.billOfLadingNo||''} onChange={set('billOfLadingNo')} placeholder="e.g. MSCUB123456" readOnly={readonly}/>
         </LBL>
-        <LBL t="Shipping Company"><input style={inp} value={f.shippingCompany||''} onChange={set('shippingCompany')} readOnly={readonly}/></LBL>
+        <LBL t="Shipping Company (from master)">
+          <select style={inp} value={f.shippingCompanyId||''} onChange={e=>{const shippingCompanyId=e.target.value;const sc=(shippingCompanies||[]).find(x=>x.id===shippingCompanyId);setF(p=>({...p,shippingCompanyId,shippingCompany:sc?.name||p.shippingCompany}));}} disabled={readonly}>
+            <option value="">— Not linked / type below —</option>
+            {(shippingCompanies||[]).map(sc=><option key={sc.id} value={sc.id}>{sc.name}</option>)}
+          </select>
+        </LBL>
+        <LBL t="Shipping Company (free-text)"><input style={inp} value={f.shippingCompany||''} onChange={set('shippingCompany')} readOnly={readonly}/></LBL>
         <LBL t="Shipping Vessel"><input style={inp} value={f.shippingVessel||''} onChange={set('shippingVessel')} readOnly={readonly}/></LBL>
         <LBL t="Voyage No"><input style={inp} value={f.voyageNo||''} onChange={set('voyageNo')} readOnly={readonly}/></LBL>
         <LBL t="Port of Loading"><input style={inp} value={f.portOfLoading||''} onChange={set('portOfLoading')} readOnly={readonly}/></LBL>
@@ -964,9 +1133,9 @@ function AdvanceModal({data,readonly,containers,onSave,onClose}) {
     containersCovered: data.containersCovered || [],
     applications:      data.applications || [],
   });
-  const [newContainerNo, setNewContainerNo] = useState('');
+  const [newContainerId, setNewContainerId] = useState('');
   const [newAllocation,  setNewAllocation]  = useState('');
-  const [newAppContainer, setNewAppContainer] = useState('');
+  const [newAppContainerId, setNewAppContainerId] = useState('');
   const [newAppAmount,    setNewAppAmount]   = useState('');
 
   const set=k=>e=>setF(p=>({...p,[k]:e.target.value}));
@@ -979,22 +1148,28 @@ function AdvanceModal({data,readonly,containers,onSave,onClose}) {
   const status = balanceRemaining === 0 ? 'Fully Utilised' : totalApplied > 0 ? 'Partially Utilised' : 'Open';
 
   function addContainerCovered() {
-    if (!newContainerNo || !newAllocation) return;
-    if ((f.containersCovered||[]).some(c => c.containerNo === newContainerNo)) {
+    if (!newContainerId || !newAllocation) return;
+    if ((f.containersCovered||[]).some(c => (c.containerId||c.containerNo) === newContainerId)) {
       showToast('Container already added', 'error'); return;
     }
-    setF(p => ({ ...p, containersCovered: [...(p.containersCovered||[]), { containerNo: newContainerNo, amountAllocated: Number(newAllocation)||0 }] }));
-    setNewContainerNo(''); setNewAllocation('');
+    // FIX (schema audit B.5): store containerId (stable) alongside
+    // containerNo (cached display/legacy fallback) instead of containerNo
+    // alone, so a reused container number can't cross-associate advances
+    // between shipments.
+    const cont = containers.find(c => c.id === newContainerId);
+    setF(p => ({ ...p, containersCovered: [...(p.containersCovered||[]), { containerId: newContainerId, containerNo: cont?.containerNo||'', amountAllocated: Number(newAllocation)||0 }] }));
+    setNewContainerId(''); setNewAllocation('');
   }
   function removeContainerCovered(idx) {
     setF(p => ({ ...p, containersCovered: (p.containersCovered||[]).filter((_,i)=>i!==idx) }));
   }
   function addApplication() {
-    if (!newAppContainer || !newAppAmount) return;
+    if (!newAppContainerId || !newAppAmount) return;
     const amt = Number(newAppAmount);
     if (amt > balanceRemaining) { showToast(`Cannot apply more than outstanding balance (₦${balanceRemaining.toLocaleString('en-NG')})`, 'error'); return; }
-    setF(p => ({ ...p, applications: [...(p.applications||[]), { containerNo: newAppContainer, amount: amt, date: new Date().toISOString().split('T')[0], by: 'system' }] }));
-    setNewAppContainer(''); setNewAppAmount('');
+    const covered = (f.containersCovered||[]).find(c => (c.containerId||c.containerNo) === newAppContainerId);
+    setF(p => ({ ...p, applications: [...(p.applications||[]), { containerId: newAppContainerId, containerNo: covered?.containerNo||'', amount: amt, date: new Date().toISOString().split('T')[0], by: 'system' }] }));
+    setNewAppContainerId(''); setNewAppAmount('');
   }
   function removeApplication(idx) {
     setF(p => ({ ...p, applications: (p.applications||[]).filter((_,i)=>i!==idx) }));
@@ -1057,7 +1232,7 @@ function AdvanceModal({data,readonly,containers,onSave,onClose}) {
             </tr></thead>
             <tbody>
               {(f.containersCovered||[]).map((c, i) => {
-                const cont = containers.find(x => x.containerNo === c.containerNo);
+                const cont = containers.find(x => c.containerId ? x.id === c.containerId : x.containerNo === c.containerNo);
                 const pct = f.amount > 0 ? Math.round((c.amountAllocated / f.amount) * 100) : 0;
                 return (
                   <tr key={i}>
@@ -1076,9 +1251,9 @@ function AdvanceModal({data,readonly,containers,onSave,onClose}) {
           <div style={{display:'flex',gap:6,alignItems:'end'}}>
             <div style={{flex:1}}>
               <div style={{fontSize:10,fontWeight:600,color:C.textMid,marginBottom:3}}>Container No</div>
-              <select style={inp} value={newContainerNo} onChange={e=>setNewContainerNo(e.target.value)}>
+              <select style={inp} value={newContainerId} onChange={e=>setNewContainerId(e.target.value)}>
                 <option value="">— Select container —</option>
-                {containers.map(c => <option key={c.id} value={c.containerNo}>{c.containerNo} — {c.consigneeName}</option>)}
+                {containers.map(c => <option key={c.id} value={c.id}>{c.containerNo} — {c.consigneeName}</option>)}
               </select>
             </div>
             <div style={{width:180}}>
@@ -1117,9 +1292,9 @@ function AdvanceModal({data,readonly,containers,onSave,onClose}) {
           <div style={{fontSize:10,fontWeight:600,color:C.textMid,marginBottom:3}}>Apply Advance Against Container</div>
           <div style={{display:'flex',gap:6,alignItems:'end'}}>
             <div style={{flex:1}}>
-              <select style={inp} value={newAppContainer} onChange={e=>setNewAppContainer(e.target.value)}>
+              <select style={inp} value={newAppContainerId} onChange={e=>setNewAppContainerId(e.target.value)}>
                 <option value="">— Container to apply against —</option>
-                {(f.containersCovered||[]).map((c, i) => <option key={i} value={c.containerNo}>{c.containerNo}</option>)}
+                {(f.containersCovered||[]).map((c, i) => <option key={i} value={c.containerId||c.containerNo}>{c.containerNo}</option>)}
               </select>
             </div>
             <div style={{width:180}}>
@@ -1149,6 +1324,64 @@ function AdvanceModal({data,readonly,containers,onSave,onClose}) {
       <div style={{padding:'0 20px 20px',display:'flex',gap:8,justifyContent:'flex-end',borderTop:'1px solid '+C.borderLight,paddingTop:14}}>
         <button onClick={onClose} style={{padding:'7px 16px',borderRadius:7,background:'transparent',border:'1px solid '+C.border,color:C.textMid,fontSize:13,cursor:'pointer'}}>Cancel</button>
         {!readonly&&<button onClick={handleSave} style={{padding:'7px 18px',borderRadius:7,background:C.green,border:'none',color:'#fff',fontSize:13,fontWeight:600,cursor:'pointer'}}>Save Advance</button>}
+      </div>
+    </div>
+  );
+}
+
+// ── Consignee Modal (master data — closes gap B.2 in the schema audit) ─────
+function ConsigneeModal({data,onSave,onClose}) {
+  const {C}=useTheme();
+  const [f,setF]=useState({...data});
+  const set=k=>e=>setF(p=>({...p,[k]:e.target.value}));
+  const inp={padding:'7px 10px',borderRadius:7,border:'1px solid '+C.border,background:C.bgCard,color:C.text,fontSize:13,outline:'none',fontFamily:'inherit',width:'100%'};
+  const LBL=({t,full,children})=><div style={{display:'flex',flexDirection:'column',gap:4,gridColumn:full?'1/-1':undefined}}><label style={{fontSize:11,fontWeight:600,color:C.textMid}}>{t}</label>{children}</div>;
+  function handleSave() {
+    if (!f.name || !f.name.trim()) { showToast('Consignee name is required', 'error'); return; }
+    onSave(f);
+  }
+  return (
+    <div style={{background:C.bgCard,borderRadius:12,border:'1px solid '+C.border,overflow:'hidden'}}>
+      <div style={{padding:'14px 20px',background:'linear-gradient(135deg,#0F3A1A,#1A5C2A)',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+        <div style={{fontSize:14,fontWeight:700,color:'#fff'}}>📋 {f.name||'New Consignee'}</div>
+        <button onClick={onClose} aria-label="Close dialog" style={{background:'rgba(255,255,255,.15)',border:'none',borderRadius:'50%',width:28,height:28,color:'#fff',fontSize:16,cursor:'pointer'}}>✕</button>
+      </div>
+      <div style={{padding:20,display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
+        <LBL t="Name *" full><input style={inp} value={f.name||''} onChange={set('name')} placeholder="e.g. Nigerian LNG Complex"/></LBL>
+        <LBL t="Address" full><input style={inp} value={f.address||''} onChange={set('address')}/></LBL>
+        <LBL t="Phone"><input style={inp} value={f.phone||''} onChange={set('phone')}/></LBL>
+        <LBL t="Email"><input style={inp} type="email" value={f.email||''} onChange={set('email')}/></LBL>
+      </div>
+      <div style={{padding:'0 20px 20px',display:'flex',gap:8,justifyContent:'flex-end',borderTop:'1px solid '+C.borderLight,paddingTop:14}}>
+        <button onClick={onClose} style={{padding:'7px 16px',borderRadius:7,background:'transparent',border:'1px solid '+C.border,color:C.textMid,fontSize:13,cursor:'pointer'}}>Cancel</button>
+        <button onClick={handleSave} style={{padding:'7px 18px',borderRadius:7,background:C.green,border:'none',color:'#fff',fontSize:13,fontWeight:600,cursor:'pointer'}}>Save Consignee</button>
+      </div>
+    </div>
+  );
+}
+
+// ── Shipping Company Modal (master data — closes gap B.3) ──────────────────
+function ShippingCompanyModal({data,onSave,onClose}) {
+  const {C}=useTheme();
+  const [f,setF]=useState({...data});
+  const set=k=>e=>setF(p=>({...p,[k]:e.target.value}));
+  const inp={padding:'7px 10px',borderRadius:7,border:'1px solid '+C.border,background:C.bgCard,color:C.text,fontSize:13,outline:'none',fontFamily:'inherit',width:'100%'};
+  function handleSave() {
+    if (!f.name || !f.name.trim()) { showToast('Shipping company name is required', 'error'); return; }
+    onSave(f);
+  }
+  return (
+    <div style={{background:C.bgCard,borderRadius:12,border:'1px solid '+C.border,overflow:'hidden'}}>
+      <div style={{padding:'14px 20px',background:'linear-gradient(135deg,#0F3A1A,#1A5C2A)',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+        <div style={{fontSize:14,fontWeight:700,color:'#fff'}}>🚢 {f.name||'New Shipping Company'}</div>
+        <button onClick={onClose} aria-label="Close dialog" style={{background:'rgba(255,255,255,.15)',border:'none',borderRadius:'50%',width:28,height:28,color:'#fff',fontSize:16,cursor:'pointer'}}>✕</button>
+      </div>
+      <div style={{padding:20}}>
+        <div style={{display:'flex',flexDirection:'column',gap:4}}><label style={{fontSize:11,fontWeight:600,color:C.textMid}}>Name *</label><input style={inp} value={f.name||''} onChange={set('name')} placeholder="e.g. MSC Mediterranean Shipping"/></div>
+      </div>
+      <div style={{padding:'0 20px 20px',display:'flex',gap:8,justifyContent:'flex-end',borderTop:'1px solid '+C.borderLight,paddingTop:14}}>
+        <button onClick={onClose} style={{padding:'7px 16px',borderRadius:7,background:'transparent',border:'1px solid '+C.border,color:C.textMid,fontSize:13,cursor:'pointer'}}>Cancel</button>
+        <button onClick={handleSave} style={{padding:'7px 18px',borderRadius:7,background:C.green,border:'none',color:'#fff',fontSize:13,fontWeight:600,cursor:'pointer'}}>Save Shipping Company</button>
       </div>
     </div>
   );
