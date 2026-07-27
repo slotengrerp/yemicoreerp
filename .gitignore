@@ -46,3 +46,5 @@ build.log
 lint.log
 npm-install.log
 test.log
+
+.vercel
