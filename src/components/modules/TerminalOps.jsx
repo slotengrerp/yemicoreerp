@@ -22,6 +22,31 @@ const CONT_TYPES  = ['20ft DV','40ft DV','40ft HC','20ft Reefer','40ft Reefer','
 const CONT_SIZES  = ['20ft','40ft','45ft'];
 const PORT_TYPES  = ['Sea','Air'];
 
+// ── Shared form-field label wrapper (module scope — stable identity) ────────
+// FIX (cursor/focus bug): this used to be redefined as a brand-new inline
+// arrow function inside every modal's render body (ContainerModal,
+// ChargeModal, LogisticsModal, BoLModal, AdvanceModal, ConsigneeModal,
+// ShippingCompanyModal — 6 separate copies). Every keystroke in ANY field
+// called setF() -> the modal re-rendered -> LBL got a fresh function
+// reference -> React saw a different component type at that position in the
+// tree -> it unmounted and remounted the whole <LBL> subtree, including the
+// real <input> DOM node inside it -> the input lost focus after every single
+// character typed ("the cursor disappears"). Same root cause, and same fix,
+// as the documented Sidebar.jsx v3.1 rewrite: hoisting to module scope gives
+// LBL one stable identity across every render, so React updates the existing
+// DOM node instead of recreating it. All 6 previous copies were identical
+// (or a strict subset — one predated the `full` prop), so this single
+// definition replaces every one of them with no call-site changes needed.
+function LBL({ t, full, children }) {
+  const { C } = useTheme();
+  return (
+    <div style={{ display:'flex', flexDirection:'column', gap:4, gridColumn: full ? '1/-1' : undefined }}>
+      <label style={{ fontSize:11, fontWeight:600, color:C.textMid }}>{t}</label>
+      {children}
+    </div>
+  );
+}
+
 // ── Seed data — matches actual SLOT sheet structure ───────────────────────────
 const SEED = {
   // Bill of Lading parent records — each BoL groups one or more containers
@@ -903,7 +928,6 @@ function ContainerModal({data,readonly,containers,bols,consignees,shippingCompan
   const [f,setF]=useState({...data});
   const set=k=>e=>setF(p=>({...p,[k]:e.target.value}));
   const inp={padding:'7px 10px',borderRadius:7,border:'1px solid '+C.border,background:readonly?C.bgAlt:C.bgCard,color:C.text,fontSize:13,outline:'none',fontFamily:'inherit',width:'100%'};
-  const LBL=({t,children})=><div style={{display:'flex',flexDirection:'column',gap:4}}><label style={{fontSize:11,fontWeight:600,color:C.textMid}}>{t}</label>{children}</div>;
   return (
     <div style={{background:C.bgCard,borderRadius:12,border:'1px solid '+C.border,overflow:'hidden'}}>
       <div style={{padding:'14px 20px',background:'linear-gradient(135deg,#0F3A1A,#1A5C2A)',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
@@ -962,7 +986,6 @@ function ChargeModal({data,containers,onSave,onClose}) {
   const calc=next=>{next.totalAmount=(Number(next.equipmentCharge)||0)+(Number(next.terminalCharge)||0)+(Number(next.storageCharge)||0);return next;};
   const set=k=>e=>{const v=e.target.value;setF(p=>calc({...p,[k]:v}));};
   const inp={padding:'7px 10px',borderRadius:7,border:'1px solid '+C.border,background:C.bgCard,color:C.text,fontSize:13,outline:'none',fontFamily:'inherit',width:'100%'};
-  const LBL=({t,full,children})=><div style={{display:'flex',flexDirection:'column',gap:4,gridColumn:full?'1/-1':undefined}}><label style={{fontSize:11,fontWeight:600,color:C.textMid}}>{t}</label>{children}</div>;
   return (
     <div style={{background:C.bgCard,borderRadius:12,border:'1px solid '+C.border,overflow:'hidden'}}>
       <div style={{padding:'14px 20px',background:'linear-gradient(135deg,#0F3A1A,#1A5C2A)',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
@@ -1016,7 +1039,6 @@ function LogisticsModal({data,containers,onSave,onClose}) {
   const [f,setF]=useState(initial);
   const set=k=>e=>setF(p=>({...p,[k]:e.target.value}));
   const inp={padding:'7px 10px',borderRadius:7,border:'1px solid '+C.border,background:C.bgCard,color:C.text,fontSize:13,outline:'none',fontFamily:'inherit',width:'100%'};
-  const LBL=({t,full,children})=><div style={{display:'flex',flexDirection:'column',gap:4,gridColumn:full?'1/-1':undefined}}><label style={{fontSize:11,fontWeight:600,color:C.textMid}}>{t}</label>{children}</div>;
 
   function autoFillFromContainer(containerId) {
     const cont=containers.find(c=>c.id===containerId);
@@ -1069,7 +1091,6 @@ function BoLModal({data,readonly,containers,shippingCompanies,onSave,onClose}) {
   const [f,setF]=useState({...data});
   const set=k=>e=>setF(p=>({...p,[k]:e.target.value}));
   const inp={padding:'7px 10px',borderRadius:7,border:'1px solid '+C.border,background:readonly?C.bgAlt:C.bgCard,color:C.text,fontSize:13,outline:'none',fontFamily:'inherit',width:'100%'};
-  const LBL=({t,full,children})=><div style={{display:'flex',flexDirection:'column',gap:4,gridColumn:full?'1/-1':undefined}}><label style={{fontSize:11,fontWeight:600,color:C.textMid}}>{t}</label>{children}</div>;
   // FIX (schema audit B.4): this used to also match on `c.billOfLading ===
   // f.billOfLadingNo` (free-text), which could disagree with the main BoL
   // tab's count (which has always used bolId only — see the childContainers
@@ -1140,7 +1161,6 @@ function AdvanceModal({data,readonly,containers,onSave,onClose}) {
 
   const set=k=>e=>setF(p=>({...p,[k]:e.target.value}));
   const inp={padding:'7px 10px',borderRadius:7,border:'1px solid '+C.border,background:readonly?C.bgAlt:C.bgCard,color:C.text,fontSize:13,outline:'none',fontFamily:'inherit',width:'100%'};
-  const LBL=({t,full,children})=><div style={{display:'flex',flexDirection:'column',gap:4,gridColumn:full?'1/-1':undefined}}><label style={{fontSize:11,fontWeight:600,color:C.textMid}}>{t}</label>{children}</div>;
 
   // Live recompute balanceRemaining
   const totalApplied = (f.applications||[]).reduce((s,a)=>s+(Number(a.amount)||0),0);
@@ -1335,7 +1355,6 @@ function ConsigneeModal({data,onSave,onClose}) {
   const [f,setF]=useState({...data});
   const set=k=>e=>setF(p=>({...p,[k]:e.target.value}));
   const inp={padding:'7px 10px',borderRadius:7,border:'1px solid '+C.border,background:C.bgCard,color:C.text,fontSize:13,outline:'none',fontFamily:'inherit',width:'100%'};
-  const LBL=({t,full,children})=><div style={{display:'flex',flexDirection:'column',gap:4,gridColumn:full?'1/-1':undefined}}><label style={{fontSize:11,fontWeight:600,color:C.textMid}}>{t}</label>{children}</div>;
   function handleSave() {
     if (!f.name || !f.name.trim()) { showToast('Consignee name is required', 'error'); return; }
     onSave(f);

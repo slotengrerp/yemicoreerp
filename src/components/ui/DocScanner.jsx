@@ -150,7 +150,7 @@ export default function DocScanner({ onClose, onSave }) {
         setText(extracted || 'No text content detected.');
         setStep('result');
       };
-      r.readAsBinaryString(file);
+      r.readAsArrayBuffer(file);
     };
     inp.click();
   }
@@ -220,11 +220,14 @@ export default function DocScanner({ onClose, onSave }) {
     display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
     marginBottom: 22, paddingBottom: 14, borderBottom: `1px solid ${C.borderLight}`,
   };
+  // Note: hover is handled via onMouseEnter/onMouseLeave on each card below —
+  // plain inline `style` objects don't support a `:hover` pseudo-selector key
+  // (that only works with CSS-in-JS libraries this app doesn't use), so a
+  // ':hover' entry here would be silently ignored by the browser.
   const card = (accent) => ({
     padding: '28px 20px', border: `2px dashed ${C.border}`, borderRadius: 12,
     textAlign: 'center', cursor: 'pointer', transition: 'all 0.18s',
     flex: 1,
-    ':hover': { borderColor: accent },
   });
   const inp = {
     borderRadius: 7, border: `1px solid ${C.border}`, padding: '7px 10px',

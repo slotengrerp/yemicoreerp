@@ -12,6 +12,7 @@ import { supabase } from './supabase/client';
 import LoginScreen      from './components/layout/LoginScreen';
 import Sidebar          from './components/layout/Sidebar';
 import Topbar           from './components/layout/Topbar';
+import MfaNudge         from './components/layout/MfaNudge';
 import { usePerRecordSync, USE_PER_RECORD } from './hooks/usePerRecordSync';
 
 // Code-split heavy modules — they each get their own chunk and load on
@@ -267,7 +268,19 @@ function Shell() {
   // tables exist, the same subscribeToChanges function routes through them
   // automatically.
   useEffect(() => {
-    if (!currentUser) return undefined;
+    // FIX 2026-07-24: this never checked USE_PER_RECORD, so the legacy
+    // whole-document realtime subscription — and its "Live data updated
+    // from another session" toast — kept firing on every OTHER session's
+    // legacy save (including things as small as a login activity stamp)
+    // even after the per-record engine went live. The header comment above
+    // usePerRecordSync's own effect claims "the legacy whole-document sync
+    // is bypassed" once the flag is on; this is what makes that actually
+    // true instead of aspirational. It also unconditionally replaced
+    // state.db wholesale (line ~290 below) whenever it fired — racing
+    // against the per-record engine's own, narrower per-record updates,
+    // which is almost certainly what caused the periodic "app goes blank
+    // then comes back" symptom reported after the cutover.
+    if (!currentUser || USE_PER_RECORD) return undefined;
 
     let unsub;
     let cancelled = false;
@@ -459,7 +472,30 @@ function Shell() {
       } catch {}
 
       // ── Phase 2: cloud sync in background — non-blocking ──
-      syncCloud(dispatch, { db, settings, acctData, activity });
+      // FIX 2026-07-24: only pull from the legacy company_data blob when the
+      // per-record engine is OFF. With it on, usePerRecordSync's own effect
+      // loads everything from the per-record tables — running this too meant
+      // both engines raced to set state.db from two different sources
+      // (whichever finished last won), and the legacy blob doesn't contain
+      // anything saved through the new tables. This was silently fighting
+      // with the per-record load on every boot.
+      //
+      // FIX 2026-07-24 (part 2): the line above skips syncCloud() entirely
+      // when per-record is on — but SET_CLOUD:true only ever got dispatched
+      // *inside* syncCloud(). That made state.cloudReady permanently false
+      // once the cutover happened, which made Topbar's SyncBadge fall
+      // through to "Local only" forever, even though the per-record engine
+      // was saving to Supabase correctly the whole time. This was a real
+      // regression from the fix above, not a pre-existing bug — cloud
+      // readiness for the per-record engine just means "we have a live
+      // Supabase session," which is true by the time we get here (Phase 1
+      // already resolved session/db above), so it's safe to mark it ready
+      // directly instead of going through the legacy blob round-trip.
+      if (!USE_PER_RECORD) {
+        syncCloud(dispatch, { db, settings, acctData, activity });
+      } else {
+        dispatch({ type: 'SET_CLOUD', payload: true });
+      }
       } catch (e) {
         console.warn('[SLOT ERP] Boot init failed unexpectedly — showing app with whatever state is available:', e?.message || e);
       } finally {
@@ -503,7 +539,15 @@ function Shell() {
       }
     }
     // Also push to Supabase cloud — fire-and-forget (no await, won't block UI)
-    if (state.cloudReady) {
+    // FIX 2026-07-24: gated on !USE_PER_RECORD — this used to run
+    // unconditionally, meaning the legacy whole-document save (and its own
+    // "Your last change is saved on this device, but not yet in the cloud"
+    // conflict message) kept firing after the per-record cutover too, on
+    // every state change from every user. With the per-record engine on,
+    // saves already go through saveRecord()/saveAppSettings() per-record —
+    // this legacy path is redundant and is exactly what those messages were
+    // still coming from.
+    if (state.cloudReady && !USE_PER_RECORD) {
       saveDBCloud(state.db, state.activity, state.appSettings, state.acctData)
         .then(result => {
           if (result?.conflict && !conflictNoticeShown.current) {
@@ -576,6 +620,9 @@ function Shell() {
           </ErrorBoundary>
         </div>
       </div>
+      <ErrorBoundary label="the security nudge">
+        <MfaNudge />
+      </ErrorBoundary>
     </div>
   );
 }

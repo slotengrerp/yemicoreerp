@@ -6,7 +6,7 @@ const initialState = {
   db: {
     nlng: [], procurement: [], inventory: [], vehicles: [],
     invoices: [], slot: [], request: [], pettycash: [],
-    terminal: { containers: [], charges: [], logistics: [] },
+    terminal: { containers: [], charges: [], logistics: [], bols: [], advances: [], consignees: [], shippingCompanies: [] },
     fixedassets: [], wht: [], _trash: [],
     // Sage-style collections added by SageReports module:
     creditNotes: [],              // AR credit notes (link to original invoice)

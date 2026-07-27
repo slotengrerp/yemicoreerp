@@ -25,10 +25,11 @@ jobs:
         run: npm ci --no-audit --no-fund
 
       - name: Lint
-        # Lint is currently non-blocking (292 pre-existing errors). Once
-        # cleanup is complete, change this to fail the build on any error.
+        # Was non-blocking while 292 pre-existing errors were cleared. As of
+        # the 2026-07-27 diagnostic audit, `eslint .` runs clean (0 errors,
+        # 0 warnings) — re-verified directly, not just from this comment.
+        # Blocking again so a regression fails CI instead of only reporting.
         run: npm run lint
-        continue-on-error: true
 
       - name: Test
         run: npm test

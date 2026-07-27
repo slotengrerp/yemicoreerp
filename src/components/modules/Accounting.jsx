@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useContext, createContext, useRef } f
 import { useTheme } from "../../context/ThemeContext";
 import { useApp } from "../../context/AppContext";
 import { LIGHT } from "../../utils/tokens";
-import { getDeepLinkTab } from "../../utils/helpers";
+import { getDeepLinkTab, formatCurrency } from "../../utils/helpers";
 import { getClients, saveClients } from "../../utils/clientMaster";
 import { getVendors, saveVendors } from "../../utils/vendorMaster";
 import { getProjects, saveProjects } from "../../utils/projectMaster";
@@ -759,7 +759,7 @@ function JournalTab({journals,setJournals,coa,filter,setFilter,sourceFilter,setS
     setJournals(js => [...js, je]);
     // Mark template as posted
     persistTemplates((db.recurringTemplates || []).map(t => t.id === tpl.id ? { ...t, lastPosted: new Date().toISOString(), lastPostedPeriod: periodKey } : t));
-    logActivity(dispatch, `Posted recurring template "${tpl.name}" for ${periodKey} — ₦${(tpl.lines.reduce((s,l)=>s+(l.amount||0),0)).toLocaleString()}`, currentUser, { module:'accounting', action:'edit' });
+    logActivity(dispatch, `Posted recurring template "${tpl.name}" for ${periodKey} — ${formatCurrency(tpl.lines.reduce((s,l)=>s+(l.amount||0),0))}`, currentUser, { module:'accounting', action:'edit' });
     showToast(`Template "${tpl.name}" posted for ${periodKey}`, 'success');
   }
 

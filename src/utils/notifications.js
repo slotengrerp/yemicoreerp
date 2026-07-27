@@ -22,7 +22,7 @@
 //   • journal.blocked     — sent to the accountant when a posting is blocked
 // ══════════════════════════════════════════════════════════════════════════════
 
-import { showToast } from './helpers';
+import { showToast, formatCurrency } from './helpers';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -161,21 +161,21 @@ export async function notify(eventType, payload = {}) {
 export const notifyApprovalRequested  = (to, record) => notify('approval.requested', {
   to, severity: 'info',
   subject: `Approval requested — ${record?.poNo || record?.billNo || record?.requestNo || 'Record'}`,
-  body:    `${record?.requestedBy || 'Someone'} submitted a ${record?.type || 'request'} for ₦${(record?.totalAmount || 0).toLocaleString()} awaiting your review.`,
+  body:    `${record?.requestedBy || 'Someone'} submitted a ${record?.type || 'request'} for ${formatCurrency(record?.totalAmount || 0)} awaiting your review.`,
   link:    '/approvals', recordId: record?.id,
 });
 
 export const notifyApprovalCompleted = (to, record) => notify('approval.completed', {
   to, severity: 'success',
   subject: `Approved — ${record?.poNo || record?.billNo || record?.requestNo || 'Record'}`,
-  body:    `Your ${record?.type || 'request'} for ₦${(record?.totalAmount || 0).toLocaleString()} has been fully approved.`,
+  body:    `Your ${record?.type || 'request'} for ${formatCurrency(record?.totalAmount || 0)} has been fully approved.`,
   link:    '/approvals', recordId: record?.id,
 });
 
 export const notifyApprovalRejected  = (to, record, reason) => notify('approval.rejected', {
   to, severity: 'error',
   subject: `Rejected — ${record?.poNo || record?.billNo || record?.requestNo || 'Record'}`,
-  body:    `Your ${record?.type || 'request'} for ₦${(record?.totalAmount || 0).toLocaleString()} was rejected${reason ? `: ${reason}` : '.'}`,
+  body:    `Your ${record?.type || 'request'} for ${formatCurrency(record?.totalAmount || 0)} was rejected${reason ? `: ${reason}` : '.'}`,
   link:    '/approvals', recordId: record?.id,
 });
 
@@ -195,7 +195,7 @@ export const notifyPeriodClosed      = (to, periodKey) => notify('period.closed'
 
 export const notifyYearClosed        = (to, fy, retainedEarnings) => notify('year.closed', {
   to, severity: 'success',
-  subject: `Fiscal year ${fy} closed — Net P&L ₦${(retainedEarnings||0).toLocaleString()}`,
-  body:    `Fiscal year ${fy} has been closed. Year-end closing entry posted: Net P&L ₦${(retainedEarnings||0).toLocaleString()} to Retained Earnings.`,
+  subject: `Fiscal year ${fy} closed — Net P&L ${formatCurrency(retainedEarnings||0)}`,
+  body:    `Fiscal year ${fy} has been closed. Year-end closing entry posted: Net P&L ${formatCurrency(retainedEarnings||0)} to Retained Earnings.`,
   link:    '/settings',
 });
