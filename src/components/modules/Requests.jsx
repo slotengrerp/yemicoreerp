@@ -29,12 +29,11 @@ const DEPARTMENTS    = ['Engineering','HSE','Operations','Admin','Procurement','
 const PRIORITIES     = ['Low','Normal','High','Urgent'];
 const LEAVE_TYPES    = ['Annual Leave','Sick Leave','Maternity Leave','Paternity Leave','Compassionate','Unpaid Leave'];
 
-const SEED = [
-  { id:'rq1', requestNo:'MRQ-2026-0001', type:'Material', date:'2026-04-01', requiredBy:'2026-04-15', requestedBy:'Samuel Okafor', department:'Engineering', priority:'High', subject:'Welding consumables for NLNG pipeline repair', description:'Need E6013 welding rods (5kg x 10 boxes), angle grinder discs (50pcs), and safety gloves (10 pairs) for urgent pipeline repair works at Bonny Island site.', items:[ {description:'E6013 Welding Rods 5kg',qty:10,unit:'box'}, {description:'Angle Grinder Discs',qty:50,unit:'pcs'}, {description:'Safety Gloves',qty:10,unit:'pairs'} ], status:'Approved', approvedBy:'Ernest Ojukwu', approvedDate:'2026-04-02', approvalNote:'Approved. Procurement to raise PO immediately.', createdAt:'2026-04-01T08:00:00Z' },
-  { id:'rq2', requestNo:'LRQ-2026-0001', type:'Leave', date:'2026-04-10', requiredBy:'2026-04-20', requestedBy:'Ngozi Okafor', department:'Admin', priority:'Normal', subject:'Annual leave request – 5 working days', description:'Requesting annual leave from 21st April to 25th April 2026 (5 working days). Handover will be completed before departure.', leaveType:'Annual Leave', leaveFrom:'2026-04-21', leaveTo:'2026-04-25', leaveDays:5, items:[], status:'Pending', approvedBy:'', approvedDate:'', approvalNote:'', createdAt:'2026-04-10T09:00:00Z' },
-  { id:'rq3', requestNo:'SRQ-2026-0001', type:'Service', date:'2026-03-20', requiredBy:'2026-04-05', requestedBy:'Alex Mbata', department:'Mechanical', priority:'Urgent', subject:'External generator service — Perkins GEN-001', description:'GEN-001 requires full external service including injector overhaul. Recommend engaging Perkins authorised service centre in Port Harcourt.', items:[], status:'Rejected', approvedBy:'Ernest Ojukwu', approvedDate:'2026-03-22', approvalNote:'Rejected — internal team to handle. Budget constraints.', createdAt:'2026-03-20T10:00:00Z' },
-  { id:'rq4', requestNo:'ITQ-2026-0001', type:'IT', date:'2026-04-12', requiredBy:'2026-04-20', requestedBy:'Grace Okonkwo', department:'Finance', priority:'Normal', subject:'Laptop replacement request', description:'My current Dell Latitude 5520 has hardware failure (keyboard and display issues). Requesting replacement to avoid disruption to payroll processing.', items:[{description:'Dell Latitude 5530 or equivalent',qty:1,unit:'unit'}], status:'Submitted', approvedBy:'', approvedDate:'', approvalNote:'', createdAt:'2026-04-12T11:00:00Z' },
-];
+// Emptied 2026-07-28 — held four fabricated staff requests, two carrying
+// invented approval decisions attributed to a named approver (one "Approved",
+// one "Rejected — internal team to handle. Budget constraints."), plus a fake
+// leave request for a named employee.
+const SEED = [];
 
 // ── Shared UI ────────────────────────────────────────────────────────────────
 function Tag({ status }) {

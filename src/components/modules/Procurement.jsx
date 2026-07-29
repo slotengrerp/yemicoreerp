@@ -75,61 +75,16 @@ function getPOStatus(po, waybills, invoices) {
 }
 
 // ── Seed data ─────────────────────────────────────────────────────────────
+// Emptied 2026-07-28 — held a complete fabricated procurement chain: two RFQs,
+// a ₦2,687,500 purchase order pre-marked "Approved" by a named approver, a
+// waybill recording a part-delivery, and a ₦2,085,500 supplier invoice. Because
+// these were linked end to end (rfqId → poId → waybillId), they presented as a
+// fully audited paper trail for a purchase that never happened.
+//
+// Keys must stay — the module destructures SEED.rfqs / .pos / .waybills /
+// .invoices directly. Empty arrays, never rows.
 const SEED = {
-  rfqs: [
-    { id: 'rfq1', rfqNo: 'RFQ-2026-0001', date: '2026-01-10', requiredBy: '2026-02-01',
-      requestedBy: 'Ernest Ojukwu', department: 'Engineering',
-      description: 'Supply of thermal insulation materials for NLNG Bonny Island project',
-      items: [
-        { id: 'ri1', description: 'Thermal Insulation Pipe (2")', qty: 100, unit: 'metres', estimatedPrice: 14000 },
-        { id: 'ri2', description: 'Insulation Blanket (3m x 1m)', qty: 50, unit: 'sheets', estimatedPrice: 22000 },
-      ],
-      status: 'PO Issued', createdAt: '2026-01-10T08:00:00Z' },
-    { id: 'rfq2', rfqNo: 'RFQ-2026-0002', date: '2026-02-14', requiredBy: '2026-03-10',
-      requestedBy: 'Samuel Okafor', department: 'Procurement',
-      description: 'Catering services for NLNG contract staff — Q2 2026',
-      items: [
-        { id: 'ri3', description: 'Daily Catering (per head per day)', qty: 80, unit: 'person-days', estimatedPrice: 6500 },
-      ],
-      status: 'PO Received', createdAt: '2026-02-14T09:00:00Z' },
-  ],
-  pos: [
-    { id: 'po1', poNo: 'PO-2026-0001', rfqId: 'rfq1', rfqNo: 'RFQ-2026-0001',
-      supplier: 'Tagos Thermal Insulation Ltd', supplierAddress: 'Plot 22, Trans-Amadi, Port Harcourt',
-      date: '2026-01-20', deliveryDate: '2026-02-15', deliveryAddress: 'NLNG Site, Bonny Island',
-      description: 'Supply of insulation materials per RFQ-2026-0001', paymentTerms: 'Net 30', currency: 'NGN',
-      items: [
-        { id: 'pi1', rfqItemId: 'ri1', description: 'Thermal Insulation Pipe (2")', qty: 100, unit: 'metres', unitPrice: 14000, totalPrice: 1400000 },
-        { id: 'pi2', rfqItemId: 'ri2', description: 'Insulation Blanket (3m x 1m)', qty: 50, unit: 'sheets', unitPrice: 22000, totalPrice: 1100000 },
-      ],
-      subtotal: 2500000, vatRate: 7.5, vatAmount: 187500, total: 2687500,
-      status: 'Approved', approvedBy: 'Ernest Ojukwu', notes: 'Priority delivery required',
-      createdAt: '2026-01-20T10:00:00Z' },
-  ],
-  waybills: [
-    { id: 'wb1', waybillNo: 'WB-2026-0001', poId: 'po1', poNo: 'PO-2026-0001',
-      supplier: 'Tagos Thermal Insulation Ltd', date: '2026-02-10',
-      receivedBy: 'Augustine Okoye', vehicleNo: 'PHC-234-GH', driverName: 'Emeka Nwosu',
-      deliveryAddress: 'NLNG Site, Bonny Island',
-      items: [
-        { id: 'wi1', poItemId: 'pi1', description: 'Thermal Insulation Pipe (2")', orderedQty: 100, deliveredQty: 60, unit: 'metres', unitPrice: 14000 },
-        { id: 'wi2', poItemId: 'pi2', description: 'Insulation Blanket (3m x 1m)', orderedQty: 50, deliveredQty: 50, unit: 'sheets', unitPrice: 22000 },
-      ],
-      status: 'Accepted', notes: '40 pipes deferred to next delivery', createdAt: '2026-02-10T14:00:00Z' },
-  ],
-  invoices: [
-    { id: 'sinv1', invoiceNo: 'SINV-2026-0001', supplierInvoiceNo: 'TAG-2026-081',
-      poId: 'po1', poNo: 'PO-2026-0001', waybillId: 'wb1', waybillNo: 'WB-2026-0001',
-      supplier: 'Tagos Thermal Insulation Ltd', date: '2026-02-12', dueDate: '2026-03-12',
-      items: [
-        { id: 'ii1', poItemId: 'pi1', description: 'Thermal Insulation Pipe (2")', qty: 60, unit: 'metres', unitPrice: 14000, totalPrice: 840000 },
-        { id: 'ii2', poItemId: 'pi2', description: 'Insulation Blanket (3m x 1m)', qty: 50, unit: 'sheets', unitPrice: 22000, totalPrice: 1100000 },
-      ],
-      subtotal: 1940000, vatAmount: 145500, whtRate: 5, whtAmount: 97000,
-      total: 2085500, netPayable: 1988500,
-      status: 'Pending', paymentDate: '', paymentRef: '', notes: 'Partial delivery invoice',
-      createdAt: '2026-02-12T09:00:00Z' },
-  ],
+  rfqs: [], pos: [], waybills: [], invoices: [],
 };
 
 // ── Shared style helpers (theme-aware) ─────────────────────────────────────

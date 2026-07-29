@@ -27,20 +27,10 @@ const PAYMENT_TERMS = ['Net 7','Net 14','Net 30','Net 45','Net 60','50% Advance,
 const CATEGORIES    = ['Engineering Services','Procurement Services','Logistics','Consultancy','Maintenance','Project Management','Equipment Supply','Labour Supply','Other'];
 const VAT_RATE      = 7.5;
 
-const SEED = [
-  { id:'inv1', invoiceNo:'SLOT-INV-2026-0001', client:'Nigeria LNG Limited', clientAddress:'NLNG Complex, Bonny Island, Rivers State', projectRef:'SLOT-NLNG-2026-001', category:'Engineering Services', date:'2026-02-01', dueDate:'2026-03-02', paymentTerms:'Net 30',
-    items:[ { id:'ii1', description:'Engineering & Technical Support – Feb 2026', qty:1, unit:'month', unitPrice:4500000, total:4500000 } ],
-    subtotal:4500000, vatAmount:337500, whtRate:5, whtAmount:225000, total:4837500, netPayable:4612500,
-    status:'Paid', paymentDate:'2026-02-28', paymentRef:'NLNG-TRF-0284', notes:'Monthly retainer', createdAt:'2026-02-01T08:00:00Z' },
-  { id:'inv2', invoiceNo:'SLOT-INV-2026-0002', client:'Total Energies EP Nigeria', clientAddress:'2 Churchgate Street, Victoria Island, Lagos', projectRef:'SLOT-TEN-2026-002', category:'Logistics', date:'2026-03-05', dueDate:'2026-04-04', paymentTerms:'Net 30',
-    items:[ { id:'ii2', description:'Logistics & Haulage Support – March 2026', qty:3, unit:'trips', unitPrice:850000, total:2550000 }, { id:'ii3', description:'Standby Crew Allowance', qty:12, unit:'days', unitPrice:25000, total:300000 } ],
-    subtotal:2850000, vatAmount:213750, whtRate:5, whtAmount:142500, total:3063750, netPayable:2921250,
-    status:'Pending', paymentDate:'', paymentRef:'', notes:'', createdAt:'2026-03-05T09:00:00Z' },
-  { id:'inv3', invoiceNo:'SLOT-INV-2026-0003', client:'Shell Petroleum Development Company', clientAddress:'Shell Industrial Area, Port Harcourt', projectRef:'SLOT-SPDC-2026-003', category:'Maintenance', date:'2026-01-15', dueDate:'2026-02-14', paymentTerms:'Net 30',
-    items:[ { id:'ii4', description:'Preventive Maintenance – Generator Set GEN-001', qty:1, unit:'job', unitPrice:1200000, total:1200000 }, { id:'ii5', description:'Spare Parts Supply', qty:1, unit:'lot', unitPrice:380000, total:380000 } ],
-    subtotal:1580000, vatAmount:118500, whtRate:5, whtAmount:79000, total:1698500, netPayable:1619500,
-    status:'Overdue', paymentDate:'', paymentRef:'', notes:'Follow up sent 20/02/2026', createdAt:'2026-01-15T08:00:00Z' },
-];
+// Emptied 2026-07-28 — held three fabricated invoices (~₦9.2m) naming Nigeria
+// LNG, Total Energies and Shell, one pre-marked "Paid" with a fake payment
+// reference and another pre-marked "Overdue" with a fake chase note.
+const SEED = [];
 
 // ── Shared UI ────────────────────────────────────────────────────────────────
 function Tag({ status }) {

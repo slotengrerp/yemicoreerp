@@ -42,27 +42,13 @@ const PAYMENT_TERMS = ['Net 7','Net 14','Net 30','Net 45','Net 60','50% Advance,
 const CATEGORIES    = ['Engineering Services','Procurement Services','Logistics','Consultancy','Maintenance','Project Management','Equipment Supply','Labour Supply','Other'];
 const VAT_RATE      = 7.5;
 
-const SEED = [
-  { id:'inv1', invoiceNo:'SLOT-INV-2026-0001', client:'Nigeria LNG Limited', clientCode:'NLNG NGN', clientAddress:'NLNG Complex, Bonny Island, Rivers State', projectRef:'NLNG HRSS', category:'Engineering Services', date:'2026-02-01', dueDate:'2026-03-02', paymentTerms:'Net 30', currency:'NGN', fxRate:1,
-    items:[ { id:'ii1', description:'Engineering & Technical Support – Feb 2026', qty:1, unit:'month', unitPrice:4500000, total:4500000 } ],
-    subtotal:4500000, vatAmount:337500, whtRate:5, whtAmount:225000, ncdfRate:0, ncdfAmount:0, total:4837500, netPayable:4612500, ngnEquivalent:4612500,
-    status:'Paid', paymentDate:'2026-02-28', paymentRef:'NLNG-TRF-0284', receivedAmount:4612500, notes:'Monthly retainer', createdAt:'2026-02-01T08:00:00Z' },
-  { id:'inv2', invoiceNo:'SLOT-INV-2026-0002', client:'Renaissance Africa Energy Company of Nig. Ltd', clientCode:'SPDC', clientAddress:'Shell Industrial Area, Port Harcourt', projectRef:'SPDC', category:'Logistics', date:'2026-03-05', dueDate:'2026-04-04', paymentTerms:'Net 30', currency:'NGN', fxRate:1,
-    items:[ { id:'ii2', description:'Logistics & Haulage Support – March 2026', qty:3, unit:'trips', unitPrice:850000, total:2550000 }, { id:'ii3', description:'Standby Crew Allowance', qty:12, unit:'days', unitPrice:25000, total:300000 } ],
-    subtotal:2850000, vatAmount:213750, whtRate:5, whtAmount:142500, ncdfRate:0, ncdfAmount:0, total:3063750, netPayable:2921250, ngnEquivalent:2921250,
-    status:'Pending', paymentDate:'', paymentRef:'', receivedAmount:0, notes:'', createdAt:'2026-03-05T09:00:00Z' },
-  { id:'inv3', invoiceNo:'SLOT-INV-2026-0003', client:'Renaissance Africa Energy Company of Nig. Ltd', clientCode:'SPDC', clientAddress:'Shell Industrial Area, Port Harcourt', projectRef:'SPDC CABLE PROJECT', category:'Maintenance', date:'2026-01-15', dueDate:'2026-02-14', paymentTerms:'Net 30', currency:'NGN', fxRate:1,
-    items:[ { id:'ii4', description:'Preventive Maintenance – Generator Set GEN-001', qty:1, unit:'job', unitPrice:1200000, total:1200000 }, { id:'ii5', description:'Spare Parts Supply', qty:1, unit:'lot', unitPrice:380000, total:380000 } ],
-    subtotal:1580000, vatAmount:118500, whtRate:5, whtAmount:79000, ncdfRate:0, ncdfAmount:0, total:1698500, netPayable:1619500, ngnEquivalent:1619500,
-    status:'Overdue', paymentDate:'', paymentRef:'', receivedAmount:0, notes:'Follow up sent 20/02/2026', createdAt:'2026-01-15T08:00:00Z' },
-  { id:'inv4', invoiceNo:'SLOT-INV-2026-0004', client:'Saipem', clientCode:'SAIPEM USD', clientAddress:'Saipem Nigeria Base, Port Harcourt', projectRef:'SAIPEM', category:'Engineering Services', date:'2026-05-12', dueDate:'2026-06-11', paymentTerms:'Net 30', currency:'USD', fxRate:1545,
-    items:[ { id:'ii6', description:'Specialist Engineering Support – May 2026', qty:1, unit:'month', unitPrice:18000, total:18000 } ],
-    subtotal:18000, vatAmount:1350, whtRate:10, whtAmount:1800, ncdfRate:1, ncdfAmount:180, total:19350, netPayable:17550, ngnEquivalent:27114750,
-    status:'Pending', paymentDate:'', paymentRef:'', receivedAmount:0, notes:'NCDMB cabotage-eligible — NCDF applies', createdAt:'2026-05-12T08:00:00Z' },
-];
-const SEED_RECEIPTS = [
-  { id:'arv1', receiptNo:'SLOT-ARV-2026-0001', invoiceId:'inv1', invoiceNo:'SLOT-INV-2026-0001', client:'Nigeria LNG Limited', currency:'NGN', fxRate:1, date:'2026-02-28', grossNetPayable:4612500, extraWht:0, extraNcdf:0, amountReceived:4612500, ngnEquivalent:4612500, bankCode:'3003', bankName:'Access Bank (Naira A/C 0002238013)', reference:'NLNG-TRF-0284', notes:'', createdAt:'2026-02-28T00:00:00Z' },
-];
+// Emptied 2026-07-28 — held four fabricated sales invoices (~₦36m including a
+// USD one at an invented 1545 FX rate) naming real customers: Nigeria LNG,
+// Renaissance Africa Energy, Saipem. One was pre-marked "Paid" with a fake
+// bank transfer reference, and SEED_RECEIPTS carried the matching fake receipt
+// against a real-looking Access Bank account number.
+const SEED = [];
+const SEED_RECEIPTS = [];
 
 // ── Shared UI ────────────────────────────────────────────────────────────────
 function Tag({ status }) {

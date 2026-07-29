@@ -52,6 +52,45 @@ describe('TerminalOps — Bill of Lading form inputs keep focus while typing', (
   });
 });
 
+describe('TerminalOps — Bill of Lading carries its containers as line items', () => {
+  // SLOT asked (2026-07-27) for the BoL form to work like the Purchase Order
+  // form: header identifies the shipment, containers are added as rows in the
+  // same form. The rows are still saved as real container records with bolId
+  // set — if that ever regresses into storing them inside the BoL object,
+  // Charges/Logistics/Advances and the registry all silently break, so this
+  // asserts the container actually lands in the Container Registry.
+  it('saves containers entered on the BoL form into the Container Registry', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<TerminalOps />);
+
+    await user.click(screen.getByRole('button', { name: /bill of lading/i }));
+    await user.click(await screen.findByRole('button', { name: /\+ add bill of lading/i }));
+
+    await user.type(await screen.findByPlaceholderText(/e\.g\. MSCUB123456/i), 'BOLTEST001');
+
+    const containerCell = await screen.findByPlaceholderText(/e\.g\. MSCU1234567/i);
+    await user.type(containerCell, 'TESTU0000001');
+
+    await user.click(screen.getByRole('button', { name: /save bol & containers/i }));
+
+    // The container must now exist in the registry as a first-class record.
+    await user.click(screen.getByRole('button', { name: /container registry/i }));
+    expect(await screen.findByText('TESTU0000001')).toBeInTheDocument();
+  });
+
+  it('adds another empty row when "+ Add Container" is clicked', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<TerminalOps />);
+
+    await user.click(screen.getByRole('button', { name: /bill of lading/i }));
+    await user.click(await screen.findByRole('button', { name: /\+ add bill of lading/i }));
+
+    expect(await screen.findAllByPlaceholderText(/e\.g\. MSCU1234567/i)).toHaveLength(1);
+    await user.click(screen.getByRole('button', { name: /\+ add container/i }));
+    expect(await screen.findAllByPlaceholderText(/e\.g\. MSCU1234567/i)).toHaveLength(2);
+  });
+});
+
 describe('TerminalOps — basic navigation smoke test', () => {
   it('renders and switches between every tab without crashing', async () => {
     const user = userEvent.setup();

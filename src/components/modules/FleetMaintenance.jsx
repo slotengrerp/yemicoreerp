@@ -156,42 +156,23 @@ function Card({ children, style }) {
 }
 
 // ── Seed data ─────────────────────────────────────────────────────────────────
+// Emptied 2026-07-28 — held three fabricated vehicles with invented chassis and
+// engine numbers, two services, two equipment maintenance logs, a breakdown,
+// two maintenance requests carrying invented approval/certification sign-offs,
+// a handover record, six facility schedule rows, and two repairs totalling
+// ₦195,000 of invented parts and labour cost.
+//
+// Keys must stay — migrateFleet() and the useState calls below read each one by
+// name. Empty arrays, never rows.
 const SEED = {
-  fleet: [
-    { id:'f1', vehicleNo:'PH-458-AHZ', vehicleType:'Pickup', make:'Toyota Hilux D4D', model:'D4D', year:'2021', engineNo:'ENG001234', chassisNo:'MROHZ39G501098765', assignedDriver:'Emeka Nwosu', assignedUnit:'Operations', currentLocation:'Port Harcourt HQ', vehicleLicenseExpiry:'2026-08-15', insuranceCertExpiry:'2026-06-30', hackneyPermitExpiry:'2026-09-10', roadWorthinessExpiry:'2026-07-20', carrierPermitExpiry:'', currentKm:'47,230', status:'Active', createdAt:'2021-03-01T00:00:00Z' },
-    { id:'f2', vehicleNo:'LA-123-BCD', vehicleType:'SUV', make:'Ford Ranger Wildtrak', model:'Wildtrak', year:'2020', engineNo:'ENG005678', chassisNo:'MNBLHXG201049012', assignedDriver:'Chidi Okafor', assignedUnit:'HSE', currentLocation:'Lagos Office', vehicleLicenseExpiry:'2025-12-31', insuranceCertExpiry:'2026-03-15', hackneyPermitExpiry:'2026-01-20', roadWorthinessExpiry:'2026-05-10', carrierPermitExpiry:'', currentKm:'62,100', status:'In Maintenance', createdAt:'2020-06-15T00:00:00Z' },
-    { id:'f3', vehicleNo:'AB-789-EFG', vehicleType:'Station Wagon', make:'Toyota Land Cruiser 200', model:'GX', year:'2022', engineNo:'ENG009012', chassisNo:'JTMHV05J904321098', assignedDriver:'Augustine Okoye', assignedUnit:'Management', currentLocation:'Abuja Office', vehicleLicenseExpiry:'2026-11-20', insuranceCertExpiry:'2026-11-30', hackneyPermitExpiry:'2026-10-05', roadWorthinessExpiry:'2027-01-15', carrierPermitExpiry:'', currentKm:'28,540', status:'Active', createdAt:'2022-01-10T00:00:00Z' },
-  ],
-  services: [
-    { id:'s1', vehicleId:'f1', vehicleNo:'PH-458-AHZ', operation:'Oil & Filter Change', serviceDate:'2026-04-10', serviceKm:'45,000', nextServiceDate:'2026-07-10', nextServiceKm:'50,000', technicianName:'Alex Mbata', remark:'Used Mobil 1 5W-30. All filters replaced.', approvedBy:'Ernest Ojukwu', createdAt:'2026-04-10T08:00:00Z' },
-    { id:'s2', vehicleId:'f2', vehicleNo:'LA-123-BCD', operation:'Full Service + Brake Pads', serviceDate:'2026-03-22', serviceKm:'61,500', nextServiceDate:'2026-06-22', nextServiceKm:'66,500', technicianName:'Alex Mbata', remark:'Front brake pads replaced. Coolant topped up.', approvedBy:'Ernest Ojukwu', createdAt:'2026-03-22T08:00:00Z' },
-  ],
-  maintLog: [
-    { id:'ml1', equipmentName:'Perkins 200KVA Generator', manufacturer:'Perkins', idNo:'GEN-001', serialNo:'PE2026-001', modelNo:'2506C-E15TAG2', serviceDate:'2026-04-05', serviceNature:'Routine Service', remark:'Oil changed, air filter replaced, load test passed', updatedBy:'Alex Mbata', createdAt:'2026-04-05T08:00:00Z' },
-    { id:'ml2', equipmentName:'Hitachi Compressor 5HP', manufacturer:'Hitachi', idNo:'CMP-002', serialNo:'HT2024-002', modelNo:'EC2510E', serviceDate:'2026-03-18', serviceNature:'Belt Replacement', remark:'V-belt replaced, pressure valve checked', updatedBy:'Alex Mbata', createdAt:'2026-03-18T08:00:00Z' },
-  ],
-  repairs: [
-    { id:'r1', vehicleId:'f1', vehicleNo:'PH-458-AHZ', vehicleType:'Pickup', date:'2026-03-05', natureOfRepairs:'Suspension repair — replaced front shock absorbers', feedback:'Completed satisfactorily', partsUsed:'KYB Shock Absorbers (x2)', costOfParts:85000, costOfLabour:25000, amount:110000, mechanic:'Chizaram Auto Works', createdAt:'2026-03-05T10:00:00Z' },
-    { id:'r2', vehicleId:'f2', vehicleNo:'LA-123-BCD', vehicleType:'SUV', date:'2026-04-18', natureOfRepairs:'Electrical fault — alternator replacement', feedback:'Vehicle now charging normally', partsUsed:'Bosch Alternator 120A', costOfParts:65000, costOfLabour:20000, amount:85000, mechanic:'Emeka Electrical Works', createdAt:'2026-04-18T10:00:00Z' },
-  ],
-  breakdowns: [
-    { id:'b1', date:'2026-04-20', driverName:'Chidi Okafor', vehicleNo:'LA-123-BCD', vehicleMake:'Ford Ranger Wildtrak', detailOfFault:'Engine warning light on. Vehicle losing power intermittently on Lekki Expressway.', status:'Being Attended', repairDetails:'Diagnosed as faulty MAF sensor. Part ordered.', repairedBy:'Emeka Electrical Works', certifiedBy:'', createdAt:'2026-04-20T14:00:00Z' },
-  ],
-  requests: [
-    { id:'req1', type:'vehicle', requestNo:'VMR-2026-0001', assetName:'Toyota Hilux D4D', assetNo:'PH-458-AHZ', location:'Port Harcourt HQ', faultType:'Tyre pressure warning — suspected slow puncture on rear right tyre', requestedBy:'Emeka Nwosu', requestDate:'2026-05-02', approvedBy:'Ernest Ojukwu', approvalDate:'2026-05-02', workDone:'Tyre repaired and re-inflated to 35 PSI', attendedBy:'Alex Mbata', workDate:'2026-05-02', certifiedBy:'Augustine Okoye', certDate:'2026-05-02', status:'Completed', createdAt:'2026-05-02T09:00:00Z' },
-    { id:'req2', type:'equipment', requestNo:'EMR-2026-0001', assetName:'HP LaserJet M404dn Printer', assetNo:'OFC-PRT-002', location:'Lagos Branch', faultType:'Paper jam and streaks on printed pages. Drum unit may need replacement.', requestedBy:'Chisom Eze', requestDate:'2026-05-10', approvedBy:'', approvalDate:'', workDone:'', attendedBy:'', workDate:'', certifiedBy:'', certDate:'', status:'Pending', createdAt:'2026-05-10T11:00:00Z' },
-  ],
-  handovers: [
-    { id:'h1', vehicleNo:'PH-458-AHZ', handoverDate:'2026-05-01', receiverName:'Emeka Nwosu', handedOverBy:'Augustine Okoye', condition:'No damage', damageNotes:'', hasJack:true, hasSpareTyre:true, hasTriangle:true, hasFireExtinguisher:true, hasDocuments:true, status:'Active', createdAt:'2026-05-01T08:00:00Z' },
-  ],
-  facilitySchedule: [
-    { id:'fs1', description:'Exterior Walls', schedule3Months:false, schedule6Months:false, scheduleYearly:false, schedule2Years:true, scheduleAsNeeded:false, lastDone:'2025-01-15', nextDue:'2027-01-15', assignedTo:'Admin Manager', status:'Upcoming' },
-    { id:'fs2', description:'Fire Extinguishers', schedule3Months:false, schedule6Months:true, scheduleYearly:false, schedule2Years:false, scheduleAsNeeded:false, lastDone:'2026-01-10', nextDue:'2026-07-10', assignedTo:'HSE Officer', status:'Upcoming' },
-    { id:'fs3', description:'Electric Panels/Receptacles', schedule3Months:false, schedule6Months:false, scheduleYearly:true, schedule2Years:false, scheduleAsNeeded:false, lastDone:'2025-12-01', nextDue:'2026-12-01', assignedTo:'Technical Manager', status:'Upcoming' },
-    { id:'fs4', description:'Air Conditioners', schedule3Months:true, schedule6Months:false, scheduleYearly:false, schedule2Years:false, scheduleAsNeeded:false, lastDone:'2026-03-01', nextDue:'2026-06-01', assignedTo:'Admin Manager', status:'Due' },
-    { id:'fs5', description:'Generators', schedule3Months:true, schedule6Months:false, scheduleYearly:false, schedule2Years:false, scheduleAsNeeded:false, lastDone:'2026-02-15', nextDue:'2026-05-15', assignedTo:'Technical Manager', status:'Overdue' },
-    { id:'fs6', description:'CCTV Cameras', schedule3Months:false, schedule6Months:false, scheduleYearly:true, schedule2Years:false, scheduleAsNeeded:false, lastDone:'2025-08-01', nextDue:'2026-08-01', assignedTo:'IT/Admin', status:'Upcoming' },
-  ],
+  fleet: [],
+  services: [],
+  maintLog: [],
+  repairs: [],
+  breakdowns: [],
+  requests: [],
+  handovers: [],
+  facilitySchedule: [],
 };
 
 // ══════════════════════════════════════════════════════════════════════════════

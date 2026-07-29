@@ -34,8 +34,39 @@
 // Source: CURRENT General Ledger Chart of Accounts_20260529_123438.xlsx
 export const DEFAULT_COA = [
   // ── EQUITY ──────────────────────────────────────────────────────────────
+  // ══════════════════════════════════════════════════════════════════════════
+  // OPENING BALANCES ZEROED — 2026-07-28
+  // ══════════════════════════════════════════════════════════════════════════
+  // Eleven accounts below carried non-zero `openingBal` values taken from the
+  // company's Sage export. They were a complete and internally consistent
+  // opening trial balance — assets ₦127,750,000 = liabilities ₦5,780,000 +
+  // equity ₦121,970,000, balancing to the naira.
+  //
+  // They were zeroed on request as part of the clean-slate reset. Because they
+  // lived on the accounts themselves rather than in any journal, they survived
+  // the database wipe entirely and kept showing ₦82.5m of cash and ₦45.2m of
+  // receivables against ledgers reading "0 txs".
+  //
+  // THE ORIGINAL FIGURES, so nothing is lost and the accountant can restore
+  // them properly (as a dated opening journal entry, not hardcoded here):
+  //     1002   Retained Earnings / Losses          121,970,000  Cr
+  //     3001   Imprest Cash                            500,000  Dr
+  //     3003   Access Bank (Naira 0002238013)       42,500,000  Dr
+  //     3005   Zenith Bank (1011010033)             18,200,000  Dr
+  //     3006   Zenith Bank (1013042537)              5,400,000  Dr
+  //     3007   First Bank (2008176695)               9,800,000  Dr
+  //     3009   Sterling Bank (0068919961)            1,200,000  Dr
+  //     3011   UBA Bank (1015363537)                 3,300,000  Dr
+  //     3017   Fidelity Bank PLC (4011553970)        1,650,000  Dr
+  //     6002   Trade Receivables                    45,200,000  Dr
+  //     7001   Trade Payables                        5,780,000  Cr
+  //
+  // Do not re-add figures here. Opening balances belong in a journal entry, so
+  // they carry a date, appear in the ledger, and can be edited by an
+  // accountant instead of requiring a code change and redeploy.
+  // ══════════════════════════════════════════════════════════════════════════
   {code:"10001",name:"Share Capital",                              type:"Equity",   category:"Equity",             normalBal:"Cr",openingBal:0,currency:"NGN"},
-  {code:"1002", name:"Retained Earnings / Losses",                type:"Equity",   category:"Equity",             normalBal:"Cr",openingBal:121970000,currency:"NGN"},
+  {code:"1002", name:"Retained Earnings / Losses",                type:"Equity",   category:"Equity",             normalBal:"Cr",openingBal:0,currency:"NGN"},
   {code:"1003", name:"Directors Loan Accounts",                   type:"Equity",   category:"Equity",             normalBal:"Cr",openingBal:0,currency:"NGN"},
   // ── PROPERTY, PLANT & EQUIPMENT ─────────────────────────────────────────
   {code:"2000", name:"Land",                                      type:"Asset",    category:"Fixed Assets",       normalBal:"Dr",openingBal:0,currency:"NGN"},
@@ -55,21 +86,21 @@ export const DEFAULT_COA = [
   {code:"200501",name:"Furniture/Fittings/Caravans — Cost",       type:"Asset",    category:"Fixed Assets",       normalBal:"Dr",openingBal:0,currency:"NGN"},
   {code:"200502",name:"Furniture/Fittings/Caravans — Accumulated Depreciation",type:"Asset",category:"Fixed Assets",normalBal:"Cr",openingBal:0,currency:"NGN"},
   // ── CASH & BANK ──────────────────────────────────────────────────────────
-  {code:"3001", name:"Imprest Cash",                              type:"Asset",    category:"Cash & Bank",        normalBal:"Dr",openingBal:500000,currency:"NGN"},
+  {code:"3001", name:"Imprest Cash",                              type:"Asset",    category:"Cash & Bank",        normalBal:"Dr",openingBal:0,currency:"NGN"},
   {code:"3002", name:"Main Cash",                                 type:"Asset",    category:"Cash & Bank",        normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"3003", name:"Access Bank (Naira A/C 0002238013)",        type:"Asset",    category:"Cash & Bank",        normalBal:"Dr",openingBal:42500000,currency:"NGN"},
+  {code:"3003", name:"Access Bank (Naira A/C 0002238013)",        type:"Asset",    category:"Cash & Bank",        normalBal:"Dr",openingBal:0,currency:"NGN"},
   {code:"3004", name:"Access Bank (Dollar A/C 0002214695)",       type:"Asset",    category:"Cash & Bank",        normalBal:"Dr",openingBal:0,currency:"USD"},
-  {code:"3005", name:"Zenith Bank (A/C 1011010033)",              type:"Asset",    category:"Cash & Bank",        normalBal:"Dr",openingBal:18200000,currency:"NGN"},
-  {code:"3006", name:"Zenith Bank (A/C 1013042537)",              type:"Asset",    category:"Cash & Bank",        normalBal:"Dr",openingBal:5400000,currency:"NGN"},
-  {code:"3007", name:"First Bank (A/C 2008176695)",               type:"Asset",    category:"Cash & Bank",        normalBal:"Dr",openingBal:9800000,currency:"NGN"},
+  {code:"3005", name:"Zenith Bank (A/C 1011010033)",              type:"Asset",    category:"Cash & Bank",        normalBal:"Dr",openingBal:0,currency:"NGN"},
+  {code:"3006", name:"Zenith Bank (A/C 1013042537)",              type:"Asset",    category:"Cash & Bank",        normalBal:"Dr",openingBal:0,currency:"NGN"},
+  {code:"3007", name:"First Bank (A/C 2008176695)",               type:"Asset",    category:"Cash & Bank",        normalBal:"Dr",openingBal:0,currency:"NGN"},
   {code:"3008", name:"Standard Chartered Bank (A/C 0002151883)",  type:"Asset",    category:"Cash & Bank",        normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"3009", name:"Sterling Bank (A/C 0068919961)",            type:"Asset",    category:"Cash & Bank",        normalBal:"Dr",openingBal:1200000,currency:"NGN"},
+  {code:"3009", name:"Sterling Bank (A/C 0068919961)",            type:"Asset",    category:"Cash & Bank",        normalBal:"Dr",openingBal:0,currency:"NGN"},
   {code:"3010", name:"Unity Bank (A/C 0025894154)",               type:"Asset",    category:"Cash & Bank",        normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"3011", name:"UBA Bank (A/C 1015363537)",                 type:"Asset",    category:"Cash & Bank",        normalBal:"Dr",openingBal:3300000,currency:"NGN"},
+  {code:"3011", name:"UBA Bank (A/C 1015363537)",                 type:"Asset",    category:"Cash & Bank",        normalBal:"Dr",openingBal:0,currency:"NGN"},
   {code:"3014", name:"Stanbic IBTC Bank",                         type:"Asset",    category:"Cash & Bank",        normalBal:"Dr",openingBal:0,currency:"NGN"},
   {code:"3015", name:"Access Bank Euro",                          type:"Asset",    category:"Cash & Bank",        normalBal:"Dr",openingBal:0,currency:"EUR"},
   {code:"3016", name:"Merchant Bank (A/C 1000159983)",            type:"Asset",    category:"Cash & Bank",        normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"3017", name:"Fidelity Bank PLC (A/C 4011553970)",        type:"Asset",    category:"Cash & Bank",        normalBal:"Dr",openingBal:1650000,currency:"NGN"},
+  {code:"3017", name:"Fidelity Bank PLC (A/C 4011553970)",        type:"Asset",    category:"Cash & Bank",        normalBal:"Dr",openingBal:0,currency:"NGN"},
   {code:"3018", name:"Access Fixed Deposits",                     type:"Asset",    category:"Cash & Bank",        normalBal:"Dr",openingBal:0,currency:"NGN"},
   {code:"3019", name:"Transit / Suspense Account",                type:"Asset",    category:"Cash & Bank",        normalBal:"Dr",openingBal:0,currency:"NGN"},
   {code:"2099", name:"Cumulative Translation Adjustment (CTA)",   type:"Equity",   category:"Equity",             normalBal:"Cr",openingBal:0,currency:"NGN"},
@@ -102,7 +133,7 @@ export const DEFAULT_COA = [
   // ── CURRENT ASSETS ───────────────────────────────────────────────────────
   {code:"3013", name:"Container Deposit",                         type:"Asset",    category:"Current Assets",     normalBal:"Dr",openingBal:0,currency:"NGN"},
   {code:"6001", name:"Inventories",                               type:"Asset",    category:"Current Assets",     normalBal:"Dr",openingBal:0,currency:"NGN"},
-  {code:"6002", name:"Trade Receivables",                         type:"Asset",    category:"Current Assets",     normalBal:"Dr",openingBal:45200000,currency:"NGN"},
+  {code:"6002", name:"Trade Receivables",                         type:"Asset",    category:"Current Assets",     normalBal:"Dr",openingBal:0,currency:"NGN"},
   {code:"6003", name:"Other Receivables",                         type:"Asset",    category:"Current Assets",     normalBal:"Dr",openingBal:0,currency:"NGN"},
   {code:"600301",name:"Jonjac Manpower Ltd",                      type:"Asset",    category:"Current Assets",     normalBal:"Dr",openingBal:0,currency:"NGN"},
   {code:"600302",name:"Pejoy Procurement Ltd",                    type:"Asset",    category:"Current Assets",     normalBal:"Dr",openingBal:0,currency:"NGN"},
@@ -116,7 +147,7 @@ export const DEFAULT_COA = [
   {code:"6009", name:"Inter-Company Loan",                        type:"Asset",    category:"Current Assets",     normalBal:"Dr",openingBal:0,currency:"NGN"},
   {code:"6010", name:"AFAM Investment",                           type:"Asset",    category:"Current Assets",     normalBal:"Dr",openingBal:0,currency:"NGN"},
   // ── TRADE PAYABLES / TAX ─────────────────────────────────────────────────
-  {code:"7001", name:"Trade Payables",                            type:"Liability",category:"Current Liabilities",normalBal:"Cr",openingBal:5780000,currency:"NGN"},
+  {code:"7001", name:"Trade Payables",                            type:"Liability",category:"Current Liabilities",normalBal:"Cr",openingBal:0,currency:"NGN"},
   {code:"7002", name:"Company Taxes Payable",                     type:"Liability",category:"Taxation",           normalBal:"Cr",openingBal:0,currency:"NGN"},
   {code:"7003", name:"End of Contract Bonus",                     type:"Liability",category:"Current Liabilities",normalBal:"Cr",openingBal:0,currency:"NGN"},
   // ── COST OF SALES ────────────────────────────────────────────────────────
@@ -186,4 +217,39 @@ export function isKnownAccount(code) {
 
 export function getAccountName(code, fallbackName = '') {
   return COA_BY_CODE[code]?.name || fallbackName;
+}
+
+// ── mergeCOA — this file is the live source of truth, not a one-time seed ────
+//
+// Added 2026-07-28. Accounting.jsx used to load the chart of accounts as
+// `saved?.coa || DEFAULT_COA`: the FIRST time a browser ran, it snapshotted
+// this list into its own storage, and from then on never looked at the code
+// again. Consequences, all seen in practice:
+//
+//   • Zeroing the opening balances here fixed nothing for anyone already using
+//     the app — two people on the same deployed build saw different figures,
+//     because each was reading their own frozen copy.
+//   • Any account added or renamed here would reach ONLY brand-new browsers.
+//     A posting to a newly-added code would fail for existing users with no
+//     obvious cause.
+//
+// The rule now: every account defined in this file is refreshed from this file
+// on every load, for everyone, on every device. Accounts a user created in
+// Accounting → Chart of Accounts (codes that do not appear here) are kept —
+// removing them would delete their work.
+//
+// NOTE this means openingBal is code-controlled for the ~129 standard accounts.
+// Editing an opening balance on the Chart of Accounts screen will not survive a
+// reload. That is deliberate: an opening balance belongs in a dated journal
+// entry, where it appears in the ledger and can be traced — not as a figure
+// attached to an account with no transaction behind it, which is exactly how
+// ₦82.5m of untraceable cash came to be displayed against ledgers reading
+// "0 txs".
+export function mergeCOA(savedCoa) {
+  if (!Array.isArray(savedCoa) || savedCoa.length === 0) return DEFAULT_COA;
+  const standardCodes = new Set(DEFAULT_COA.map(a => a.code));
+  const userAdded = savedCoa.filter(a => a && a.code && !standardCodes.has(a.code));
+  if (userAdded.length === 0) return DEFAULT_COA;
+  return [...DEFAULT_COA, ...userAdded]
+    .sort((a, b) => String(a.code).localeCompare(String(b.code)));
 }

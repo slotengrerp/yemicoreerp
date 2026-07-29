@@ -172,7 +172,13 @@ export function loadDBLocal() {
     if (!db.fleet          || Array.isArray(db.fleet))          db.fleet          = { fleet: [], services: [], maintLog: [], repairs: [], breakdowns: [], requests: [], handovers: [], facilitySchedule: [], calibration: [] };
     else if (!db.fleet.calibration) db.fleet.calibration = []; // migrate existing fleet data
     db.fleet = migrateFleetData(db.fleet);
-    if (!db.pettycash_fund || Array.isArray(db.pettycash_fund)) db.pettycash_fund = { balance: 100000, limit: 100000, custodian: 'Finance Officer', lastReplenished: '' };
+    // 2026-07-28: was `balance: 100000, limit: 100000` — a fabricated ₦100,000
+    // petty cash float conjured on every load whenever none existed. It is the
+    // only reason an emptied system still showed money. Two other files
+    // hardcoded the same figure as ₦500,000, so the "float" depended on which
+    // code path ran first. A cash balance must be entered by a human, never
+    // assumed — zero until someone replenishes it in Petty Cash.
+    if (!db.pettycash_fund || Array.isArray(db.pettycash_fund)) db.pettycash_fund = { balance: 0, limit: 0, custodian: '', lastReplenished: '' };
     return { db, activity: parsed.activity || [] };
   } catch { return null; }
 }

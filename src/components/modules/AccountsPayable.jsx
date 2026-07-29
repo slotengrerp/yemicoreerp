@@ -31,17 +31,13 @@ function nextPayNo(payments) {
   return `SLOT-APV-${yr()}-${String(nums.length ? Math.max(...nums)+1 : 1).padStart(4,'0')}`;
 }
 
-const SEED_BILLS = [
-  { id:'apb001', billNo:'SLOT-APB-2026-0001', vendor:'WORLDWIDE ENERGY LOG', vendorName:'Worldwide Energy Logistics Ltd', currency:'NGN', fxRate:1, category:'Logistics', date:'2026-06-01', dueDate:'2026-07-01', projectCode:'NLNG HRSS', description:'Logistics & Haulage Services — June 2026', amount:1850000, vatAmount:138750, whtRate:5, whtAmount:92500, netPayable:1896250, ngnEquivalent:1896250, status:'Unpaid', paidAmount:0, notes:'', createdAt:'2026-06-01T00:00:00Z' },
-  { id:'apb002', billNo:'SLOT-APB-2026-0002', vendor:'MACJAMES GLOBAL RES.', vendorName:'Macjames Global Resources Ltd', currency:'NGN', fxRate:1, category:'Materials', date:'2026-05-15', dueDate:'2026-06-14', projectCode:'SPDC', description:'Engineering Materials Supply — May 2026', amount:2300000, vatAmount:172500, whtRate:5, whtAmount:115000, netPayable:2357500, ngnEquivalent:2357500, status:'Unpaid', paidAmount:0, notes:'GRN-WB-002 matched', createdAt:'2026-05-15T00:00:00Z' },
-  { id:'apb003', billNo:'SLOT-APB-2026-0003', vendor:'CSPS (USD)', vendorName:'CSPS', currency:'USD', fxRate:1545, category:'Services', date:'2026-04-10', dueDate:'2026-05-10', projectCode:'SAIPEM', description:'Specialist Consulting Services — Apr 2026', amount:12500, vatAmount:0, whtRate:10, whtAmount:1250, netPayable:11250, ngnEquivalent:17381250, status:'Paid', paidAmount:11250, notes:'Paid via Access Bank Dollar acct', createdAt:'2026-04-10T00:00:00Z' },
-  { id:'apb004', billNo:'SLOT-APB-2026-0004', vendor:'SAFETY GEAR STORE LT', vendorName:'Safety Gear Store Ltd', currency:'NGN', fxRate:1, category:'Materials', date:'2026-06-10', dueDate:'2026-07-10', projectCode:'NON-PROJECT', description:'PPE & Safety Equipment Supply', amount:780000, vatAmount:58500, whtRate:5, whtAmount:39000, netPayable:799500, ngnEquivalent:799500, status:'Unpaid', paidAmount:0, notes:'', createdAt:'2026-06-10T00:00:00Z' },
-  { id:'apb005', billNo:'SLOT-APB-2026-0005', vendor:'VONK', vendorName:'Vonk', currency:'NGN', fxRate:1, category:'Other', date:'2026-03-22', dueDate:'2026-04-21', projectCode:'NLNG EXP', description:'Technical Support Services Q1 2026', amount:950000, vatAmount:71250, whtRate:5, whtAmount:47500, netPayable:973750, ngnEquivalent:973750, status:'Paid', paidAmount:973750, notes:'', createdAt:'2026-03-22T00:00:00Z' },
-];
-const SEED_PAYMENTS = [
-  { id:'appay001', paymentNo:'SLOT-APV-2026-0001', billId:'apb003', billNo:'SLOT-APB-2026-0003', vendor:'CSPS (USD)', vendorName:'CSPS', currency:'USD', fxRate:1545, date:'2026-05-08', amount:11250, ngnEquivalent:17381250, bankCode:'3004', bankName:'Access Bank (Dollar A/C 0002214695)', reference:'CSPS-TRF-0508', notes:'', createdAt:'2026-05-08T00:00:00Z' },
-  { id:'appay002', paymentNo:'SLOT-APV-2026-0002', billId:'apb005', billNo:'SLOT-APB-2026-0005', vendor:'VONK', vendorName:'Vonk', currency:'NGN', fxRate:1, date:'2026-04-20', amount:973750, ngnEquivalent:973750, bankCode:'3003', bankName:'Access Bank (Naira A/C 0002238013)', reference:'VONK-APV-0420', notes:'', createdAt:'2026-04-20T00:00:00Z' },
-];
+// Emptied 2026-07-28 — held five fabricated supplier bills (~₦23.4m including
+// two marked "Paid") and two fabricated payments against real-looking Access
+// Bank account numbers. Note these fell through WITHOUT any dataWiped guard
+// (see the useState calls below), unlike every other module — they were safe
+// only by accident, because an empty array happens to be truthy.
+const SEED_BILLS = [];
+const SEED_PAYMENTS = [];
 
 // ── Shared UI ─────────────────────────────────────────────────────────────────
 function BillTag({ status }) {

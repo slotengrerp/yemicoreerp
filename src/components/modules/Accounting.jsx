@@ -8,7 +8,7 @@ import { getVendors, saveVendors } from "../../utils/vendorMaster";
 import { getProjects, saveProjects } from "../../utils/projectMaster";
 import { journalFromInvoice, journalFromReceipt, journalFromAPBill, journalFromAPPayment, journalFromPettyCash, journalFromFixedAsset, journalFromDepreciation, journalFromTerminalCharge, journalFromAdvanceReceipt, journalFromAdvanceApplication, journalFromPayrollRun, journalFromPayrollPayment, journalFromFleetRepair, journalFromStockIssue, journalFromCreditNote, reverseJournal } from "../../utils/glPosting";
 import { periodOf, isPeriodClosed, isYearClosed } from "../../utils/periods";
-import { DEFAULT_COA } from "../../utils/chartOfAccounts";
+import { mergeCOA } from "../../utils/chartOfAccounts";
 import { FG } from "../ui";
 
 // ════════════════════════════════════════════════════════════════════
@@ -152,69 +152,29 @@ function maskAcctName(name) {
 // postings depend on, were kept). See DEFAULT_COA import above.
 
 // ── Seed journal entries ───────────────────────────────────────────
-const SEED_JOURNALS = [
-  {id:"JE-2026-001",date:"2026-01-31",ref:"INV-2026-001",description:"NLNG Manpower Supply — January 2026",source:"invoice",
-   lines:[{drCode:"6002",drName:"Trade Receivables",crCode:"4001",crName:"Manpower Income",amount:14500000,memo:"NLNG HRSS Jan",currency:"NGN",fxRate:1,fcAmount:14500000}]},
-  {id:"JE-2026-002",date:"2026-02-10",ref:"PAY-001",description:"Payment received — NLNG January 2026",source:"manual",
-   lines:[{drCode:"3003",drName:"Access Bank (Naira)",crCode:"6002",crName:"Trade Receivables",amount:14500000,memo:"NLNG payment",currency:"NGN",fxRate:1,fcAmount:14500000}]},
-  {id:"JE-2026-003",date:"2026-01-31",ref:"PAYROLL-JAN",description:"Staff Payroll — January 2026",source:"payroll",
-   lines:[{drCode:"9002",drName:"Staff Salaries",crCode:"5003",crName:"Staff PAYE Payable",amount:491600,memo:"PAYE deduction",currency:"NGN",fxRate:1,fcAmount:491600},
-          {drCode:"9002",drName:"Staff Salaries",crCode:"7001",crName:"Trade Payables",amount:4424400,memo:"Net salaries payable",currency:"NGN",fxRate:1,fcAmount:4424400}]},
-  {id:"JE-2026-004",date:"2026-02-28",ref:"INV-2026-002",description:"NLNG Manpower Supply — February 2026",source:"invoice",
-   lines:[{drCode:"6002",drName:"Trade Receivables",crCode:"4001",crName:"Manpower Income",amount:14500000,memo:"NLNG HRSS Feb",currency:"NGN",fxRate:1,fcAmount:14500000}]},
-  {id:"JE-2026-005",date:"2026-03-08",ref:"PAY-002",description:"Payment received — NLNG February 2026",source:"manual",
-   lines:[{drCode:"3003",drName:"Access Bank (Naira)",crCode:"6002",crName:"Trade Receivables",amount:14500000,memo:"NLNG payment",currency:"NGN",fxRate:1,fcAmount:14500000}]},
-  {id:"JE-2026-006",date:"2026-03-31",ref:"INV-2026-003",description:"NLNG Manpower Supply — March 2026",source:"invoice",
-   lines:[{drCode:"6002",drName:"Trade Receivables",crCode:"4001",crName:"Manpower Income",amount:14500000,memo:"NLNG HRSS Mar",currency:"NGN",fxRate:1,fcAmount:14500000}]},
-  {id:"JE-2026-007",date:"2026-04-07",ref:"PAY-003",description:"Payment received — NLNG March 2026",source:"manual",
-   lines:[{drCode:"3003",drName:"Access Bank (Naira)",crCode:"6002",crName:"Trade Receivables",amount:14500000,memo:"NLNG payment",currency:"NGN",fxRate:1,fcAmount:14500000}]},
-  {id:"JE-2026-008",date:"2026-04-30",ref:"INV-2026-004",description:"NLNG Manpower Supply — April 2026 (Overdue)",source:"invoice",
-   lines:[{drCode:"6002",drName:"Trade Receivables",crCode:"4001",crName:"Manpower Income",amount:14500000,memo:"NLNG HRSS Apr — UNPAID",currency:"NGN",fxRate:1,fcAmount:14500000}]},
-  {id:"JE-2026-009",date:"2026-03-15",ref:"INV-2026-005",description:"Renaissance Africa Engineering Q1 2026",source:"invoice",
-   lines:[{drCode:"6002",drName:"Trade Receivables",crCode:"4003",crName:"Engineering Income",amount:18000000,memo:"SPDC engineering",currency:"NGN",fxRate:1,fcAmount:18000000}]},
-  {id:"JE-2026-010",date:"2026-04-15",ref:"FUEL-APR",description:"Vehicle Fuelling — April 2026",source:"procurement",
-   lines:[{drCode:"9013",drName:"Diesel & Fuelling",crCode:"3001",crName:"Imprest Cash",amount:283500,memo:"Fleet fuelling",currency:"NGN",fxRate:1,fcAmount:283500}]},
-  {id:"JE-2026-011",date:"2026-03-15",ref:"MNT-001-002",description:"Vehicle Maintenance — Q1 2026",source:"manual",
-   lines:[{drCode:"9014",drName:"Repairs & Maintenance",crCode:"3003",crName:"Access Bank (Naira)",amount:205000,memo:"VEH001/VEH002 service",currency:"NGN",fxRate:1,fcAmount:205000}]},
-  {id:"JE-2026-012",date:"2026-02-28",ref:"PAYROLL-FEB",description:"Staff Payroll — February 2026",source:"payroll",
-   lines:[{drCode:"9002",drName:"Staff Salaries",crCode:"5003",crName:"Staff PAYE Payable",amount:491600,memo:"PAYE deduction",currency:"NGN",fxRate:1,fcAmount:491600},
-          {drCode:"9002",drName:"Staff Salaries",crCode:"7001",crName:"Trade Payables",amount:4424400,memo:"Net salaries payable",currency:"NGN",fxRate:1,fcAmount:4424400}]},
-];
+// Emptied 2026-07-28 — held twelve fabricated journal entries posting roughly
+// ₦120m of invented revenue, payroll and bank movement into the General Ledger,
+// including named customers (NLNG, Renaissance Africa) and specific invoice
+// references. These are double-entry postings: had they ever reached the
+// ledger they would have flowed straight through the Trial Balance, P&L and
+// Balance Sheet as real financial results.
+const SEED_JOURNALS = [];
 
-// ── SEED Fixed Assets ─────────────────────────────────────────────
-const SEED_ASSETS = [
-  {id:"FA001",tag:"SLOT-VEH-001",name:"Toyota Hilux (RSH 001 AA)",      category:"Vehicles",purchaseDate:"2020-03-15",cost:8500000,residual:850000,method:"straight-line",rate:25,accumulated:4250000,location:"Port Harcourt",custodian:"Samuel Okafor",serial:"VIN-TH-2020-001",status:"Active"},
-  {id:"FA002",tag:"SLOT-VEH-002",name:"Ford Ranger (RSH 002 BB)",        category:"Vehicles",purchaseDate:"2019-06-01",cost:7200000,residual:720000,method:"straight-line",rate:25,accumulated:5040000,location:"Port Harcourt",custodian:"John Eze",serial:"VIN-FR-2019-002",status:"Active"},
-  {id:"FA003",tag:"SLOT-VEH-003",name:"Toyota Coaster Bus (RSH 003 CC)", category:"Vehicles",purchaseDate:"2018-09-20",cost:9800000,residual:980000,method:"reducing-balance",rate:25,accumulated:7840000,location:"Port Harcourt",custodian:"Emmanuel Adaeze",serial:"VIN-TC-2018-003",status:"Under Maintenance"},
-  {id:"FA004",tag:"SLOT-VEH-004",name:"Toyota Land Cruiser 200 (RSH 004)",category:"Vehicles",purchaseDate:"2022-01-10",cost:18500000,residual:1850000,method:"straight-line",rate:20,accumulated:5550000,location:"Port Harcourt",custodian:"Festus Amadi",serial:"VIN-LC-2022-004",status:"Active"},
-  {id:"FA005",tag:"SLOT-IT-001", name:"Dell Latitude Laptop",            category:"IT Equipment",purchaseDate:"2023-03-01",cost:450000,residual:45000,method:"straight-line",rate:33,accumulated:297000,location:"MD Office",custodian:"Ernest Ojukwu",serial:"DELL-2023-LAT",status:"Active"},
-  {id:"FA006",tag:"SLOT-GE-001", name:"Caterpillar 500kVA Generator",   category:"Machinery & Equipment",purchaseDate:"2021-05-15",cost:12000000,residual:1200000,method:"straight-line",rate:10,accumulated:3600000,location:"Bonny Island",custodian:"Augustine Okoye",serial:"CAT-GEN-2021",status:"Active"},
-];
+// Emptied 2026-07-28 — held six fabricated fixed assets totalling ~₦56.4m of
+// invented cost and ~₦26.6m of invented accumulated depreciation.
+const SEED_ASSETS = [];
 
-// ── SEED Bank Statement Entries ───────────────────────────────────
-const SEED_BANK_STMT = [
-  {id:"BS001",date:"2026-02-10",description:"NLNG Payment Jan 2026",     amount:14500000,type:"credit",ref:"NLNG-PAY-001",reconciled:true,accountCode:"3003"},
-  {id:"BS002",date:"2026-03-08",description:"NLNG Payment Feb 2026",     amount:14500000,type:"credit",ref:"NLNG-PAY-002",reconciled:true,accountCode:"3003"},
-  {id:"BS003",date:"2026-04-07",description:"NLNG Payment Mar 2026",     amount:14500000,type:"credit",ref:"NLNG-PAY-003",reconciled:true,accountCode:"3003"},
-  {id:"BS004",date:"2026-04-15",description:"Fleet Maintenance Payment", amount:205000,  type:"debit", ref:"CHQ-4521",reconciled:true,accountCode:"3003"},
-  {id:"BS005",date:"2026-04-16",description:"Diesel Purchase April",     amount:283500,  type:"debit", ref:"POS-1234",reconciled:true,accountCode:"3003"},
-  {id:"BS006",date:"2026-05-05",description:"PO-2026-001 Vendor Payment",amount:2240000, type:"debit", ref:"TRF-0056",reconciled:false,accountCode:"3003"},
-  {id:"BS007",date:"2026-05-12",description:"SPDC Part Payment",         amount:9000000, type:"credit",ref:"SPDC-PAY-001",reconciled:false,accountCode:"3003"},
-];
+// Emptied 2026-07-28 — held seven fabricated bank statement lines, several
+// pre-marked "reconciled", inventing ~₦52m of bank movement.
+const SEED_BANK_STMT = [];
 
-// ── SEED WHT Register ─────────────────────────────────────────────
-const SEED_WHT = [
-  {id:"WHT001",vendor:"Courdeau Catering Nig. Ltd",tin:"TIN-CCN-001",ref:"PO-2026-001",date:"2026-04-22",gross:2240000,rate:2,amount:44800,net:2195200,desc:"Catering services",certStatus:"Not Issued"},
-  {id:"WHT002",vendor:"Tagos Thermal Insulation",  tin:"TIN-TAG-001",ref:"PO-2026-002",date:"2026-05-05",gross:1771000,rate:2,amount:35420, net:1735580,desc:"Insulation materials",certStatus:"Issued"},
-];
+// Emptied 2026-07-28 — held two fabricated withholding tax entries with
+// invented TINs and vendor names. Tax records must never be invented.
+const SEED_WHT = [];
 
-// ── SEED Budget ────────────────────────────────────────────────────
-const SEED_BUDGETS = [
-  {id:"BGT001",dept:"Engineering",period:"monthly",amount:8000000},
-  {id:"BGT002",dept:"Procurement", period:"monthly",amount:5000000},
-  {id:"BGT003",dept:"Admin & HR",  period:"monthly",amount:2000000},
-  {id:"BGT004",dept:"Fleet",       period:"monthly",amount:1500000},
-];
+// Emptied 2026-07-28 — held ₦16.5m/month of invented departmental budgets,
+// which fed Budget vs Actual reporting as though they were approved figures.
+const SEED_BUDGETS = [];
 
 // ════════════════════════════════════════════════════════════════════
 // DESIGN SYSTEM (matches App.jsx exactly)
@@ -508,9 +468,12 @@ function OverviewTab({journals,coa,bankStmt,setTab,isAdmin=true}){
       <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
         <NavKPI label="Total Revenue (Posted)" value={fmt(totalRev)} color={C.success} icon="💰" target="pl" sub="Click → P&L Statement"/>
         <NavKPI label="Total Expenses"          value={fmt(totalExp)} color={C.danger}  icon="📉" target="pl" sub="Click → P&L Statement"/>
-        <NavKPI label="Net Profit / (Loss)"     value={fmt(netProfit)} color={netProfit>=0?C.success:C.danger} icon="📊" target="pl"
-          sub={netProfit>=0?"Surplus — Click → P&L":"Deficit — Click → P&L"}
-          badge={netProfit>=0?"✓ Trading profitably":"⚠ Loss position"}/>
+        {/* FIX 2026-07-28: the test was `netProfit >= 0`, so a net profit of
+            exactly ₦0 — an untouched system with no postings at all — rendered
+            in green as "✓ Trading profitably". Zero is neither profit nor loss. */}
+        <NavKPI label="Net Profit / (Loss)"     value={fmt(netProfit)} color={netProfit>0?C.success:netProfit<0?C.danger:C.textMuted} icon="📊" target="pl"
+          sub={netProfit>0?"Surplus — Click → P&L":netProfit<0?"Deficit — Click → P&L":"No postings yet — Click → P&L"}
+          badge={netProfit>0?"✓ Trading profitably":netProfit<0?"⚠ Loss position":"— No trading activity"}/>
         <NavKPI label="Cash & Bank Balance"     value={fmt(cashTotal)} color={C.green}   icon="🏦" target="bank" sub="Click → Bank Reconciliation"/>
         <NavKPI label="Trade Receivables"       value={fmt(totalAR)}  color={C.info}    icon="📤" target="ledger" sub="Click → General Ledger (6002)"/>
         <NavKPI label="Trade Payables"          value={fmt(totalAP)}  color={C.warning} icon="📥" target="trial"  sub="Click → Trial Balance"/>
@@ -2903,7 +2866,12 @@ export default function Accounting({data,setData}){
   const saved = loadAcct();
   const [tab,setTab]=useState(() => getDeepLinkTab('accounting', 'overview'));
   const [journals,setJournals]=useState(saved?.journals || SEED_JOURNALS);
-  const [coa,setCoa]=useState(saved?.coa || DEFAULT_COA);
+  // 2026-07-28: was `saved?.coa || DEFAULT_COA`, which froze the chart of
+  // accounts into each browser on first run and never refreshed it — two users
+  // on the same build saw different balances. mergeCOA() rebuilds it from
+  // chartOfAccounts.js on every load while keeping any accounts a user added
+  // themselves. See the long note above mergeCOA for why.
+  const [coa,setCoa]=useState(()=>mergeCOA(saved?.coa));
   const [bankStmt,setBankStmt]=useState(saved?.bankStmt || SEED_BANK_STMT);
   const [vatAdj,setVatAdj]=useState(saved?.vatAdj || []);
   const [whtEntries,setWhtEntries]=useState(saved?.whtEntries || SEED_WHT);

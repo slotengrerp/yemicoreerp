@@ -29,31 +29,10 @@ const STATUS_COLOR = {
   'Cancelled':          { color: '#C0392B', bg: 'rgba(192,57,43,.12)' },
 };
 
-const SEED = [
-  { id:'so1', soNo:'SO-2026-0001', client:'Nigeria LNG Limited', clientCode:'NLNG NGN', projectRef:'NLNG HRSS-Q3',
-    date:'2026-07-01', expectedDelivery:'2026-07-15', currency:'NGN', fxRate:1, status:'Confirmed',
-    notes:'Standing-order framework for Q3 — invoice monthly as deliveries are confirmed.',
-    items:[
-      { id:'i1', description:'Engineering & Technical Support — Q3 retainer', qty:3, unit:'month', unitPrice:4500000, orderedQty:3, invoicedQty:0 },
-      { id:'i2', description:'Standby Crew Allowance', qty:90, unit:'days', unitPrice:25000, orderedQty:90, invoicedQty:30 },
-    ],
-    invoices:[], createdAt:'2026-07-01T08:00:00Z' },
-  { id:'so2', soNo:'SO-2026-0002', client:'Renaissance Africa Energy Company of Nig. Ltd', clientCode:'SPDC', projectRef:'SPDC CABLE PROJECT',
-    date:'2026-06-15', expectedDelivery:'2026-06-30', currency:'NGN', fxRate:1, status:'Partially Invoiced',
-    notes:'Cable laying project — phased delivery',
-    items:[
-      { id:'i3', description:'Cable hauling & laying — Phase 1', qty:5, unit:'km', unitPrice:1200000, orderedQty:5, invoicedQty:3 },
-      { id:'i4', description:'Cable jointing kit', qty:10, unit:'set', unitPrice:85000, orderedQty:10, invoicedQty:0 },
-    ],
-    invoices:[], createdAt:'2026-06-15T08:00:00Z' },
-  { id:'so3', soNo:'SO-2026-0003', client:'Saipem', clientCode:'SAIPEM USD', projectRef:'SAIPEM',
-    date:'2026-05-20', expectedDelivery:'2026-08-15', currency:'USD', fxRate:1545, status:'Draft',
-    notes:'Specialist engineering support — awaiting Saipem PO confirmation',
-    items:[
-      { id:'i5', description:'Specialist Engineering Support — Q3 2026', qty:3, unit:'month', unitPrice:18000, orderedQty:3, invoicedQty:0 },
-    ],
-    invoices:[], createdAt:'2026-05-20T08:00:00Z' },
-];
+// Emptied 2026-07-28 — held three fabricated sales orders (~₦24m plus a USD
+// one) against real customer names, two carrying invented invoicedQty figures
+// that would have shown work as already billed.
+const SEED = [];
 
 const fmt    = n => '₦' + (Number(n)||0).toLocaleString('en-NG', { maximumFractionDigits: 0 });
 const fmtFC  = (n, c) => { const sym = { USD:'$', EUR:'€', GBP:'£' }[c] || ''; return `${sym}${(Number(n)||0).toLocaleString('en-US',{maximumFractionDigits:2})}`; };

@@ -48,96 +48,19 @@ function LBL({ t, full, children }) {
 }
 
 // ── Seed data — matches actual SLOT sheet structure ───────────────────────────
+// Emptied 2026-07-28 — held four fabricated Bills of Lading, four containers,
+// three clearing charges (₦765,000 total, one pre-marked as already posted to
+// Accounting), two logistics records and a ₦2.5m advance payment supposedly
+// received from Nigerian LNG. The consignee and shipping-company entries were
+// placeholders added during the 2026-07-25 Bill of Lading upgrade, not SLOT's
+// own master data, so they go too.
+//
+// The KEYS must stay — TerminalOps reads termData.containers, .charges, .bols
+// and so on directly, and a missing key would throw rather than show an empty
+// tab. Empty arrays, never rows.
 const SEED = {
-  // Bill of Lading parent records — each BoL groups one or more containers
-  // that arrived together on the same vessel/voyage. Children are linked
-  // by `bolId` on the `containers` and `logistics` rows below.
-  bols: [
-    { id:'bol1',billOfLadingNo:'MSCUB123456',shippingCompany:'MSC Mediterranean Shipping',shippingVessel:'MSC LUNA',
-      portOfLoading:'Shanghai, CN',portOfDischarge:'Onne Port, NG',voyageNo:'MSC-LUNA-2026-12',
-      etaDate:'2026-04-08',ataDate:'2026-04-10',totalContainers:1,status:'Released',freeTimeExpiry:'2026-04-30',createdAt:'2026-04-10T08:00:00Z' },
-    { id:'bol2',billOfLadingNo:'HLCU9876543',shippingCompany:'Hapag-Lloyd AG',shippingVessel:'HL DUBAI',
-      portOfLoading:'Hamburg, DE',portOfDischarge:'Lagos Port, NG',voyageNo:'HL-DXB-2026-08',
-      etaDate:'2026-05-01',ataDate:'2026-05-02',totalContainers:1,status:'Under Exam',freeTimeExpiry:'2026-05-22',createdAt:'2026-05-02T09:00:00Z' },
-    { id:'bol3',billOfLadingNo:'CMAV456123', shippingCompany:'CMA CGM',shippingVessel:'CMA ELBE',
-      portOfLoading:'Le Havre, FR',portOfDischarge:'Lagos Port, NG',voyageNo:'CMA-ELB-2026-15',
-      etaDate:'2026-05-17',ataDate:'2026-05-18',totalContainers:1,status:'Held',freeTimeExpiry:'2026-06-07',createdAt:'2026-05-18T10:00:00Z' },
-    { id:'bol4',billOfLadingNo:'ET2026-00441',shippingCompany:'Ethiopian Airlines Cargo',shippingVessel:'ET-AXQ',
-      portOfLoading:'Addis Ababa, ET',portOfDischarge:'PH Airport, NG',voyageNo:'ET-AXQ-2026-22',
-      etaDate:'2026-06-01',ataDate:'2026-06-01',totalContainers:1,status:'Transit Applied',freeTimeExpiry:'2026-06-15',createdAt:'2026-06-01T07:00:00Z' },
-  ],
-  containers: [
-    { id:'c1',bolId:'bol1',containerNo:'MSCU1234567',containerType:'20ft DV',size:'20ft',portType:'Sea',
-      shippingCompany:'MSC Mediterranean Shipping',shippingVessel:'MSC LUNA',
-      consigneeName:'SLOT Engineering Nigeria Ltd',materialDescription:'Industrial Pipes & Fittings',
-      billOfLading:'MSCUB123456',noOfContainers:1,status:'Released',createdAt:'2026-04-10T08:00:00Z' },
-    { id:'c2',bolId:'bol2',containerNo:'TRHU9876543',containerType:'40ft HC',size:'40ft',portType:'Sea',
-      shippingCompany:'Hapag-Lloyd AG',shippingVessel:'HL DUBAI',
-      consigneeName:'Nigerian LNG Complex',materialDescription:'Construction Equipment & Machinery',
-      billOfLading:'HLCU9876543',noOfContainers:2,status:'Under Exam',createdAt:'2026-05-02T09:00:00Z' },
-    { id:'c3',bolId:'bol3',containerNo:'CMAU4561230',containerType:'20ft DV',size:'20ft',portType:'Sea',
-      shippingCompany:'CMA CGM',shippingVessel:'CMA ELBE',
-      consigneeName:'SLOT Engineering Nigeria Ltd',materialDescription:'Chemical Reagents & Lab Supplies',
-      billOfLading:'CMAV456123',noOfContainers:1,status:'Held',createdAt:'2026-05-18T10:00:00Z' },
-    { id:'c4',bolId:'bol4',containerNo:'APMU7654321',containerType:'40ft DV',size:'40ft',portType:'Air',
-      shippingCompany:'Ethiopian Airlines Cargo',shippingVessel:'ET-AXQ',
-      consigneeName:'SLOT Engineering Nigeria Ltd',materialDescription:'Electronic Control Panels',
-      billOfLading:'ET2026-00441',noOfContainers:1,status:'Transit Applied',createdAt:'2026-06-01T07:00:00Z' },
-  ],
-  charges: [
-    { id:'ch1',containerNo:'MSCU1234567',arrivalDate:'2026-04-10',paymentDate:'2026-04-16',
-      receiptNo:'RCPT-ONNE-041',equipmentCharge:45000,terminalCharge:120000,storageCharge:35000,
-      totalAmount:200000,agentName:'Adeola Clearing Agency Ltd',postedToAccounting:true,postDate:'2026-04-17',createdAt:'2026-04-10T08:00:00Z' },
-    { id:'ch2',containerNo:'TRHU9876543',arrivalDate:'2026-05-02',paymentDate:'',
-      receiptNo:'',equipmentCharge:65000,terminalCharge:180000,storageCharge:95000,
-      totalAmount:340000,agentName:'Prime Maritime Services Ltd',postedToAccounting:false,postDate:'',createdAt:'2026-05-02T09:00:00Z' },
-    { id:'ch3',containerNo:'CMAU4561230',arrivalDate:'2026-05-18',paymentDate:'',
-      receiptNo:'',equipmentCharge:45000,terminalCharge:120000,storageCharge:60000,
-      totalAmount:225000,agentName:'Adeola Clearing Agency Ltd',postedToAccounting:false,postDate:'',createdAt:'2026-05-18T10:00:00Z' },
-  ],
-  logistics: [
-    { id:'l1',bolId:'bol1',containerNo:'MSCU1234567',transitApplicationDate:'2026-04-12',noOfContainers:1,
-      billOfLading:'MSCUB123456',containerSize:'20ft',materialDescription:'Industrial Pipes & Fittings',
-      consigneeName:'SLOT Engineering Nigeria Ltd',shippingCompany:'MSC Mediterranean Shipping',
-      shippingVessel:'MSC LUNA',warehouseReceiptDate:'2026-04-13',examDate:'2026-04-15',
-      releaseDate:'2026-04-17',status:'Released',remarks:'Cleared without issues',createdAt:'2026-04-12T08:00:00Z' },
-    { id:'l2',bolId:'bol2',containerNo:'TRHU9876543',transitApplicationDate:'2026-05-04',noOfContainers:2,
-      billOfLading:'HLCU9876543',containerSize:'40ft',materialDescription:'Construction Equipment & Machinery',
-      consigneeName:'Nigerian LNG Complex',shippingCompany:'Hapag-Lloyd AG',shippingVessel:'HL DUBAI',
-      warehouseReceiptDate:'2026-05-06',examDate:'',releaseDate:'',
-      status:'Under Exam',remarks:'NCS scanning in progress',createdAt:'2026-05-04T09:00:00Z' },
-  ],
-  // Advance payments — money received IN ADVANCE from a consignee/shipping
-  // line for clearing of a list of containers. `containersCovered` carries
-  // the per-container allocation; `applications` tracks how the advance
-  // was spent against each container (Dr 2099 / Cr 4005 on each application).
-  advances: [
-    { id:'adv1',payerName:'Nigerian LNG Complex',payerType:'Consignee',
-      paymentDate:'2026-04-25',amount:2500000,currency:'NGN',bankCode:'3003',bankName:'Access Bank (Naira)',
-      receiptNo:'ADV-2026-001',purpose:'Clearing',
-      containersCovered:[{ containerNo:'TRHU9876543', amountAllocated:2500000 }],
-      applications:[],balanceRemaining:2500000,status:'Open',notes:'Pre-paid clearing for NLNG cargo',
-      linkToBillOfLadingId:'bol2',createdAt:'2026-04-25T08:00:00Z' },
-  ],
-  // Consignee master — cargo recipients. Containers reference these by
-  // `consigneeId`; `consigneeName` stays on the container as a cached
-  // display field (auto-filled on selection) so every existing filter,
-  // print sheet, and report that reads consigneeName keeps working
-  // unchanged. Added to close gap B.2 in
-  // SLOT_BillOfLading_Schema_Audit_2026-07-25.md.
-  consignees: [
-    { id:'cons1',name:'SLOT Engineering Nigeria Ltd',address:'',phone:'',email:'',createdAt:'2026-04-01T00:00:00Z' },
-    { id:'cons2',name:'Nigerian LNG Complex',address:'',phone:'',email:'',createdAt:'2026-04-01T00:00:00Z' },
-  ],
-  // Shipping company master — carriers. Referenced by BoLs and containers
-  // via `shippingCompanyId`; `shippingCompany` stays as a cached display
-  // field, same reasoning as consignees. Closes gap B.3.
-  shippingCompanies: [
-    { id:'sc1',name:'MSC Mediterranean Shipping',createdAt:'2026-04-01T00:00:00Z' },
-    { id:'sc2',name:'Hapag-Lloyd AG',createdAt:'2026-04-01T00:00:00Z' },
-    { id:'sc3',name:'CMA CGM',createdAt:'2026-04-01T00:00:00Z' },
-    { id:'sc4',name:'Ethiopian Airlines Cargo',createdAt:'2026-04-01T00:00:00Z' },
-  ],
+  bols: [], containers: [], charges: [], logistics: [],
+  advances: [], consignees: [], shippingCompanies: [],
 };
 
 const TABS = [
@@ -403,6 +326,69 @@ export default function TerminalOps({ onNav }) {
     showToast(isEdit?'Updated':'Saved');
     setModal(null);
   }
+  // Saves a Bill of Lading and its container line items in ONE state update.
+  //
+  // Doing both in a single persist() matters: two sequential saveItem() calls
+  // would each read the same stale `termData` snapshot, so the second would
+  // overwrite the first's changes. This is the same whole-object-overwrite
+  // hazard the 2026-07-23 audit flagged in the legacy sync engine.
+  //
+  // Rows are written as real container records (bolId set), so the Container
+  // Registry, Charges, Logistics and Advances keep working exactly as before.
+  // A row that was removed from the table unlinks its container rather than
+  // deleting it — BoLModal already refuses to remove any row that has charges
+  // or logistics attached, so anything reaching here is safe to unlink, and
+  // an unlinked container stays visible in the registry instead of vanishing.
+  function saveBoLWithContainers(bol, rows) {
+    const list = termData.bols || [];
+    const isEdit = list.some(x => x.id === bol.id);
+    const filled = (rows || []).filter(r => (r.containerNo || '').trim());
+    const keptIds = new Set(filled.map(r => r.id));
+
+    const nextContainers = (termData.containers || []).map(c =>
+      (c.bolId === bol.id && !keptIds.has(c.id)) ? { ...c, bolId: null } : c
+    );
+
+    filled.forEach(r => {
+      const idx = nextContainers.findIndex(c => c.id === r.id);
+      const prev = idx >= 0 ? nextContainers[idx] : {};
+      const merged = {
+        ...prev,
+        id: r.id,
+        bolId: bol.id,
+        containerNo: r.containerNo.trim(),
+        containerType: r.containerType || prev.containerType || '40ft DV',
+        size: r.size || prev.size || '40ft',
+        consigneeId: r.consigneeId || '',
+        consigneeName: r.consigneeName || '',
+        materialDescription: r.materialDescription || '',
+        status: r.status || prev.status || 'Arrived',
+        // Shipment details live on the BoL — mirror them onto each container
+        // so the Container Registry columns and the printed sheets read
+        // correctly without having to join back to the BoL every time.
+        billOfLading: bol.billOfLadingNo || '',
+        shippingCompany: bol.shippingCompany || '',
+        shippingCompanyId: bol.shippingCompanyId || '',
+        shippingVessel: bol.shippingVessel || '',
+        portOfLoading: bol.portOfLoading || '',
+        portOfDischarge: bol.portOfDischarge || '',
+        portType: prev.portType || 'Sea',
+        noOfContainers: prev.noOfContainers || 1,
+        createdAt: prev.createdAt || new Date().toISOString(),
+      };
+      if (idx >= 0) nextContainers[idx] = merged; else nextContainers.push(merged);
+    });
+
+    persist({
+      ...termData,
+      bols: isEdit ? list.map(x => x.id === bol.id ? bol : x) : [...list, bol],
+      containers: nextContainers,
+    });
+    logActivity(dispatch, (isEdit ? 'Updated' : 'Added') + ' terminal bill of lading ' + (bol.billOfLadingNo || '') + ' with ' + filled.length + ' container(s)', currentUser);
+    showToast((isEdit ? 'Updated' : 'Saved') + ' — ' + filled.length + ' container' + (filled.length === 1 ? '' : 's'));
+    setModal(null);
+  }
+
   function postToAccounting(charge) {
     // This used to hand-build a journal entry and write it to db.accounting —
     // a key the real Accounting module never reads, so charges marked
@@ -899,8 +885,9 @@ export default function TerminalOps({ onNav }) {
               onSave={d=>saveItem('containers',d)} onClose={()=>setModal(null)}/>}
           {['bol_add','bol_edit','bol_view'].includes(modal.type)&&
             <BoLModal data={modal.data} readonly={modal.type==='bol_view'} containers={containers}
-              shippingCompanies={shippingCompanies}
-              onSave={d=>saveItem('bols',d)} onClose={()=>setModal(null)}/>}
+              consignees={consignees} shippingCompanies={shippingCompanies}
+              charges={charges} logistics={logistics} belongsToContainer={belongsToContainer}
+              onSave={saveBoLWithContainers} onClose={()=>setModal(null)}/>}
           {['chg_add','chg_edit'].includes(modal.type)&&
             <ChargeModal data={modal.data} containers={containers}
               onSave={d=>saveItem('charges',d)} onClose={()=>setModal(null)}/>}
@@ -1086,17 +1073,75 @@ function LogisticsModal({data,containers,onSave,onClose}) {
 }
 
 // ── Bill of Lading Modal ────────────────────────────────────────────────────
-function BoLModal({data,readonly,containers,shippingCompanies,onSave,onClose}) {
+//
+// Reworked 2026-07-27 on SLOT's feedback: they asked for this to behave like
+// the Purchase Order form in Procurement — the BoL header identifies the
+// shipment (as the PO's Description does), and its containers are added as
+// editable line-item rows right here, instead of saving the BoL and then
+// creating each container separately in the registry with a dropdown pointing
+// back at it.
+//
+// IMPORTANT — this changes the FORM, not the DATA MODEL. Each row is still
+// saved as a real record in db.terminal.containers with bolId set. Charges,
+// Logistics, Advances and the Container Registry all reference containers by
+// id, so burying them inside the BoL record would have broken every one of
+// those. The registry keeps its own "+ Add Container" for containers that
+// arrive without a BoL, and for editing a container's full detail.
+function BoLModal({data,readonly,containers,consignees,shippingCompanies,charges,logistics,belongsToContainer,onSave,onClose}) {
   const {C}=useTheme();
   const [f,setF]=useState({...data});
   const set=k=>e=>setF(p=>({...p,[k]:e.target.value}));
   const inp={padding:'7px 10px',borderRadius:7,border:'1px solid '+C.border,background:readonly?C.bgAlt:C.bgCard,color:C.text,fontSize:13,outline:'none',fontFamily:'inherit',width:'100%'};
-  // FIX (schema audit B.4): this used to also match on `c.billOfLading ===
-  // f.billOfLadingNo` (free-text), which could disagree with the main BoL
-  // tab's count (which has always used bolId only — see the childContainers
-  // line in the main render). Collapsed to the single bolId FK so both
-  // views always agree on which containers belong to this BoL.
-  const childContainers = containers.filter(c => c.bolId === f.id);
+  const cellInp={...inp,padding:'5px 7px',fontSize:12};
+
+  // FIX (schema audit B.4): matching is on the bolId FK only — never the
+  // free-text billOfLading string, which could disagree with the main tab.
+  const blankRow=()=>({id:generateId(),containerNo:'',size:'40ft',containerType:'40ft DV',consigneeId:'',consigneeName:'',materialDescription:'',status:'Arrived',_new:true});
+  const [rows,setRows]=useState(()=>{
+    const existing=containers.filter(c=>c.bolId===data.id).map(c=>({
+      id:c.id, containerNo:c.containerNo||'', size:c.size||'40ft', containerType:c.containerType||'40ft DV',
+      consigneeId:c.consigneeId||'', consigneeName:c.consigneeName||'',
+      materialDescription:c.materialDescription||'', status:c.status||'Arrived', _new:false,
+    }));
+    return existing.length?existing:(readonly?[]:[blankRow()]);
+  });
+
+  const setRow=(i,k,v)=>setRows(p=>p.map((r,j)=>j===i?{...r,[k]:v}:r));
+  const addRow=()=>setRows(p=>[...p,blankRow()]);
+
+  // Per SLOT's decision: refuse to remove a row whose container already has
+  // money or movement recorded against it. Silently deleting those would
+  // orphan posted accounting entries; unlinking would look like a delete
+  // that didn't happen. Say what's blocking it and let them clear it first.
+  function removeRow(i){
+    const r=rows[i];
+    if(!r._new){
+      const cont={id:r.id,containerNo:r.containerNo};
+      const nCh=(charges||[]).filter(c=>belongsToContainer(c,cont)).length;
+      const nLg=(logistics||[]).filter(l=>belongsToContainer(l,cont)).length;
+      if(nCh||nLg){
+        const parts=[];
+        if(nCh)parts.push(nCh+' charge'+(nCh===1?'':'s'));
+        if(nLg)parts.push(nLg+' logistics record'+(nLg===1?'':'s'));
+        showToast('Container '+(r.containerNo||'(unnamed)')+' has '+parts.join(' and ')+' against it — remove those first.','error');
+        return;
+      }
+    }
+    setRows(p=>p.filter((_,j)=>j!==i));
+  }
+
+  const filledRows=rows.filter(r=>(r.containerNo||'').trim());
+  const declared=Number(f.totalContainers)||0;
+  const mismatch=declared>0&&filledRows.length>0&&declared!==filledRows.length;
+
+  function handleSave(){
+    if(!(f.billOfLadingNo||'').trim()){showToast('Bill of Lading No is required','error');return;}
+    const dupe=filledRows.map(r=>r.containerNo.trim().toUpperCase())
+      .find((no,i,arr)=>arr.indexOf(no)!==i);
+    if(dupe){showToast('Container '+dupe+' is listed twice on this Bill of Lading','error');return;}
+    onSave(f,rows);
+  }
+
   return (
     <div style={{background:C.bgCard,borderRadius:12,border:'1px solid '+C.border,overflow:'hidden'}}>
       <div style={{padding:'14px 20px',background:'linear-gradient(135deg,#0F3A1A,#1A5C2A)',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
@@ -1120,27 +1165,86 @@ function BoLModal({data,readonly,containers,shippingCompanies,onSave,onClose}) {
         <LBL t="Port of Discharge"><input style={inp} value={f.portOfDischarge||''} onChange={set('portOfDischarge')} readOnly={readonly}/></LBL>
         <LBL t="ETA Date"><input style={inp} type="date" value={f.etaDate||''} onChange={set('etaDate')} readOnly={readonly}/></LBL>
         <LBL t="ATA Date"><input style={inp} type="date" value={f.ataDate||''} onChange={set('ataDate')} readOnly={readonly}/></LBL>
-        <LBL t="Total Containers (on BoL)"><input style={inp} type="number" value={f.totalContainers||1} onChange={set('totalContainers')} readOnly={readonly}/></LBL>
+        <LBL t="Total Containers (declared on BoL)"><input style={inp} type="number" value={f.totalContainers||1} onChange={set('totalContainers')} readOnly={readonly}/></LBL>
         <LBL t="Free Time Expiry"><input style={inp} type="date" value={f.freeTimeExpiry||''} onChange={set('freeTimeExpiry')} readOnly={readonly}/></LBL>
         <LBL t="Status"><select style={inp} value={f.status||'In Transit'} onChange={set('status')} disabled={readonly}>
           {['In Transit','Arrived','Under Exam','Released','Held','Completed'].map(s=><option key={s}>{s}</option>)}
         </select></LBL>
       </div>
-      {!readonly && childContainers.length > 0 && (
-        <div style={{padding:'0 20px 12px'}}>
-          <div style={{fontSize:11,fontWeight:600,color:C.textMid,marginBottom:6}}>Containers linked to this BoL (by BoL number match — auto-detected):</div>
-          <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
-            {childContainers.map(c => (
-              <span key={c.id} style={{padding:'3px 9px',borderRadius:20,background:C.greenPale,color:C.green,fontFamily:'monospace',fontSize:11,fontWeight:600}}>
-                {c.containerNo} · {c.consigneeName}
-              </span>
-            ))}
-          </div>
+
+      {/* ── Containers as line items (the PO pattern SLOT asked for) ───────── */}
+      <div style={{padding:'0 20px 4px'}}>
+        <div style={{fontSize:11,fontWeight:600,color:C.textMid,textTransform:'uppercase',letterSpacing:'0.4px',margin:'4px 0 10px',paddingBottom:6,borderBottom:'2px solid '+C.greenPale}}>
+          Containers on this Bill of Lading
         </div>
-      )}
-      {!readonly&&<div style={{padding:'0 20px 20px',display:'flex',gap:8,justifyContent:'flex-end',borderTop:'1px solid '+C.borderLight,paddingTop:14}}>
+        <div style={{overflowX:'auto'}}>
+          <table style={{width:'100%',borderCollapse:'collapse',fontSize:12,minWidth:640}}>
+            <thead><tr style={{background:C.greenPale}}>
+              {['#','Container No','Type','Size','Consignee','Material Description','Status',readonly?'':'Del'].filter(Boolean).map(h=>(
+                <th key={h} style={{padding:'7px 6px',textAlign:'left',fontSize:10.5,fontWeight:700,color:C.textMid,textTransform:'uppercase',letterSpacing:'0.4px',whiteSpace:'nowrap'}}>{h}</th>
+              ))}
+            </tr></thead>
+            <tbody>
+              {rows.length===0&&(
+                <tr><td colSpan={readonly?7:8} style={{padding:'18px 8px',textAlign:'center',color:C.textMuted}}>No containers recorded on this Bill of Lading</td></tr>
+              )}
+              {rows.map((r,i)=>(
+                <tr key={r.id} style={{background:i%2===1?C.greenPale2:'transparent'}}>
+                  <td style={{padding:'4px 6px',color:C.textMuted}}>{i+1}</td>
+                  <td style={{padding:'4px 6px'}}>
+                    {readonly?<span style={{fontFamily:'monospace',fontWeight:600}}>{r.containerNo}</span>
+                      :<input style={{...cellInp,fontFamily:'monospace',minWidth:130}} value={r.containerNo} onChange={e=>setRow(i,'containerNo',e.target.value)} placeholder="e.g. MSCU1234567"/>}
+                  </td>
+                  <td style={{padding:'4px 6px'}}>
+                    {readonly?r.containerType
+                      :<select style={{...cellInp,minWidth:110}} value={r.containerType} onChange={e=>setRow(i,'containerType',e.target.value)}>{CONT_TYPES.map(t=><option key={t}>{t}</option>)}</select>}
+                  </td>
+                  <td style={{padding:'4px 6px'}}>
+                    {readonly?r.size
+                      :<select style={{...cellInp,width:80}} value={r.size} onChange={e=>setRow(i,'size',e.target.value)}>{CONT_SIZES.map(s=><option key={s}>{s}</option>)}</select>}
+                  </td>
+                  <td style={{padding:'4px 6px'}}>
+                    {readonly?r.consigneeName
+                      :<select style={{...cellInp,minWidth:130}} value={r.consigneeId||''} onChange={e=>{const id=e.target.value;const cons=(consignees||[]).find(x=>x.id===id);setRows(p=>p.map((x,j)=>j===i?{...x,consigneeId:id,consigneeName:cons?.name||x.consigneeName}:x));}}>
+                          <option value="">— select —</option>
+                          {(consignees||[]).map(cons=><option key={cons.id} value={cons.id}>{cons.name}</option>)}
+                        </select>}
+                  </td>
+                  <td style={{padding:'4px 6px'}}>
+                    {readonly?r.materialDescription
+                      :<input style={{...cellInp,minWidth:150}} value={r.materialDescription} onChange={e=>setRow(i,'materialDescription',e.target.value)} placeholder="Contents"/>}
+                  </td>
+                  <td style={{padding:'4px 6px'}}>
+                    {readonly?r.status
+                      :<select style={{...cellInp,minWidth:120}} value={r.status} onChange={e=>setRow(i,'status',e.target.value)}>{STATUS_ALL.map(s=><option key={s}>{s}</option>)}</select>}
+                  </td>
+                  {!readonly&&<td style={{padding:'4px 6px'}}>
+                    <button onClick={()=>removeRow(i)} title="Remove this container from the Bill of Lading" style={{background:C.danger,color:'#fff',border:'none',borderRadius:5,padding:'2px 8px',cursor:'pointer',fontSize:12}}>✕</button>
+                  </td>}
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr style={{background:C.greenPale}}>
+                <td colSpan={readonly?6:7} style={{padding:'7px 6px',textAlign:'right',fontWeight:700,color:C.textMid}}>Containers entered</td>
+                <td style={{padding:'7px 6px',fontWeight:700,color:C.green}}>{filledRows.length}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+        {mismatch&&(
+          <div style={{marginTop:8,padding:'7px 11px',borderRadius:7,background:C.amberPale||'rgba(201,122,10,.12)',border:'1px solid '+C.amber+'55',fontSize:11.5,color:C.amber}}>
+            This BoL declares {declared} container{declared===1?'':'s'} but {filledRows.length} {filledRows.length===1?'is':'are'} entered above. Saving is still allowed — the count is just a heads-up that the list may be incomplete.
+          </div>
+        )}
+        {!readonly&&(
+          <button onClick={addRow} style={{marginTop:10,padding:'6px 14px',borderRadius:7,background:'transparent',border:'1px solid '+C.green,color:C.green,fontSize:12,fontWeight:600,cursor:'pointer'}}>+ Add Container</button>
+        )}
+      </div>
+
+      {!readonly&&<div style={{padding:'0 20px 20px',display:'flex',gap:8,justifyContent:'flex-end',borderTop:'1px solid '+C.borderLight,paddingTop:14,marginTop:16}}>
         <button onClick={onClose} style={{padding:'7px 16px',borderRadius:7,background:'transparent',border:'1px solid '+C.border,color:C.textMid,fontSize:13,cursor:'pointer'}}>Cancel</button>
-        <button onClick={()=>onSave(f)} style={{padding:'7px 18px',borderRadius:7,background:C.green,border:'none',color:'#fff',fontSize:13,fontWeight:600,cursor:'pointer'}}>Save BoL</button>
+        <button onClick={handleSave} style={{padding:'7px 18px',borderRadius:7,background:C.green,border:'none',color:'#fff',fontSize:13,fontWeight:600,cursor:'pointer'}}>Save BoL &amp; Containers</button>
       </div>}
     </div>
   );

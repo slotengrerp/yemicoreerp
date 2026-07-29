@@ -44,13 +44,10 @@ function calcDepreciation(cost, residual, usefulLife, purchaseDate) {
   return { annualDep, accDep: Math.max(0, accDep), nbv: Math.max(res_, cost_ - accDep) };
 }
 
-const SEED = [
-  { id:'fa1', assetTag:'SLOT-MV-0001', description:'Toyota Hilux D4D Double Cab 4×4', category:'Motor Vehicle', serialNo:'TYH-2021-PH458', location:'Port Harcourt HQ', department:'Operations', purchaseDate:'2021-03-15', cost:12500000, residualValue:1250000, usefulLifeYrs:5, condition:'Good', assignedTo:'Operations Fleet', notes:'Reg: PH-458-AHZ', status:'Active', createdAt:'2021-03-15T00:00:00Z' },
-  { id:'fa2', assetTag:'SLOT-PE-0001', description:'Caterpillar 320D Excavator', category:'Plant & Equipment', serialNo:'CAT320D-2021-001', location:'Bonny Island Site', department:'Engineering', purchaseDate:'2021-06-01', cost:85000000, residualValue:8500000, usefulLifeYrs:10, condition:'Good', assignedTo:'Site Engineering Team', notes:'Engine serviced Jan 2026', status:'Active', createdAt:'2021-06-01T00:00:00Z' },
-  { id:'fa3', assetTag:'SLOT-OE-0001', description:'Epson LQ-590 Dot Matrix Printer', category:'Office Equipment', serialNo:'EPSLQ590-001', location:'Port Harcourt HQ', department:'Finance', purchaseDate:'2020-09-01', cost:380000, residualValue:38000, usefulLifeYrs:5, condition:'Fair', assignedTo:'Grace Okonkwo', notes:'Needs ribbon replacement', status:'Active', createdAt:'2020-09-01T00:00:00Z' },
-  { id:'fa4', assetTag:'SLOT-IT-0001', description:'Dell PowerEdge T40 Server', category:'IT Equipment', serialNo:'DELLT40-2022-001', location:'Port Harcourt HQ', department:'IT', purchaseDate:'2022-01-10', cost:1800000, residualValue:180000, usefulLifeYrs:3, condition:'Excellent', assignedTo:'IT Department', notes:'Hosts ERP and file server', status:'Active', createdAt:'2022-01-10T00:00:00Z' },
-  { id:'fa5', assetTag:'SLOT-MV-0002', description:'Ford Ranger Wildtrak 4×4', category:'Motor Vehicle', serialNo:'FDR-2020-LA123', location:'Port Harcourt HQ', department:'HSE', purchaseDate:'2020-05-20', cost:10200000, residualValue:1020000, usefulLifeYrs:5, condition:'Fair', assignedTo:'HSE Team', notes:'Reg: LA-123-BCD', status:'Active', createdAt:'2020-05-20T00:00:00Z' },
-];
+// Emptied 2026-07-28 — held five fabricated fixed assets totalling ₦109.88m of
+// invented capital cost (including an ₦85m excavator), with invented serial
+// numbers and vehicle registrations. These fed depreciation and NBV reporting.
+const SEED = [];
 
 function Tag({ status }) {
   const { C } = useTheme();

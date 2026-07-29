@@ -34,7 +34,9 @@ function nextNo(list) {
 }
 
 const CATEGORIES = ['Stationery','Office Supplies','Transportation','Fuel','Meals & Entertainment','Utilities','Maintenance & Repairs','Medical','Communication','Miscellaneous'];
-const DEFAULT_FUND = { limit: 500000, balance: 500000, lastReplenished: today(), custodian: 'Finance Officer' };
+// 2026-07-28: was limit/balance 500000 — see utils/db.js. A petty cash float is
+// real money; it must be entered by whoever funds it, never assumed by the app.
+const DEFAULT_FUND = { limit: 0, balance: 0, lastReplenished: '', custodian: '' };
 
 function migrateFund(dbFund) {
   if (dbFund?.limit) return dbFund;
@@ -45,12 +47,10 @@ function migrateFund(dbFund) {
   return DEFAULT_FUND;
 }
 
-const SEED = [
-  { id:'pc1', voucherNo:'PCV-2026-0001', date:'2026-04-02', payee:'Stationery Hub Ltd', description:'A4 papers, pens, staples for office use', category:'Stationery', amount:18500, requestedBy:'Grace Okonkwo', approvedBy:'Ernest Ojukwu', status:'Approved', receipt:true, createdAt:'2026-04-02T09:00:00Z' },
-  { id:'pc2', voucherNo:'PCV-2026-0002', date:'2026-04-05', payee:'Emeka Drivers', description:'Transport – site visit to Bonny Island', category:'Transportation', amount:45000, requestedBy:'Chidi Okafor', approvedBy:'Ernest Ojukwu', status:'Approved', receipt:true, createdAt:'2026-04-05T11:00:00Z' },
-  { id:'pc3', voucherNo:'PCV-2026-0003', date:'2026-04-08', payee:'Conoil Petrol Station', description:'Diesel – generator set refill', category:'Fuel', amount:62000, requestedBy:'Alex Mbata', approvedBy:'', status:'Pending', receipt:false, createdAt:'2026-04-08T14:00:00Z' },
-  { id:'pc4', voucherNo:'PCV-2026-0004', date:'2026-04-10', payee:'Quick Fix Plumbing', description:'Emergency plumbing repair – staff toilet', category:'Maintenance & Repairs', amount:35000, requestedBy:'Ngozi Okafor', approvedBy:'Ernest Ojukwu', status:'Approved', receipt:true, createdAt:'2026-04-10T10:00:00Z' },
-];
+// Emptied 2026-07-28 — held four fabricated petty cash vouchers (₦160,500),
+// three of them pre-marked "Approved" by a named approver and flagged as
+// having receipts on file. Approval records must never be invented.
+const SEED = [];
 
 function Tag({ status }) {
   const { C } = useTheme();

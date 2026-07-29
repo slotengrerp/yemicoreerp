@@ -1,10 +1,10 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Toaster } from 'react-hot-toast';
 import ErrorBoundary from './components/ErrorBoundary';
-import { AppProvider, useApp } from './context/AppContext';
+import { AppProvider, useApp, defaultAppState } from './context/AppContext';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
 import { signOutOfSupabase, restoreSupabaseSession, onSupabaseAuthChange } from './supabase/auth';
-import { loadDBLocal, loadSettingsLocal, loadAccountingLocal, loadDBCloud, seedDemoData, saveDBLocal, saveAccountingLocal, saveDBCloud, getStorageHealth, migrateFleetData } from './utils/db';
+import { loadDBLocal, loadSettingsLocal, loadAccountingLocal, loadDBCloud, saveDBLocal, saveAccountingLocal, saveDBCloud, getStorageHealth, migrateFleetData } from './utils/db';
 import { showToast, WIPE_FLAG_KEY } from './utils/helpers';
 import { flushQueue, getPendingCount, isOnline, subscribeToChanges } from './supabase/sync';
 import { supabase } from './supabase/client';
@@ -14,6 +14,46 @@ import Sidebar          from './components/layout/Sidebar';
 import Topbar           from './components/layout/Topbar';
 import MfaNudge         from './components/layout/MfaNudge';
 import { usePerRecordSync, USE_PER_RECORD } from './hooks/usePerRecordSync';
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ONE-TIME LOCAL PURGE — 2026-07-28
+// ══════════════════════════════════════════════════════════════════════════════
+// On 2026-07-28 the Supabase database was deliberately emptied: every business
+// table truncated, demo seeding removed from this file for good. But localStorage
+// lives in each individual browser, and stale copies there don't just linger —
+// the sync engine treats them as real records and pushes them straight back into
+// the clean database, undoing the wipe from any laptop that happens to open the
+// app. Chasing that down device by device is not realistic.
+//
+// So this runs once per browser, before any data is read: clear every bc_ / slot_
+// key, then stamp a version so it never runs again. Bump PURGE_VERSION to force
+// another purge in future.
+//
+// Deliberately NOT cleared: the Supabase auth session, stored under the key
+// 'slot-erp-auth' (a hyphen, not an underscore — it does not match the filter
+// below). Wiping it would sign every user out and make this look like a broken
+// deploy rather than a clean slate.
+//
+// WIPE_FLAG_KEY is set afterwards so each module's "empty means brand-new
+// install, show demo records" fallback knows the emptiness is intentional.
+// Bumped to -b: the first purge ran before the fabricated ₦100,000 petty cash
+// float was fixed, so browsers that loaded that build have the invented figure
+// saved in localStorage. The normalisation in utils/db.js only fills the key in
+// when it is ABSENT, so it would never correct an already-stored value — those
+// browsers need one more sweep.
+const PURGE_VERSION = 'slot-purge-2026-07-28-b';
+try {
+  if (localStorage.getItem('slot_purge_version') !== PURGE_VERSION) {
+    Object.keys(localStorage)
+      .filter(k => k.startsWith('bc_') || k.startsWith('slot_'))
+      .forEach(k => localStorage.removeItem(k));
+    localStorage.setItem('slot_purge_version', PURGE_VERSION);
+    localStorage.setItem(WIPE_FLAG_KEY, '1');
+    console.info('[SLOT ERP] Local data purged — clean slate applied.');
+  }
+} catch (e) {
+  console.warn('[SLOT ERP] Local purge could not run:', e?.message || e);
+}
 
 // Code-split heavy modules — they each get their own chunk and load on
 // demand the first time the user navigates to them. Cuts the initial
@@ -124,7 +164,8 @@ async function syncCloud(dispatch, localSnapshot) {
         if (!db.fleet         || Array.isArray(db.fleet))         db.fleet         = { fleet:[], services:[], maintLog:[], repairs:[], breakdowns:[], requests:[], handovers:[], facilitySchedule:[], calibration:[] };
         if (!db.fleet.calibration)                                db.fleet.calibration = [];
         db.fleet = migrateFleetData(db.fleet);
-        if (!db.pettycash_fund|| Array.isArray(db.pettycash_fund))db.pettycash_fund= { balance:500000, limit:500000, custodian:'Finance Officer', lastReplenished:'' };
+        // 2026-07-28: was balance/limit 500000 — see utils/db.js. Never invent cash.
+        if (!db.pettycash_fund|| Array.isArray(db.pettycash_fund))db.pettycash_fund= { balance:0, limit:0, custodian:'', lastReplenished:'' };
         // NOTE: a "lazy-seed if empty" guard used to live here (re-injecting
         // demo procurement/fleet data whenever those arrays were empty). It
         // was a one-time migration safety net for a past private-key bug,
@@ -407,8 +448,27 @@ function Shell() {
       const SEED_VERSION = 'slot-seed-v3';
       const seeded = localStorage.getItem('slot_seed_version') === SEED_VERSION;
 
-      let db       = (!seeded || !local) ? seedDemoData() : local.db;
-      let activity = (!seeded || !local?.activity?.length) ? [] : local.activity;
+      // 2026-07-28 — DEMO SEEDING IS GONE. PERMANENTLY. DO NOT REINTRODUCE IT.
+      //
+      // This line used to read:
+      //     let db = (!seeded || !local) ? seedDemoData() : local.db;
+      //
+      // which meant any browser missing one localStorage key — cleared
+      // storage, incognito, a new laptop, or simply a DIFFERENT DOMAIN, since
+      // localStorage is per-origin — silently filled app state with the full
+      // demo dataset at boot. The sync engine then did its job and wrote that
+      // state to Supabase. On 2026-07-17 that put 472 fake records into the
+      // production database, where they sat until 2026-07-28. Every client
+      // afterwards dutifully downloaded them, which is why demo data appeared
+      // to come back "from nowhere" on its own, and why opening the app on a
+      // brand-new domain showed fake records everywhere instantly.
+      //
+      // An empty app is the CORRECT thing to show a browser with no local
+      // data. Real records arrive from Supabase a moment later. If you are
+      // ever tempted to add a "helpful" demo fallback here again: it cannot
+      // tell itself apart from real data once it reaches the database.
+      let db       = local?.db || defaultAppState.db;
+      let activity = local?.activity?.length ? local.activity : [];
       let settings = localSettings || state.appSettings;
       // Fold in bc_data_wiped-equivalent flag (set by Backup.jsx's
       // handleWipe, immune to the wipe's own key sweep by design) so every
@@ -424,35 +484,29 @@ function Shell() {
       }
       if (!acctData.coa) acctData = { journals:[], coa:[], bankStmt:[], vatAdj:[], whtEntries:[], assets:[] };
 
-      // If first-ever load or seed version changed, force-write seed to localStorage
+      // Initialise localStorage on a first-ever load so subsequent boots have a
+      // real (empty) db to read. No seeding — see the note above.
       if (!seeded) {
         try {
           saveDBLocal(db, []);
-          // Also clear stale module-specific keys so they get re-seeded below
+          // Drop stale module-specific keys left by older versions.
           localStorage.removeItem('slot_proc');
           localStorage.removeItem('slot_pettycash_fund');
           localStorage.setItem('slot_seed_version', SEED_VERSION);
-        } catch(e) { console.warn('Seed write failed:', e.message); }
+        } catch(e) { console.warn('Local init write failed:', e.message); }
       }
 
-
-            // ── Generate seed activity log ─────────────────────────────────────────
-      if (!activity.length) {
-        // Seed entries use the SAME schema as logActivity() — {msg, who, role, time, module, action}
-        const t = (ms) => new Date(Date.now() - ms).toISOString();
-        activity = [
-          { msg:'System initialised — SLOT Engineering demo data loaded across all modules.', who:'System',        role:'system',      time:t(1000*60*5),    module:'System',      action:'info'    },
-          { msg:'Invoice SLOT-INV-2026-0003 marked as Paid — NLNG Mar retainer ₦4,612,500. Ref: NLNG-TRF-0331.', who:'Grace Okonkwo', role:'accountant', time:t(1000*60*60*2),  module:'Invoices',    action:'edit'    },
-          { msg:'GRN-2026-0005 created — Mikano International, Perkins generator spare parts kit (3 units).',     who:'Alex Mbata',    role:'manager',     time:t(1000*60*60*5),  module:'Procurement', action:'create'  },
-          { msg:'PO-2026-0015 approved — Mikano Perkins spare parts, value ₦1,564,125.',                          who:'Ernest Ojukwu', role:'admin',       time:t(1000*60*60*8),  module:'Procurement', action:'approve' },
-          { msg:'Leave request LRQ-2026-0002 submitted — Ngozi Okafor, annual leave 22–28 April 2026.',           who:'Ngozi Okafor',  role:'viewer',      time:t(1000*60*60*24), module:'Requests',    action:'create'  },
-          { msg:'Petty cash voucher PCV-2026-0014 raised — Transport to Onne Port, ₦38,000. Awaiting approval.', who:'Ngozi Okafor',  role:'cashier',     time:t(1000*60*60*26), module:'Petty Cash',  action:'create'  },
-          { msg:'Container TRHU9876543 (Hapag-Lloyd 40ft HC) status updated to Under Exam.',                      who:'Chidi Okafor',  role:'manager',     time:t(1000*60*60*48), module:'Terminal',    action:'edit'    },
-          { msg:'Breakdown reported — LA-123-BCD (Ford Ranger), engine warning light. Emeka Electrical engaged.', who:'Chidi Okafor',  role:'manager',     time:t(1000*60*60*72), module:'Fleet',       action:'create'  },
-          { msg:'Invoice SLOT-INV-2026-0007 created — Chevron PPE supply, ₦4,730,000. Status: Draft.',            who:'Grace Okonkwo', role:'accountant',  time:t(1000*60*60*96), module:'Invoices',    action:'create'  },
-          { msg:'Request ITQ-2026-0001 approved — Dell laptop replacement for Finance, budget ₦450,000.',         who:'Ernest Ojukwu', role:'admin',       time:t(1000*60*60*120),module:'Requests',    action:'approve' },
-        ];
-      }
+      // REMOVED 2026-07-28 — fabricated activity-log entries.
+      //
+      // This used to inject ten hard-coded entries ("Invoice SLOT-INV-2026-0003
+      // marked as Paid", "PO-2026-0015 approved", named staff, exact naira
+      // figures) whenever the activity list was empty. They looked identical to
+      // genuine audit entries, were written by real usernames and roles, and
+      // synced to Supabase like anything else — an audit trail describing events
+      // that never happened. With the database now deliberately empty the list
+      // is always empty, so this would have fired on every single load.
+      //
+      // An empty activity log is correct for a system with no activity yet.
 
       // ── Phase 1: show app immediately on local data ──
       dispatch({ type: 'SET_DB',       payload: db       });
