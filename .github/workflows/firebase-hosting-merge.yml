@@ -15,7 +15,7 @@ jobs:
       # Pinned to 20 to match package.json's "engines": { "node": ">=20 <22" }.
       # Without this the runner uses whatever Node it defaults to, which drifts
       # over time and currently trips an EBADENGINE warning.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '20'
           cache: 'npm'
