@@ -54,7 +54,7 @@ function corsHeaders(req: Request) {
   };
 }
 
-const VALID_ROLES = ['admin', 'manager', 'accountant', 'cashier', 'viewer'];
+const BUILTIN_ROLES = ['admin', 'manager', 'accountant', 'cashier', 'viewer'];
 
 function json(req: Request, body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -146,8 +146,24 @@ Deno.serve(async (req: Request) => {
     if (!/[A-Z]/.test(password) || !/[a-z]/.test(password) || !/[0-9!@#$%^&*()_+]/.test(password)) {
       return json(req, { error: 'Password must contain uppercase, lowercase, and a digit or symbol' }, 400);
     }
-    if (!VALID_ROLES.includes(role)) {
-      return json(req, { error: `Role must be one of: ${VALID_ROLES.join(', ')}` }, 400);
+    if (!BUILTIN_ROLES.includes(role)) {
+      // Not a built-in — Settings → Permissions → Manage Roles lets an admin
+      // define custom roles (e.g. "Terminal Supervisor"), stored in this
+      // company's company_data.settings.customRoles. Mirror the DB-level
+      // check in trg_app_users_validate_role (009_flexible_user_roles.sql)
+      // here too, so a custom role is accepted at creation time instead of
+      // only on a later edit (which goes straight through RLS and never hit
+      // this hardcoded list to begin with).
+      const { data: companyRow } = await adminClient
+        .from('company_data')
+        .select('settings')
+        .eq('id', callerProfile.company_id)
+        .single();
+      const customRoles = Array.isArray(companyRow?.settings?.customRoles) ? companyRow.settings.customRoles : [];
+      const isCustomRole = customRoles.some((r: any) => r && r.key === role);
+      if (!isCustomRole) {
+        return json(req, { error: `Role must be a built-in role (${BUILTIN_ROLES.join(', ')}) or a custom role defined in Settings → Permissions first` }, 400);
+      }
     }
 
     // ── Step 3: create the real Auth account ───────────────────────────────
