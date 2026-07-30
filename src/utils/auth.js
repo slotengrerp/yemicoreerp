@@ -95,6 +95,21 @@ export function visibleModules(user, allModules) {
   return (user.modules || []).filter(m => allModules.includes(m));
 }
 
+// ── Dashboard visibility ────────────────────────────────────────────────────
+// The Dashboard aggregates data ACROSS every module — headcount from HR,
+// money in/out from Finance, everything. It was previously shown to every
+// signed-in user regardless of role, which meant a module-scoped role (e.g.
+// a "Terminal Supervisor" custom role limited to modules:['terminal']) could
+// still see company-wide staff and financial figures just by landing on the
+// Dashboard, even though the sidebar correctly hid every other module they
+// weren't assigned. Per 2026-07-30 decision: only admin/manager/accountant
+// get the cross-module view; every other role (built-in or custom) is
+// confined to the modules explicitly assigned to them.
+export function canSeeDashboard(user) {
+  if (!user) return false;
+  return user.role === 'admin' || user.role === 'manager' || user.role === 'accountant';
+}
+
 // ── Password-strength validator (still useful for client-side hints) ────────
 // The actual hashing is done server-side by Supabase; this only validates
 // that the password meets a complexity policy before submitting.

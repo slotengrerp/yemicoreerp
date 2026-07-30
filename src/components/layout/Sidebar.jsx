@@ -19,6 +19,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useApp }   from '../../context/AppContext';
 import { useTheme } from '../../context/ThemeContext';
 import { SLOT_LOGO_SRC } from '../../utils/logo';
+import { canSeeDashboard } from '../../utils/auth';
 
 // ── Nav items ─────────────────────────────────────────────────────────────────
 const NAV = [
@@ -438,7 +439,11 @@ export default function Sidebar({ active, onNav, collapsed, onCollapse, mobileOp
   function isVisible(item) {
     if (item.adminOnly && !isAdmin) return false;
     switch (item.section) {
-      case 'MAIN':       return true;
+      // Dashboard aggregates cross-module data (HR headcount, money in/out)
+      // — restricted to admin/manager/accountant, same as every other
+      // company-wide view. A module-scoped role only sees the modules
+      // explicitly assigned to it (see canSeeDashboard in utils/auth.js).
+      case 'MAIN':       return canSeeDashboard(currentUser);
       case 'HR':         return isAdmin || (currentUser?.modules || []).includes(item.id);
       case 'OPERATIONS': return isAdmin || (currentUser?.modules || []).includes(item.id);
       case 'FINANCE':

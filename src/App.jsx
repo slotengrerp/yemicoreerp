@@ -8,6 +8,7 @@ import { loadDBLocal, loadSettingsLocal, loadAccountingLocal, loadDBCloud, saveD
 import { showToast, WIPE_FLAG_KEY } from './utils/helpers';
 import { flushQueue, getPendingCount, isOnline, subscribeToChanges } from './supabase/sync';
 import { supabase } from './supabase/client';
+import { canSeeDashboard } from './utils/auth';
 
 import LoginScreen      from './components/layout/LoginScreen';
 import Sidebar          from './components/layout/Sidebar';
@@ -109,6 +110,21 @@ const PAGES = {
   excel:        ExcelManager,
   moduleeditor: ModuleEditor,
 };
+
+// ── Home page per role ─────────────────────────────────────────────────────
+// Dashboard aggregates data across every module (HR headcount, money
+// in/out), so it's only a valid "home" for admin/manager/accountant — see
+// canSeeDashboard() in utils/auth.js. Everyone else (built-in cashier/
+// viewer or any custom role, e.g. "Terminal Supervisor") lands on the first
+// module actually assigned to them instead. Returns null if the user
+// somehow has no modules assigned — handled explicitly at the render site
+// below rather than silently falling back to Dashboard, which would defeat
+// the whole point of this restriction.
+function computeHomePage(user) {
+  if (!user) return 'dashboard';
+  if (canSeeDashboard(user)) return 'dashboard';
+  return (user.modules || []).find(m => PAGES[m]) || null;
+}
 
 const SIDEBAR_W_OPEN   = 252;
 const SIDEBAR_W_CLOSED = 60;
@@ -256,6 +272,22 @@ function Shell() {
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = 0;
   }, [page]);
+
+  // ── Land restricted roles on their own module, not Dashboard ─────────────
+  // page defaults to 'dashboard' before we know who's signed in. Once
+  // currentUser loads, redirect away from it if this role isn't allowed to
+  // see the cross-module view (see computeHomePage/canSeeDashboard). This
+  // also self-corrects after the SIGNED_OUT and logout handlers below reset
+  // page to 'dashboard' — the next sign-in re-runs this effect. The
+  // PageComponent guard further down is a render-time backstop for the same
+  // rule, in case page is ever 'dashboard' for a restricted user for a beat.
+  useEffect(() => {
+    if (!currentUser || canSeeDashboard(currentUser)) return;
+    if (page === 'dashboard') {
+      const home = computeHomePage(currentUser);
+      if (home) setPage(home);
+    }
+  }, [currentUser]); // eslint-disable-line react-hooks/exhaustive-deps
   const [mobileOpen, setMobileOpen]             = useState(false);
   const [online, setOnline]                     = useState(isOnline());
   const [pendingSync, setPendingSync]           = useState(0);
@@ -565,10 +597,23 @@ function Shell() {
 
   // ── Stable page component — must be above ALL conditional returns ───────────
   // useMemo must never be called after an early return (Rules of Hooks).
-  const PageComponent = useMemo(
-    () => PAGES[page] || (() => <div style={{ padding:40, color:C.textMuted }}>Module not found</div>),
-    [page]
-  );
+  // Render-time backstop for the redirect effect above: if page is ever
+  // 'dashboard' while the signed-in user isn't allowed to see it (a stale
+  // value for one render, a future setPage('dashboard') call site someone
+  // adds later, etc.), resolve to their own home module instead of ever
+  // mounting the real Dashboard component for them.
+  const PageComponent = useMemo(() => {
+    if (page === 'dashboard' && currentUser && !canSeeDashboard(currentUser)) {
+      const home = computeHomePage(currentUser);
+      if (home) return PAGES[home];
+      return () => (
+        <div style={{ padding:40, textAlign:'center', color:C.textMuted }}>
+          No modules are assigned to your account yet — contact your administrator.
+        </div>
+      );
+    }
+    return PAGES[page] || (() => <div style={{ padding:40, color:C.textMuted }}>Module not found</div>);
+  }, [page, currentUser]);
 
   // ── Persistence: save to localStorage whenever db or activity changes ─────
   // This is the fix for data wiping on hard refresh (Ctrl+Shift+R).
