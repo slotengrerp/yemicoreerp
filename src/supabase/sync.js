@@ -93,6 +93,46 @@ function isPendingSelfWrite(ts) {
   return false;
 }
 
+// ── Empty-wipe guard ──────────────────────────────────────────────────────────
+// FIX 2026-07-30: real incident — a browser tab ended up with db.nlng = []
+// in memory (root cause outside this file: something upstream handed this
+// client an empty Contract Staff array) and its next auto-save wrote that
+// straight over 66 real records. The CAS conflict check above only protects
+// against a DIFFERENT client's concurrent write; it does nothing here
+// because nothing else changed the server row in between — THIS client's
+// own view was simply wrong, and it was the only one confidently saving it.
+//
+// This tracks the array-length "shape" of the db this client last saw as
+// good (on load, and after each of its own successful saves) and refuses
+// to send a save that would take any of those keys from populated to
+// completely empty. A key that was already empty, or that shrinks without
+// hitting zero, is left alone — those are ordinary edits (someone deleting
+// some, not all, records). This is a blunt, cheap, client-side backstop,
+// not a substitute for the per-record engine (which doesn't have this
+// failure mode at all, because it never saves the whole company as one
+// document in the first place).
+let lastLoadedShape = {};
+
+function rememberLoadedShape(db) {
+  const shape = {};
+  for (const [k, v] of Object.entries(db || {})) {
+    if (Array.isArray(v)) shape[k] = v.length;
+  }
+  lastLoadedShape = shape;
+}
+
+function findSuspiciousWipes(nextDb) {
+  const suspicious = [];
+  for (const [key, prevLen] of Object.entries(lastLoadedShape)) {
+    if (prevLen > 0) {
+      const nextVal = nextDb?.[key];
+      const nextLen = Array.isArray(nextVal) ? nextVal.length : null;
+      if (nextLen === 0) suspicious.push({ key, prevLen });
+    }
+  }
+  return suspicious;
+}
+
 // ── Sync queue (offline pending writes) ───────────────────────────────────────
 function loadQueue()      { try { return JSON.parse(localStorage.getItem(QUEUE_KEY)||'[]'); } catch { return []; } }
 function saveQueue(q)     { try { localStorage.setItem(QUEUE_KEY, JSON.stringify(q)); } catch {} }
@@ -124,6 +164,7 @@ export async function loadFromSupabase() {
 
     localStorage.setItem(LAST_SYNC_KEY, new Date().toISOString());
     setLastServerTs(data.updated_at || null);
+    rememberLoadedShape(data.db || {});
     return {
       db:       data.db       || {},
       acctData: data.acct_data|| {},
@@ -144,6 +185,14 @@ export async function loadFromSupabase() {
 //   { ok:false, conflict:true, serverData }              — someone else saved first;
 //                                                          we did NOT overwrite them.
 export async function saveToSupabase(db, acctData, settings, activity) {
+  // See findSuspiciousWipes() above — refuse to send a save that would
+  // silently zero out a collection this client itself saw populated.
+  const wipes = findSuspiciousWipes(db);
+  if (wipes.length > 0) {
+    console.error('[SLOT ERP] BLOCKED a cloud save that would wipe data:', wipes);
+    return { ok: false, blockedWipe: true, wipes };
+  }
+
   const payload = {
     id:         COMPANY_ID,
     db:         db       || {},
@@ -191,6 +240,10 @@ export async function saveToSupabase(db, acctData, settings, activity) {
           .select('updated_at, db, acct_data, settings, activity')
           .eq('id', COMPANY_ID)
           .single();
+        // Refresh the wipe-guard baseline from the server's actual current
+        // state — otherwise it stays pinned to whatever we loaded at boot,
+        // even though we now know the real, more current shape.
+        if (current) rememberLoadedShape(current.db || {});
         return {
           ok: false,
           conflict: true,
@@ -214,6 +267,7 @@ export async function saveToSupabase(db, acctData, settings, activity) {
     clearQueue();
     localStorage.setItem(LAST_SYNC_KEY, new Date().toISOString());
     setLastServerTs(payload.updated_at);
+    rememberLoadedShape(db);
     return { ok: true, queued: false };
   } catch (e) {
     console.warn('[SLOT ERP] Supabase save failed — queued for retry:', e.message);

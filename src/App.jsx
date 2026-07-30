@@ -273,6 +273,7 @@ function Shell() {
   const [recovery]                              = useState(() => parseRecoveryHash());
   const scrollRef = useRef(null);
   const conflictNoticeShown = useRef(false);
+  const wipeNoticeShown = useRef(false);
 
   // ── CRITICAL: fresh-state refs for realtime handlers ────────────────────────
   // The legacy realtime subscription (subscribeToChanges) is set up in a
@@ -695,6 +696,18 @@ function Shell() {
             // rather than staying silent, which was the original bug.
             conflictNoticeShown.current = true;
             showToast('Your last change is saved on this device, but not yet in the cloud — someone else updated this data first. Reload to get the latest version, then re-apply your change.', 'error');
+          }
+          if (result?.blockedWipe && !wipeNoticeShown.current) {
+            // See findSuspiciousWipes() in supabase/sync.js — a save that
+            // would have zeroed out data this client itself saw populated
+            // was refused before it ever reached Supabase. Nothing was
+            // lost, but this client's own copy of that data is wrong, so
+            // don't let it keep trying (and don't let it touch that data)
+            // until a reload gives it the real thing back.
+            wipeNoticeShown.current = true;
+            const sections = (result.wipes || []).map(w => w.key).join(', ') || 'some data';
+            showToast(`⚠ Stopped a save that would have erased ${sections} — nothing was lost. Please reload this page before making further changes.`, 'error');
+            console.error('[SLOT ERP] Blocked wipe — affected keys:', result.wipes);
           }
         })
         .catch(e => console.warn('[SLOT ERP] Auto cloud save failed:', e.message));
