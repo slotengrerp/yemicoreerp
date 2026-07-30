@@ -269,13 +269,20 @@ export async function createSupabaseUser(args) {
  * exported name because Users.jsx v2.0 imports it as updateSupabaseUser
  * and calls it as updateSupabaseUser(userId, updates).
  *
- * NOTE: this is a direct app_users table update via RLS, not routed
- * through an Edge Function. A comment in the Users.jsx that calls this
- * mentions routing through "the manage-users Edge Function" for future
- * server-side validation (e.g. blocking demotion of the last admin) —
- * that validation doesn't exist yet. If you add it later, this is the
- * function to change: swap the table update below for a
- * supabase.functions.invoke('...') call instead.
+ * This is still a direct app_users table update via RLS, not routed
+ * through an Edge Function — but as of migration 012
+ * (012_diagnostic_audit_hardening.sql, live on the production project as
+ * of 2026-07-29), demoting or deactivating the LAST active admin for a
+ * company is blocked server-side regardless of this function's own logic:
+ * `trg_app_users_prevent_last_admin_lockout` (BEFORE UPDATE OF role,
+ * status OR DELETE on app_users) raises a Postgres exception before the
+ * write lands. supabase-js surfaces that as a normal `error.message` here
+ * — the caller gets back { success: false, error: 'Cannot remove or
+ * demote the last active admin for this company — promote another user
+ * to admin first, then try again.' } — same shape as any other failed
+ * update, no special-case handling needed in Users.jsx. Verified live
+ * against the real slot-engineering-nigeria company (which currently has
+ * exactly one active admin) inside a rolled-back transaction.
  */
 export async function updateSupabaseUser(userId, updates) {
   return updateUserProfile(userId, updates);
