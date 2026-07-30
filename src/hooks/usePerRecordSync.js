@@ -27,6 +27,22 @@ import { supabaseAuthChange, getSupabaseSession } from '../supabase/authBridge';
 
 const USE_PER_RECORD = (import.meta?.env?.VITE_USE_PER_RECORD_SYNC === 'true');
 
+// ── Make the active engine VISIBLE at runtime ────────────────────────────────
+// 2026-07-30: this flag is a build-time inline (Vite replaces
+// import.meta.env.* at build, so it is frozen into the bundle and cannot be
+// inspected or changed from the browser). When the GitHub Actions secret
+// VITE_USE_PER_RECORD_SYNC is blank or misspelled, the strict === 'true'
+// comparison silently falls back to the LEGACY whole-document engine and
+// there was no way to tell from the running app which engine was active —
+// diagnosing it required comparing write timestamps in Postgres. That
+// invisibility is what made the wrong engine ship unnoticed. Log it once at
+// module load so anyone can confirm the truth in DevTools → Console in two
+// seconds. Do not remove.
+console.info(
+  `[SLOT ERP] Data engine: ${USE_PER_RECORD ? 'PER-RECORD (per-row Supabase tables)' : 'LEGACY (whole-document company_data blob)'}` +
+  ` — VITE_USE_PER_RECORD_SYNC=${JSON.stringify(import.meta?.env?.VITE_USE_PER_RECORD_SYNC)}`
+);
+
 // ── db-key → storage list reader (mirrors syncPerRecord.getRecordList) ──────
 function getRecordList(db, key) {
   switch (key) {

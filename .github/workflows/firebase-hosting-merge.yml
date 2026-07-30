@@ -48,6 +48,34 @@ jobs:
           fi
           echo "Supabase URL present in bundle — safe to deploy."
 
+      # Which data engine is this build shipping? This must never be implicit.
+      #
+      # 2026-07-30: the per-record engine was believed to be live in production
+      # for ~30 minutes while the app was in fact still writing the legacy
+      # whole-document blob, because this secret was blank and
+      # usePerRecordSync.js compares it with a strict === 'true'. A blank or
+      # misspelled value therefore means "legacy", silently, with no error and
+      # nothing in the deploy log to contradict the assumption. Every
+      # data-disappearance incident on this app has traced back to the legacy
+      # engine, so shipping it BY ACCIDENT is the single most expensive
+      # mistake this pipeline can make. Require the value to be spelled out.
+      - name: Verify the data-sync engine was chosen explicitly
+        env:
+          FLAG: ${{ secrets.VITE_USE_PER_RECORD_SYNC }}
+        run: |
+          case "$FLAG" in
+            true)
+              echo "Data engine: PER-RECORD (per-row Supabase tables)." ;;
+            false)
+              echo "::warning::Data engine: LEGACY whole-document blob. This is the engine associated with every past data-loss incident on this app. Set the VITE_USE_PER_RECORD_SYNC secret to 'true' to use per-record sync." ;;
+            "")
+              echo "::error::VITE_USE_PER_RECORD_SYNC is not set. A blank value silently means 'legacy whole-document engine' — the engine behind this app's past data-loss incidents. Refusing to guess. Set the secret to 'true' or 'false' at Settings → Secrets and variables → Actions, then re-run."
+              exit 1 ;;
+            *)
+              echo "::error::VITE_USE_PER_RECORD_SYNC is '$FLAG', which is neither 'true' nor 'false'. The app compares it with a strict === 'true', so any other value — including 'True', 'TRUE', '1', 'yes', or a stray space — silently selects the legacy engine. Refusing to deploy an ambiguous value."
+              exit 1 ;;
+          esac
+
       - uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
