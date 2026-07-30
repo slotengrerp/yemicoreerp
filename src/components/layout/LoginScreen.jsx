@@ -25,14 +25,21 @@ import { signInWithSupabase, requestPasswordReset } from '../../supabase/auth';
 import { supabaseReady, supabase } from '../../supabase/client';
 import { showToast } from '../../utils/helpers';
 import { SLOT_LOGO_SRC, SLOT_BRAND } from '../../utils/logo';
+import { validatePassword } from '../../utils/auth';
 
-export default function LoginScreen({ onLogin }) {
+// initialMode/recoveryInfo are set by App.jsx when the URL carries a
+// password-recovery link — see parseRecoveryHash() there. Everything else
+// about this component is unchanged for the normal login/forgot flow.
+export default function LoginScreen({ onLogin, initialMode, recoveryInfo }) {
   const { C } = useTheme();
-  const [mode,       setMode]       = useState('login');
+  const [mode,       setMode]       = useState(initialMode || 'login');
   const [email,      setEmail]      = useState('');
   const [password,   setPassword]   = useState('');
   const [loading,    setLoading]    = useState(false);
   const [showPw,     setShowPw]     = useState(false);
+  const [newPassword,     setNewPassword]     = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showNewPw,       setShowNewPw]       = useState(false);
 
   // If Supabase isn't configured, we can't authenticate at all — render a
   // setup-required screen instead of a form that pretends to work. This
@@ -93,6 +100,39 @@ export default function LoginScreen({ onLogin }) {
       }
     } catch (err) {
       showToast('Reset request failed. Please try again.', 'error');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // Completes the reset flow requestPasswordReset() only ever started —
+  // see the long comment on parseRecoveryHash() in App.jsx for why this
+  // didn't exist before. supabase-js already holds a temporary session at
+  // this point (established from the recovery token in the URL before this
+  // component ever mounted), so updateUser() here is all that's needed to
+  // actually change the password. Signing out afterward is deliberate: it
+  // avoids leaving the user in an ambiguous "logged in via a reset link"
+  // state and makes them prove the NEW password works immediately.
+  async function handleSetNewPassword(e) {
+    e.preventDefault();
+    if (!newPassword || !confirmPassword) { showToast('Enter and confirm your new password', 'error'); return; }
+    if (newPassword !== confirmPassword) { showToast('Passwords do not match', 'error'); return; }
+    const pwErr = validatePassword(newPassword, true);
+    if (pwErr) { showToast(pwErr, 'error'); return; }
+    setLoading(true);
+    try {
+      const { error } = await supabase.auth.updateUser({ password: newPassword });
+      if (error) {
+        showToast(error.message || 'Could not update password — the link may have expired. Request a new one.', 'error');
+        return;
+      }
+      await supabase.auth.signOut().catch(() => {});
+      showToast('Password updated — sign in with your new password.', 'success');
+      setNewPassword('');
+      setConfirmPassword('');
+      setMode('login');
+    } catch (err) {
+      showToast('Could not update password. Please try again.', 'error');
     } finally {
       setLoading(false);
     }
@@ -196,8 +236,7 @@ VITE_SUPABASE_ANON_KEY=<your-anon-key>`}
                 🔒 Authentication is handled by <strong>Supabase Auth</strong>. Your password is never sent to or stored by this application.
               </div>
             </>
-          ) : (
-            // mode === 'forgot'
+          ) : mode === 'forgot' ? (
             <>
               <div style={{ fontSize:15, fontWeight:700, color:C.text, marginBottom:6 }}>Reset password</div>
               <div style={{ fontSize:12, color:C.textMuted, marginBottom:20, lineHeight:1.6 }}>
@@ -225,6 +264,73 @@ VITE_SUPABASE_ANON_KEY=<your-anon-key>`}
                   {loading ? 'Sending…' : 'Send reset link →'}
                 </button>
               </form>
+              <div style={{ marginTop:14, textAlign:'center' }}>
+                <button onClick={() => setMode('login')} style={{ background:'none', border:'none', color:C.textMid, fontSize:12, cursor:'pointer' }}>← Back to sign in</button>
+              </div>
+            </>
+          ) : mode === 'reset' ? (
+            <>
+              <div style={{ fontSize:15, fontWeight:700, color:C.text, marginBottom:6 }}>Choose a new password</div>
+              <div style={{ fontSize:12, color:C.textMuted, marginBottom:20, lineHeight:1.6 }}>
+                Enter a new password for your account.
+              </div>
+              <form onSubmit={handleSetNewPassword} style={{ display:'flex', flexDirection:'column', gap:14 }}>
+                <div>
+                  <label style={{ fontSize:11, fontWeight:600, color:C.textMid, display:'block', marginBottom:5 }}>New password</label>
+                  <div style={{ position:'relative' }}>
+                    <input
+                      style={{ ...inp, paddingRight:40 }}
+                      type={showNewPw ? 'text' : 'password'}
+                      value={newPassword}
+                      onChange={e => setNewPassword(e.target.value)}
+                      placeholder="At least 12 characters"
+                      autoComplete="new-password"
+                      autoFocus
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowNewPw(p => !p)}
+                      style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', color:C.textMuted, fontSize:14, padding:0 }}
+                    >
+                      {showNewPw ? '🙈' : '👁'}
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <label style={{ fontSize:11, fontWeight:600, color:C.textMid, display:'block', marginBottom:5 }}>Confirm new password</label>
+                  <input
+                    style={inp}
+                    type={showNewPw ? 'text' : 'password'}
+                    value={confirmPassword}
+                    onChange={e => setConfirmPassword(e.target.value)}
+                    placeholder="Re-enter password"
+                    autoComplete="new-password"
+                    required
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  style={{ marginTop:4, padding:'9px 0', background:C.green, color:'#fff', border:'none', borderRadius:8, fontSize:13, fontWeight:600, cursor:loading ? 'not-allowed' : 'pointer', opacity:loading ? 0.7 : 1 }}
+                >
+                  {loading ? 'Updating…' : 'Update password →'}
+                </button>
+              </form>
+            </>
+          ) : (
+            // mode === 'reset-error'
+            <>
+              <div style={{ fontSize:15, fontWeight:700, color:C.danger, marginBottom:6 }}>⚠ Link expired</div>
+              <div style={{ fontSize:12, color:C.textMuted, marginBottom:20, lineHeight:1.6 }}>
+                {recoveryInfo?.description || 'This password reset link is invalid or has expired.'} Reset links are single-use and time-limited — request a fresh one below.
+              </div>
+              <button
+                onClick={() => setMode('forgot')}
+                style={{ width:'100%', padding:'9px 0', background:C.green, color:'#fff', border:'none', borderRadius:8, fontSize:13, fontWeight:600, cursor:'pointer' }}
+              >
+                Request new link →
+              </button>
               <div style={{ marginTop:14, textAlign:'center' }}>
                 <button onClick={() => setMode('login')} style={{ background:'none', border:'none', color:C.textMid, fontSize:12, cursor:'pointer' }}>← Back to sign in</button>
               </div>

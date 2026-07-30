@@ -111,6 +111,35 @@ const PAGES = {
   moduleeditor: ModuleEditor,
 };
 
+// ── Password-recovery link detection ──────────────────────────────────────
+// Supabase's reset-password email sends the user back to redirectTo
+// (requestPasswordReset in supabase/auth.js) with either a recovery token
+// or an error in the URL hash:
+//   success: #access_token=...&type=recovery&...
+//   failure: #error=access_denied&error_code=otp_expired&error_description=...
+// There was previously NO code anywhere reading either of these — the app
+// only ever sent the email; nothing handled what happens after the user
+// clicks it. With detectSessionInUrl defaulting to true, a valid recovery
+// link would silently sign the browser in (via the temporary recovery
+// session) with no prompt to actually set a new password, and an
+// expired/invalid link just landed on a blank app with no explanation. This
+// parses the hash once on boot so Shell can show a dedicated screen instead.
+function parseRecoveryHash() {
+  if (typeof window === 'undefined' || !window.location.hash) return null;
+  const params = new URLSearchParams(window.location.hash.slice(1));
+  if (params.get('error')) {
+    return {
+      mode: 'error',
+      code: params.get('error_code') || params.get('error'),
+      description: params.get('error_description') || 'This link is invalid or has expired.',
+    };
+  }
+  if (params.get('type') === 'recovery') {
+    return { mode: 'recovery' };
+  }
+  return null;
+}
+
 // ── Home page per role ─────────────────────────────────────────────────────
 // Dashboard aggregates data across every module (HR headcount, money
 // in/out), so it's only a valid "home" for admin/manager/accountant — see
@@ -241,6 +270,7 @@ function Shell() {
   const { currentUser, loading } = state;
   const [page, setPage]                         = useState('dashboard');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [recovery]                              = useState(() => parseRecoveryHash());
   const scrollRef = useRef(null);
   const conflictNoticeShown = useRef(false);
 
@@ -272,6 +302,15 @@ function Shell() {
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = 0;
   }, [page]);
+
+  // ── Clear the recovery hash once it's been read ───────────────────────────
+  // Leaving #access_token=...&type=recovery in the URL means a page refresh
+  // (or the user copying the URL) re-triggers this same recovery flow later,
+  // possibly with a token Supabase has since invalidated. Strip it right
+  // after the initial render has captured it into `recovery` above.
+  useEffect(() => {
+    if (recovery) window.history.replaceState(null, '', window.location.pathname + window.location.search);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Land restricted roles on their own module, not Dashboard ─────────────
   // page defaults to 'dashboard' before we know who's signed in. Once
@@ -667,6 +706,18 @@ function Shell() {
     if (loading) return;
     try { saveAccountingLocal(state.acctData); } catch {}
   }, [state.acctData, loading]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Takes priority over the loading/currentUser checks below: a valid
+  // recovery link makes supabase-js auto-establish a session (see
+  // parseRecoveryHash's comment above), which would otherwise fall through
+  // to the normal signed-in Shell with no password ever having been reset.
+  if (recovery) return (
+    <LoginScreen
+      initialMode={recovery.mode === 'error' ? 'reset-error' : 'reset'}
+      recoveryInfo={recovery}
+      onLogin={user => { dispatch({ type:'SET_USER', payload:user }); }}
+    />
+  );
 
   if (loading) return (
     <div style={{ minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center', background:C.bg, flexDirection:'column', gap:14 }}>
