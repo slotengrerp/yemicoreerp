@@ -275,7 +275,7 @@ export async function saveAll(db) {
 // module code has to change.
 export async function loadAll() {
   if (!supabase) return null;
-  const out = { terminal: {}, fleet: {} };
+  const out = { terminal: {}, fleet: {}, ap: {}, procurement: {} };
   // FIX (T2-5): was a for-loop awaiting each of the ~17 tables one at a
   // time (17 sequential network round-trips on every login/refresh).
   // Promise.all fires them concurrently instead.
@@ -302,6 +302,20 @@ export async function loadAll() {
     else if (key === 'terminalShippingCompanies') out.terminal.shippingCompanies = records;
     else if (key === 'terminalContainers')        out.terminal.containers        = records;
     else if (key === 'terminalLogistics')         out.terminal.logistics         = records;
+    // FIX 2026-07-30: these two were missing entirely — fell through to the
+    // generic `else out[key] = records` below, producing flat out.apBills /
+    // out.procurementRfqs etc. instead of the nested db.ap.bills /
+    // db.procurement.rfqs shape AccountsPayable.jsx and Procurement.jsx
+    // actually read (state.db.ap, state.db.procurement). Caught auditing
+    // loadAll() before recommending the per-record flag flip — the realtime
+    // merge handler in usePerRecordSync.js already had this right (see its
+    // getRecordList), which is what exposed the inconsistency here.
+    else if (key === 'apBills')          out.ap.bills          = records;
+    else if (key === 'apPayments')       out.ap.payments       = records;
+    else if (key === 'procurementRfqs')     out.procurement.rfqs     = records;
+    else if (key === 'procurementPos')      out.procurement.pos      = records;
+    else if (key === 'procurementWaybills') out.procurement.waybills = records;
+    else if (key === 'procurementInvoices') out.procurement.invoices = records;
     else if (key === 'fleetRepairs')     out.fleet.repairs     = records;
     else if (key === 'fleetVehicles')         out.fleet.fleet              = records;
     else if (key === 'fleetServices')         out.fleet.services           = records;
