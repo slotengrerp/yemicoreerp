@@ -11,6 +11,7 @@ import { getDeepLinkTab } from '../../utils/helpers';
 import { saveDBLocal } from '../../utils/db';
 import { logActivity }  from '../../utils/audit';
 import { printHeader, PRINT_CSS } from '../../utils/logo';
+import { diffAndPush } from '../../hooks/usePerRecordSync';
 
 const uid   = () => generateId();
 const today = () => new Date().toISOString().split('T')[0];
@@ -44,10 +45,9 @@ function calcDepreciation(cost, residual, usefulLife, purchaseDate) {
   return { annualDep, accDep: Math.max(0, accDep), nbv: Math.max(res_, cost_ - accDep) };
 }
 
-// Emptied 2026-07-28 — held five fabricated fixed assets totalling ₦109.88m of
-// invented capital cost (including an ₦85m excavator), with invented serial
-// numbers and vehicle registrations. These fed depreciation and NBV reporting.
-const SEED = [];
+// 2026-07-29 — seed fallback removed permanently (was already emptied
+// 2026-07-28, having held five fabricated fixed assets totalling ₦109.88m of
+// invented cost). See App.jsx boot-sequence note.
 
 function Tag({ status }) {
   const { C } = useTheme();
@@ -125,10 +125,11 @@ export default function FixedAssets() {
   const { currentUser, db } = state;
   const perms = { add: canDo(currentUser,'canAdd'), del: canDo(currentUser,'canDelete') };
 
-  const stored = (db.fixedassets?.length || state.appSettings?.dataWiped) ? (db.fixedassets || []) : SEED;
+  const stored = db.fixedassets || [];
   const [assets, setAssets] = useState(stored);
 
   const save = (data) => {
+    diffAndPush('fixedassets', assets, data); // 2026-07-29 full-app sync sweep
     setAssets(data);
     dispatch({ type:'UPDATE_MODULE', mod:'fixedassets', data });
     saveDBLocal({ ...db, fixedassets: data }, state.activity);

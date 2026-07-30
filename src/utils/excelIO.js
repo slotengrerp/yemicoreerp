@@ -101,15 +101,27 @@ export function downloadTemplate(moduleName, columns, exampleRows = []) {
 // not reviewed line-by-line before import, so every row's most visible
 // identity field now reads "SAMPLE — Delete This Row".
 export const MODULE_COLUMNS = {
+  // 2026-07-29: nlng/slot columns were drifted from the real Add/Edit Staff
+  // forms in ContractStaff.jsx / SlotStaff.jsx — e.g. slot used `staffId`,
+  // `jobTitle`, `employmentType`, `startDate`, `pensionPin`, none of which
+  // exist on an actual staff record (the real fields are `refId`,
+  // `serviceTitle`, `workLocation`, `employmentDate`; there's no
+  // employmentType/pensionPin field at all). Since export reads `row[col]`
+  // straight off the real record, every mismatched column exported blank
+  // and real data (refId, serviceTitle, employmentDate, projectCode…) was
+  // left out entirely — and templates built from the wrong names taught
+  // users to fill in columns the app would silently ignore. Both lists below
+  // now mirror the live form fields exactly, in the same order as the form's
+  // own sections, so Export / Template / Import all round-trip real data.
   nlng: {
     label: 'Contract Staff (NLNG)',
-    columns: ['fullName','email','refId','department','role','workLocation','dob','stateOfOrigin','lga','phone','bank','accountNo','basicSalary','housing','transport','grossSalary','status'],
-    example: [{ fullName:'SAMPLE — Delete This Row', email:'sample.employee@example.com', refId:'SAMPLE-001', department:'Engineering', role:'Project Engineer', workLocation:'Port Harcourt', dob:'1990-01-01', stateOfOrigin:'Rivers', lga:'Port Harcourt', phone:'08000000000', bank:'Sample Bank', accountNo:'0000000000', basicSalary:100000, housing:20000, transport:10000, grossSalary:130000, status:'Active' }],
+    columns: ['fullName','refId','email','phone','dob','stateOfOrigin','lga','department','role','workLocation','projectCode','employmentDate','refIndicator','bank','accountNo','basicSalary','housing','transport','bonnyAllowance','leaveAllowance','eoyBonus','overtimeAllowance','otherAddition','voluntaryPension','salaryAdvance','loan','status'],
+    example: [{ fullName:'SAMPLE — Delete This Row', refId:'SAMPLE-001', email:'sample.employee@example.com', phone:'08000000000', dob:'1990-01-01', stateOfOrigin:'Rivers', lga:'Port Harcourt', department:'Engineering', role:'Project Engineer', workLocation:'Port Harcourt', projectCode:'', employmentDate:'2024-01-01', refIndicator:'SAMPLE/22C', bank:'Sample Bank', accountNo:'0000000000', basicSalary:100000, housing:20000, transport:10000, bonnyAllowance:0, leaveAllowance:0, eoyBonus:0, overtimeAllowance:0, otherAddition:0, voluntaryPension:0, salaryAdvance:0, loan:0, status:'Active' }],
   },
   slot: {
     label: 'Company Staff (SLOT)',
-    columns: ['fullName','staffId','email','phone','department','jobTitle','employmentType','startDate','basicSalary','housing','transport','medicalAllowance','grossSalary','bank','accountNo','pensionPin','status'],
-    example: [{ fullName:'SAMPLE — Delete This Row', staffId:'SAMPLE-001', email:'sample.staff@example.com', phone:'08000000000', department:'Finance', jobTitle:'Accountant', employmentType:'Full-time', startDate:'2024-01-01', basicSalary:100000, housing:20000, transport:10000, medicalAllowance:10000, grossSalary:140000, bank:'Sample Bank', accountNo:'0000000000', pensionPin:'PEN000000000', status:'Active' }],
+    columns: ['fullName','refId','employmentDate','department','serviceTitle','workLocation','projectCode','status','phone','email','bank','accountNo','basicSalary','housing','transport','otherAddition'],
+    example: [{ fullName:'SAMPLE — Delete This Row', refId:'SAMPLE-001', employmentDate:'2024-01-01', department:'Finance', serviceTitle:'Officer', workLocation:'Port Harcourt HQ', projectCode:'', status:'Active', phone:'08000000000', email:'sample.staff@example.com', bank:'Sample Bank', accountNo:'0000000000', basicSalary:100000, housing:20000, transport:10000, otherAddition:0 }],
   },
   invoices: {
     label: 'Invoices',

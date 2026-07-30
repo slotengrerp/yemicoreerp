@@ -99,16 +99,17 @@ export default function ProjectPL() {
     // ── Payroll cost (Contract Staff + SLOT Staff) ────────────────────────────
     // Only active staff are counted — inactive/suspended staff aren't drawing
     // current salary. Cost = basic + housing + transport (+ medical/other
-    // allowances where present), the same recurring monthly gross each
-    // module's own "Monthly Payroll" figure is built from. Staff with no
-    // project tagged fall into UNALLOCATED, same as untagged invoices/bills.
+    // allowances + other addition, where present), the same recurring
+    // monthly gross each staff record's Payroll View row is built from.
+    // Staff with no project tagged fall into UNALLOCATED, same as untagged
+    // invoices/bills.
     const monthLabel = new Date().toLocaleString('en-US', { month:'long', year:'numeric' });
     const payrollCost = (staffList, source) => {
       staffList.filter(s => s.status === 'Active').forEach(s => {
         const code = s.projectCode || 'UNALLOCATED';
         const row = ensure(code);
         const gross = (Number(s.basicSalary)||0) + (Number(s.housing)||0) + (Number(s.transport)||0)
-                    + (Number(s.medicalAllowance)||0) + (Number(s.otherAllowances)||0);
+                    + (Number(s.medicalAllowance)||0) + (Number(s.otherAllowances)||0) + (Number(s.otherAddition)||0);
         if (gross <= 0) return;
         row.cost += gross;
         row.costLines.push({ ref:s.refId||s.id, party:s.fullName, date:monthLabel, amount:gross, currency:'NGN', ngn:gross, status:`${source} payroll` });

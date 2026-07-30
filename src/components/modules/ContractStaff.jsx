@@ -9,6 +9,7 @@ import { canDo }    from '../../utils/auth';
 import { formatCurrency, formatDate, generateId, showToast } from '../../utils/helpers';
 import { saveDBLocal } from '../../utils/db';
 import { logActivity }  from '../../utils/audit';
+import { pushOne, pushDelete } from '../../hooks/usePerRecordSync';
 import { Users, DollarSign, UserCheck, UserX } from 'lucide-react';
 import { SLOT_LOGO_B64, SLOT_BRAND, printHeader, PRINT_CSS } from '../../utils/logo';
 import { calcPAYE_Nigeria } from '../../utils/financeConstants';
@@ -23,7 +24,7 @@ const EMPTY = {
   dob:'', stateOfOrigin:'', lga:'', phone:'', bank:'', accountNo:'',
   employmentDate:'', refIndicator:'', projectCode:'',
   basicSalary:'', housing:'', transport:'',
-  bonnyAllowance:'', leaveAllowance:'', eoyBonus:'', overtimeAllowance:'',
+  bonnyAllowance:'', leaveAllowance:'', eoyBonus:'', overtimeAllowance:'', otherAddition:'',
   voluntaryPension:'', salaryAdvance:'', loan:'',
   status:'Active',
 };
@@ -33,18 +34,23 @@ const MONTHS = ['January','February','March','April','May','June','July','August
 // ── Print helpers ──────────────────────────────────────────────────────────
 function printPayroll(staff, period, filtered) {
   const rows = filtered.map((s, i) => {
-    const gross = (Number(s.basicSalary)||0)+(Number(s.housing)||0)+(Number(s.transport)||0);
+    const otherAdd = Number(s.otherAddition)||0;
+    const gross = (Number(s.basicSalary)||0)+(Number(s.housing)||0)+(Number(s.transport)||0)+otherAdd;
+    const empDate = s.employmentDate ? new Date(s.employmentDate).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' }) : '—';
     return `<tr style="background:${i%2===1?'#f3faf5':'#fff'}">
       <td>${s.sn}</td><td><strong>${s.fullName}</strong></td><td style="font-family:monospace;font-size:11px">${s.refId}</td>
+      <td>${empDate}</td>
       <td>${s.department}</td><td>${s.bank}</td><td style="font-family:monospace">${s.accountNo}</td>
       <td style="text-align:right">₦${(Number(s.basicSalary)||0).toLocaleString('en-NG')}</td>
       <td style="text-align:right">₦${(Number(s.housing)||0).toLocaleString('en-NG')}</td>
       <td style="text-align:right">₦${(Number(s.transport)||0).toLocaleString('en-NG')}</td>
+      <td style="text-align:right">₦${otherAdd.toLocaleString('en-NG')}</td>
       <td style="text-align:right;font-weight:700;color:#1A5C2A">₦${gross.toLocaleString('en-NG')}</td>
       <td style="text-align:center"><span style="padding:2px 8px;border-radius:20px;font-size:10px;background:${s.status==='Active'?'#d4edda':'#f8d7da'};color:${s.status==='Active'?'#155724':'#721c24'}">${s.status}</span></td>
     </tr>`;
   }).join('');
-  const total = filtered.reduce((a,s)=>a+(Number(s.basicSalary)||0)+(Number(s.housing)||0)+(Number(s.transport)||0),0);
+  const totalOtherAdd = filtered.reduce((a,s)=>a+(Number(s.otherAddition)||0),0);
+  const total = filtered.reduce((a,s)=>a+(Number(s.basicSalary)||0)+(Number(s.housing)||0)+(Number(s.transport)||0),0) + totalOtherAdd;
   const totalBasic = filtered.reduce((a,s)=>a+(Number(s.basicSalary)||0),0);
   const totalHousing = filtered.reduce((a,s)=>a+(Number(s.housing)||0),0);
   const totalTransport = filtered.reduce((a,s)=>a+(Number(s.transport)||0),0);
@@ -55,16 +61,17 @@ function printPayroll(staff, period, filtered) {
 ${printHeader('NLNG CONTRACT STAFF — MONTHLY PAYROLL REGISTER', period)}
   <table>
     <thead><tr>
-      <th>S/N</th><th>Full Name</th><th>Ref ID</th><th>Department</th><th>Bank</th><th>Account No.</th>
+      <th>S/N</th><th>Full Name</th><th>Employee ID</th><th>Employment Date</th><th>Department</th><th>Bank</th><th>Account No.</th>
       <th style="text-align:right">Basic (₦)</th><th style="text-align:right">Housing (₦)</th><th style="text-align:right">Transport (₦)</th>
-      <th style="text-align:right">Gross (₦)</th><th style="text-align:center">Status</th>
+      <th style="text-align:right">Other Addition (₦)</th><th style="text-align:right">Gross (₦)</th><th style="text-align:center">Status</th>
     </tr></thead>
     <tbody>${rows}</tbody>
     <tfoot><tr class="total-row">
-      <td colspan="6" style="text-align:right;text-transform:uppercase;font-size:10px;letter-spacing:.5px">Total — ${filtered.length} Staff Members</td>
+      <td colspan="7" style="text-align:right;text-transform:uppercase;font-size:10px;letter-spacing:.5px">Total — ${filtered.length} Staff Members</td>
       <td style="text-align:right">₦${totalBasic.toLocaleString('en-NG')}</td>
       <td style="text-align:right">₦${totalHousing.toLocaleString('en-NG')}</td>
       <td style="text-align:right">₦${totalTransport.toLocaleString('en-NG')}</td>
+      <td style="text-align:right">₦${totalOtherAdd.toLocaleString('en-NG')}</td>
       <td style="text-align:right;font-size:14px">₦${total.toLocaleString('en-NG')}</td>
       <td></td>
     </tr></tfoot>
@@ -87,7 +94,8 @@ function printPayslip(s, period, company) {
   const leaveAll  = Number(s.leaveAllowance)||0;
   const eoyBonus  = Number(s.eoyBonus)||0;
   const overtime  = Number(s.overtimeAllowance)||0;
-  const gross     = basic + housing + transport + bonny + leaveAll + eoyBonus + overtime;
+  const otherAdd  = Number(s.otherAddition)||0;
+  const gross     = basic + housing + transport + bonny + leaveAll + eoyBonus + overtime + otherAdd;
 
   // PAYE (simplified progressive — Nigerian tax table, applied monthly on annualised gross)
   function calcPAYE(annual) {
@@ -179,6 +187,7 @@ function printPayslip(s, period, company) {
         <tr><td>Leave Allowance</td><td class="amt">${fmtN(leaveAll)}</td></tr>
         <tr><td>End of Year Bonus</td><td class="amt">${fmtN(eoyBonus)}</td></tr>
         <tr><td>Overtime Allowance</td><td class="amt">${fmtN(overtime)}</td></tr>
+        <tr><td>Other Addition</td><td class="amt">${fmtN(otherAdd)}</td></tr>
         <tr class="section"><td>GROSS EMOLUMENT</td><td class="amt">${fmtN(gross)}</td></tr>
         <tr class="section"><td colspan="2">DEDUCTIONS</td></tr>
         <tr><td>PAYE</td><td class="amt">${fmtN(paye)}</td></tr>
@@ -247,7 +256,7 @@ function StaffModal({ modal, onSave, onClose, projects }) {
   const isEdit = modal.mode === 'edit';
   const [f, setF] = useState(modal.data);
   const set = k => e => setF(p => ({ ...p, [k]:e.target.value }));
-  const gross = (Number(f.basicSalary)||0)+(Number(f.housing)||0)+(Number(f.transport)||0)+(Number(f.bonnyAllowance)||0)+(Number(f.leaveAllowance)||0)+(Number(f.eoyBonus)||0)+(Number(f.overtimeAllowance)||0);
+  const gross = (Number(f.basicSalary)||0)+(Number(f.housing)||0)+(Number(f.transport)||0)+(Number(f.bonnyAllowance)||0)+(Number(f.leaveAllowance)||0)+(Number(f.eoyBonus)||0)+(Number(f.overtimeAllowance)||0)+(Number(f.otherAddition)||0);
   const inp = { padding:'7px 10px', borderRadius:7, border:'1px solid '+C.border, background:C.bgCard, color:C.text, fontSize:13, width:'100%', outline:'none', fontFamily:'inherit', boxSizing:'border-box' };
 
   return (
@@ -264,7 +273,7 @@ function StaffModal({ modal, onSave, onClose, projects }) {
           <SecLabel label="Personal Information" />
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
             <FG label="Full Name" full><input style={inp} value={f.fullName} onChange={set('fullName')} placeholder="Full legal name" /></FG>
-            <FG label="Ref ID"><input style={inp} value={f.refId} onChange={set('refId')} placeholder="e.g. NLNG-ENG-005" /></FG>
+            <FG label="Employee ID"><input style={inp} value={f.refId} onChange={set('refId')} placeholder="e.g. NLNG-ENG-005" /></FG>
             <FG label="Email"><input style={inp} value={f.email} onChange={set('email')} type="email" /></FG>
             <FG label="Phone"><input style={inp} value={f.phone} onChange={set('phone')} placeholder="080…" /></FG>
             <FG label="Date of Birth"><input style={inp} value={f.dob} onChange={set('dob')} type="date" /></FG>
@@ -296,6 +305,7 @@ function StaffModal({ modal, onSave, onClose, projects }) {
             <FG label="Leave Allowance (₦)"><input style={inp} type="number" value={f.leaveAllowance} onChange={set('leaveAllowance')} placeholder="0" /></FG>
             <FG label="End of Year Bonus (₦)"><input style={inp} type="number" value={f.eoyBonus} onChange={set('eoyBonus')} placeholder="0" /></FG>
             <FG label="Overtime Allowance (₦)"><input style={inp} type="number" value={f.overtimeAllowance} onChange={set('overtimeAllowance')} placeholder="0" /></FG>
+            <FG label="Other Addition (₦)"><input style={inp} type="number" value={f.otherAddition} onChange={set('otherAddition')} placeholder="0" /></FG>
             <FG label="Gross Emolument (Auto)">
               <div style={{ padding:'7px 10px', background:C.greenPale, border:'1px solid '+C.greenLight, borderRadius:7, color:C.green, fontWeight:700, fontSize:15 }}>{formatCurrency(gross)}</div>
             </FG>
@@ -360,6 +370,21 @@ export default function ContractStaff() {
   function updateDB(next) {
     dispatch({ type:'UPDATE_MODULE', mod:'nlng', data:next });
     saveDBLocal({ ...db, nlng:next }, state.activity);
+
+    // Per-record push — fire-and-forget (pushOne/pushDelete never reject,
+    // they resolve {ok:false} on failure, same contract as saveDBCloud).
+    // Only new/changed records are pushed, not the whole list on every
+    // edit — added 2026-07-29 after staff data had no cloud path at all
+    // under VITE_USE_PER_RECORD_SYNC=true. See 013_staff_per_record_tables.sql.
+    const prevById = new Map(staff.map(s => [s.id, s]));
+    const nextIds  = new Set(next.map(s => s.id));
+    for (const rec of next) {
+      const prev = prevById.get(rec.id);
+      if (!prev || JSON.stringify(prev) !== JSON.stringify(rec)) pushOne('nlng', rec);
+    }
+    for (const id of prevById.keys()) {
+      if (!nextIds.has(id)) pushDelete('nlng', id);
+    }
   }
 
   // ── Payroll → General Ledger ────────────────────────────────────────────
@@ -376,13 +401,14 @@ export default function ContractStaff() {
     const lines = activeStaff.map(s => {
       const basic=(Number(s.basicSalary)||0), housing=(Number(s.housing)||0), transport=(Number(s.transport)||0);
       const extraEarnings=(Number(s.bonnyAllowance)||0)+(Number(s.leaveAllowance)||0)+(Number(s.eoyBonus)||0)+(Number(s.overtimeAllowance)||0);
-      const gross=basic+housing+transport+extraEarnings;
+      const otherAdd=(Number(s.otherAddition)||0);
+      const gross=basic+housing+transport+extraEarnings+otherAdd;
       const pension=Math.round((basic+housing+transport)*0.08);
       const paye=calcPAYE_Nigeria(gross);
       const otherDeductions=(Number(s.voluntaryPension)||0)+(Number(s.salaryAdvance)||0)+(Number(s.loan)||0);
       const netPay = gross - pension - paye - otherDeductions;
-      return { staffId:s.id, refId:s.refId, fullName:s.fullName, department:s.department, projectCode:s.projectCode||'',
-        basic, housing, transport, allowances:extraEarnings, gross, paye, pension, nhf:0, otherDeductions, netPay };
+      return { staffId:s.id, refId:s.refId, fullName:s.fullName, department:s.department, projectCode:s.projectCode||'', employmentDate:s.employmentDate||'',
+        basic, housing, transport, allowances:extraEarnings+otherAdd, gross, paye, pension, nhf:0, otherDeductions, netPay };
     });
     const run = {
       id: generateId(), staffType:'Contract', period:periodKey, periodLabel:period,
@@ -393,6 +419,7 @@ export default function ContractStaff() {
       totalOtherDeductions: lines.reduce((a,l)=>a+l.otherDeductions,0), totalNetPay: lines.reduce((a,l)=>a+l.netPay,0),
       paymentDate: '', voided: false,
     };
+    pushOne('payrollRuns', run); // 2026-07-29 full-app sync sweep — one new record
     dispatch({ type:'UPDATE_MODULE', mod:'payrollRuns', data:[...payrollRuns, run] });
     saveDBLocal({ ...db, payrollRuns:[...payrollRuns, run] }, state.activity);
     logActivity(dispatch, `Payroll run posted: Contract Staff — ${period} (${lines.length} staff, ${formatCurrency(run.totalGross)} gross)`, currentUser);
@@ -402,7 +429,9 @@ export default function ContractStaff() {
   function markPayrollPaid() {
     if (!existingRun) return;
     const paymentDate = new Date().toISOString().split('T')[0];
-    const next = payrollRuns.map(r => r.id===existingRun.id ? {...r, paymentDate} : r);
+    const updatedRun = { ...existingRun, paymentDate };
+    const next = payrollRuns.map(r => r.id===existingRun.id ? updatedRun : r);
+    pushOne('payrollRuns', updatedRun); // 2026-07-29 full-app sync sweep — one edited record
     dispatch({ type:'UPDATE_MODULE', mod:'payrollRuns', data:next });
     saveDBLocal({ ...db, payrollRuns:next }, state.activity);
     logActivity(dispatch, `Payroll payment recorded: Contract Staff — ${period}`, currentUser);
@@ -489,7 +518,7 @@ export default function ContractStaff() {
           {view==='list' && (
             <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12, minWidth:800 }}>
               <thead><tr>
-                {['S/N','Ref ID','Full Name','Department','Role','Work Location','Project','Phone','Email','Status',''].map(h=><th key={h} style={th}>{h}</th>)}
+                {['S/N','Employee ID','Full Name','Department','Role','Work Location','Employment Date','Phone','Email','Status',''].map(h=><th key={h} style={th}>{h}</th>)}
               </tr></thead>
               <tbody>
                 {filtered.length===0 && <tr><td colSpan={11} style={{ textAlign:'center', padding:32, color:C.textMuted }}>No staff records found</td></tr>}
@@ -501,7 +530,7 @@ export default function ContractStaff() {
                     <td style={td(i)}>{s.department}</td>
                     <td style={{ ...td(i), color:C.textMuted }}>{s.role}</td>
                     <td style={td(i)}>{s.workLocation}</td>
-                    <td style={{ ...td(i), fontSize:11 }}>{s.projectCode || <span style={{color:C.textMuted}}>Unallocated</span>}</td>
+                    <td style={{ ...td(i), fontSize:11 }}>{formatDate(s.employmentDate)}</td>
                     <td style={td(i)}>{s.phone}</td>
                     <td style={{ ...td(i), fontSize:11, color:C.textMuted }}>{s.email||'—'}</td>
                     <td style={td(i)}><Tag status={s.status} /></td>
@@ -542,14 +571,15 @@ export default function ContractStaff() {
 
               <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12, minWidth:900 }}>
                 <thead><tr>
-                  {['S/N','Full Name','Ref ID','Department','Bank','Account No.','Basic (₦)','Housing (₦)','Transport (₦)','Gross (₦)','PAYE (₦)','Pension (₦)','Deductions (₦)','Net Pay (₦)','Status','Payslip'].map(h=><th key={h} style={th}>{h}</th>)}
+                  {['S/N','Full Name','Employee ID','Employment Date','Department','Bank','Account No.','Basic (₦)','Housing (₦)','Transport (₦)','Other Addition (₦)','Gross (₦)','PAYE (₦)','Pension (₦)','Deductions (₦)','Net Pay (₦)','Status','Payslip'].map(h=><th key={h} style={th}>{h}</th>)}
                 </tr></thead>
                 <tbody>
-                  {filtered.length===0 && <tr><td colSpan={16} style={{ textAlign:'center', padding:32, color:C.textMuted }}>No records found</td></tr>}
+                  {filtered.length===0 && <tr><td colSpan={18} style={{ textAlign:'center', padding:32, color:C.textMuted }}>No records found</td></tr>}
                   {filtered.map((s,i)=>{
                     const basic=(Number(s.basicSalary)||0), housing=(Number(s.housing)||0), transport=(Number(s.transport)||0);
                     const extraEarnings=(Number(s.bonnyAllowance)||0)+(Number(s.leaveAllowance)||0)+(Number(s.eoyBonus)||0)+(Number(s.overtimeAllowance)||0);
-                    const gross=basic+housing+transport+extraEarnings;
+                    const otherAdd=(Number(s.otherAddition)||0);
+                    const gross=basic+housing+transport+extraEarnings+otherAdd;
                     const pension=Math.round((basic+housing+transport)*0.08);
                     const paye=calcPAYE_Nigeria(gross);
                     const otherDeductions=(Number(s.voluntaryPension)||0)+(Number(s.salaryAdvance)||0)+(Number(s.loan)||0);
@@ -560,12 +590,14 @@ export default function ContractStaff() {
                         <td style={td(i)}>{s.sn}</td>
                         <td style={{ ...td(i), fontWeight:700 }}>{s.fullName}</td>
                         <td style={{ ...td(i), color:C.amber, fontFamily:'monospace', fontSize:11 }}>{s.refId}</td>
+                        <td style={{ ...td(i), fontSize:11 }}>{formatDate(s.employmentDate)}</td>
                         <td style={td(i)}>{s.department}</td>
                         <td style={{ ...td(i), color:C.textMuted }}>{s.bank}</td>
                         <td style={{ ...td(i), fontFamily:'monospace', fontSize:11 }}>{s.accountNo}</td>
                         <td style={{ ...td(i), color:C.green, fontWeight:600 }}>{formatCurrency(basic)}</td>
                         <td style={td(i)}>{formatCurrency(housing)}</td>
                         <td style={td(i)}>{formatCurrency(transport)}</td>
+                        <td style={td(i)}>{formatCurrency(otherAdd)}</td>
                         <td style={{ ...td(i), color:C.amber, fontWeight:800 }}>{formatCurrency(gross)}</td>
                         <td style={{ ...td(i), color:C.danger, fontSize:11 }}>{formatCurrency(paye)}</td>
                         <td style={{ ...td(i), color:C.danger, fontSize:11 }}>{formatCurrency(pension)}</td>
@@ -582,13 +614,14 @@ export default function ContractStaff() {
                 {filtered.length>0 && (
                   <tfoot>
                     <tr style={{ background:C.amberPale, fontWeight:700 }}>
-                      <td colSpan={6} style={{ ...td(0), textAlign:'right', color:C.textMid, fontSize:11, textTransform:'uppercase', letterSpacing:'.5px' }}>
+                      <td colSpan={7} style={{ ...td(0), textAlign:'right', color:C.textMid, fontSize:11, textTransform:'uppercase', letterSpacing:'.5px' }}>
                         Total — {filtered.length} Staff
                       </td>
                       <td style={{ ...td(0), color:C.green, fontWeight:700 }}>{formatCurrency(filtered.reduce((a,s)=>a+(Number(s.basicSalary)||0),0))}</td>
                       <td style={td(0)}>{formatCurrency(filtered.reduce((a,s)=>a+(Number(s.housing)||0),0))}</td>
                       <td style={td(0)}>{formatCurrency(filtered.reduce((a,s)=>a+(Number(s.transport)||0),0))}</td>
-                      <td style={{ ...td(0), color:C.amber, fontSize:14, fontWeight:800 }}>{formatCurrency(totalPayroll)}</td>
+                      <td style={td(0)}>{formatCurrency(filtered.reduce((a,s)=>a+(Number(s.otherAddition)||0),0))}</td>
+                      <td style={{ ...td(0), color:C.amber, fontSize:14, fontWeight:800 }}>{formatCurrency(filtered.reduce((a,s)=>a+(Number(s.basicSalary)||0)+(Number(s.housing)||0)+(Number(s.transport)||0)+(Number(s.bonnyAllowance)||0)+(Number(s.leaveAllowance)||0)+(Number(s.eoyBonus)||0)+(Number(s.overtimeAllowance)||0)+(Number(s.otherAddition)||0),0))}</td>
                       <td colSpan={6} style={td(0)} />
                     </tr>
                   </tfoot>

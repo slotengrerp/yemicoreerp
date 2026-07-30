@@ -94,9 +94,19 @@ describe('GL integration — Payroll', () => {
 describe('GL integration — Fleet Maintenance repairs', () => {
   it('a repair marked "Post to Accounting" actually appears in the real Journal', async () => {
     const user = userEvent.setup();
-    // db.fleet isn't in AppContext's default state at all, so FleetMaintenance
-    // falls back to its own internal seed data — no explicit seeding needed.
-    renderTwoModules(FleetMaintenance);
+    // AppContext's default state has no db.fleet key at all, and
+    // FleetMaintenance's own internal fallback (EMPTY_FLEET_DATA) is empty
+    // arrays — the fabricated demo data it used to fall back to was removed
+    // 2026-07-29. Seed a real unposted repair explicitly, the same shape the
+    // real repair form saves.
+    renderTwoModules(FleetMaintenance, {}, {
+      db: { fleet: { repairs: [{
+        id: 'test-repair-1', vehicleId: 'test-veh-1', vehicleNo: 'TEST-123-XY', vehicleType: 'Truck',
+        date: '2026-07-01', natureOfRepairs: 'Brake pad replacement', feedback: '',
+        partsUsed: 'Brake pads', costOfParts: 45000, costOfLabour: 15000,
+        amount: 60000, mechanic: 'Test Mechanic Ltd', postedToAccounting: false,
+      }] } },
+    });
 
     await user.click(screen.getByRole('button', { name: /repair records/i }));
     const rows = document.querySelectorAll('tbody tr');

@@ -26,6 +26,7 @@
 // in via the UI as real contact details become available.
 // ══════════════════════════════════════════════════════════════════════════════
 import { generateId } from './helpers';
+import { diffAndPush } from '../hooks/usePerRecordSync';
 
 const CLIENT_KEY = 'bc_clients';
 
@@ -60,8 +61,15 @@ export function getClients() {
 }
 
 export function saveClients(clients) {
+  // Per-record push — 2026-07-29 full-app sync sweep. The 'slot:masterDataChanged'
+  // bridge to App.jsx (see header note) covers the legacy whole-document
+  // engine; it does NOT push per-record under VITE_USE_PER_RECORD_SYNC=true
+  // (nothing ever called pushOne/diffAndPush for 'clients' before today,
+  // even though the table has existed since before this session).
+  const prev = getClients();
   try { localStorage.setItem(CLIENT_KEY, JSON.stringify(clients)); } catch {}
   try { window.dispatchEvent(new CustomEvent('slot:masterDataChanged', { detail: { mod: 'clients', data: clients } })); } catch {}
+  diffAndPush('clients', prev, clients);
 }
 
 export function addClient(client) {

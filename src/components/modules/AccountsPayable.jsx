@@ -13,6 +13,7 @@ import { getVendors, addVendor }   from '../../utils/vendorMaster';
 import { getProjects }  from '../../utils/projectMaster';
 import { BANK_ACCOUNTS, DEFAULT_FX } from '../../utils/financeConstants';
 import { matchBill, decideOnVariance } from '../../utils/threeWayMatch';
+import { diffAndPush } from '../../hooks/usePerRecordSync';
 
 const uid   = () => generateId();
 const today = () => new Date().toISOString().split('T')[0];
@@ -31,13 +32,10 @@ function nextPayNo(payments) {
   return `SLOT-APV-${yr()}-${String(nums.length ? Math.max(...nums)+1 : 1).padStart(4,'0')}`;
 }
 
-// Emptied 2026-07-28 — held five fabricated supplier bills (~₦23.4m including
-// two marked "Paid") and two fabricated payments against real-looking Access
-// Bank account numbers. Note these fell through WITHOUT any dataWiped guard
-// (see the useState calls below), unlike every other module — they were safe
-// only by accident, because an empty array happens to be truthy.
-const SEED_BILLS = [];
-const SEED_PAYMENTS = [];
+// 2026-07-29 — seed fallback removed permanently (was already emptied
+// 2026-07-28, having held five fabricated supplier bills and two fabricated
+// payments against real-looking bank account numbers). See App.jsx
+// boot-sequence note.
 
 // ── Shared UI ─────────────────────────────────────────────────────────────────
 function BillTag({ status }) {
@@ -98,9 +96,9 @@ export default function AccountsPayable() {
   const { currentUser, db } = state;
   const perms = { add: canDo(currentUser,'canAdd'), edit: canDo(currentUser,'canEdit'), del: canDo(currentUser,'canDelete') };
 
-  const apData  = db.ap || { bills: SEED_BILLS, payments: SEED_PAYMENTS };
-  const [bills,    setBills]    = useState(apData.bills    || SEED_BILLS);
-  const [payments, setPayments] = useState(apData.payments || SEED_PAYMENTS);
+  const apData  = db.ap || { bills: [], payments: [] };
+  const [bills,    setBills]    = useState(apData.bills    || []);
+  const [payments, setPayments] = useState(apData.payments || []);
   const [tab,    setTab]    = useState('overview');
   const [modal,  setModal]  = useState(null);
   const [ledgerCode, setLedgerCode] = useState(null); // supplier code currently shown in the Supplier Ledger modal
@@ -127,12 +125,20 @@ export default function AccountsPayable() {
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   function saveBills(newBills, newPayments = payments) {
+    // Per-record push — 2026-07-29, part of the full-app sync sweep. See
+    // ContractStaff.jsx's updateDB for the original pattern this reuses via
+    // diffAndPush. apBills/apPayments already had tables (pre-existing) but
+    // nothing ever pushed to them — see syncPerRecord.js's getRecordList fix.
+    diffAndPush('apBills', bills, newBills);
+    diffAndPush('apPayments', payments, newPayments);
     setBills(newBills);
     const newAp = { bills: newBills, payments: newPayments };
     dispatch({ type:'UPDATE_MODULE', mod:'ap', data: newAp });
     saveDBLocal({ ...db, ap: newAp }, state.activity);
   }
   function saveAll(newBills, newPayments) {
+    diffAndPush('apBills', bills, newBills);
+    diffAndPush('apPayments', payments, newPayments);
     setBills(newBills); setPayments(newPayments);
     const newAp = { bills: newBills, payments: newPayments };
     dispatch({ type:'UPDATE_MODULE', mod:'ap', data: newAp });

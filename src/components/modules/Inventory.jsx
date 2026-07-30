@@ -9,6 +9,7 @@ import { logActivity } from '../../utils/audit';
 import { Btn, Tag, StatCard, Modal, FG, FormGrid, SectionLabel, SearchBar, TabBar, EmptyState, Confirm } from '../ui';
 import { printHeader, SLOT_BRAND, PRINT_CSS } from '../../utils/logo';
 import { valueIssue, journalFromStockIssue } from '../../utils/inventoryModel';
+import { diffAndPush, pushOne, pushDelete } from '../../hooks/usePerRecordSync';
 
 const TAB_LABELS = { vehicles:'Vehicles Register', heavy:'Heavy Equipment Register', materials:'Construction Materials Register', office:'Office Appliances / Furniture Register' };
 
@@ -107,6 +108,7 @@ export default function Inventory({ onNav }) {
         });
         const current = (db.inventory || []).filter(x => x.type !== tab);
         const updated = [...current, ...imported];
+        diffAndPush('inventory', db.inventory, updated); // 2026-07-29 full-app sync sweep
         dispatch({ type:'UPDATE_MODULE', mod:'inventory', data:updated });
         saveDBLocal({ ...db, inventory:updated }, state.activity);
         logActivity(dispatch, `Imported ${imported.length} ${tab} records`, currentUser);
@@ -135,11 +137,13 @@ export default function Inventory({ onNav }) {
   function saveItems(tab, next) {
     let nextDB;
     if (tab === 'vehicles') {
+      diffAndPush('vehicles', db.vehicles, next); // 2026-07-29 full-app sync sweep
       nextDB = { ...db, vehicles: next };
       dispatch({ type: 'UPDATE_MODULE', mod: 'vehicles', data: next });
     } else {
       const others = (db.inventory||[]).filter(i => i.type !== tab);
       const combined = [...others, ...next];
+      diffAndPush('inventory', db.inventory, combined);
       nextDB = { ...db, inventory: combined };
       dispatch({ type: 'UPDATE_MODULE', mod: 'inventory', data: combined });
     }
@@ -339,6 +343,8 @@ function StockCostingTab({ C, db, currentUser, dispatch, state }) {
       stockItems: [...(db.stockItems || []), rec],
       stockMovements: [...(db.stockMovements || []), ...movements],
     };
+    pushOne('stockItems', rec); // 2026-07-29 full-app sync sweep — pure additions, no diff needed
+    movements.forEach(m => pushOne('stockMovements', m));
     dispatch({ type:'UPDATE_MODULE', mod:'stockItems', data: next.stockItems });
     dispatch({ type:'UPDATE_MODULE', mod:'stockMovements', data: next.stockMovements });
     saveDBLocal({ ...next }, state.activity);
@@ -358,6 +364,7 @@ function StockCostingTab({ C, db, currentUser, dispatch, state }) {
       if (result.unitCost <= 0) { showToast('No stock on hand to issue', 'error'); return; }
     }
     const rec = { id: generateId(), itemId: item.id, ...move, qty: Number(move.qty), unitCost: Number(move.unitCost) || 0, createdAt: new Date().toISOString() };
+    pushOne('stockMovements', rec); // 2026-07-29 full-app sync sweep
     dispatch({ type:'UPDATE_MODULE', mod:'stockMovements', data: [...stockMovements, rec] });
     saveDBLocal({ ...db, stockMovements: [...stockMovements, rec] }, state.activity);
     logActivity(dispatch, `Stock ${move.type}: ${item.code} × ${move.qty} ${item.uom}`, currentUser, { module:'inventory', action:'create' });
@@ -459,7 +466,7 @@ function StockCostingTab({ C, db, currentUser, dispatch, state }) {
                       <td style={{ padding:'6px 10px', textAlign:'right', color:C.textMid }}>₦{(Number(m.qty)*Number(m.unitCost||0)).toLocaleString('en-NG',{maximumFractionDigits:0})}</td>
                       <td style={{ padding:'6px 10px', color:C.textMuted, fontSize:11 }}>{m.refId||'—'}</td>
                       <td style={{ padding:'6px 10px', textAlign:'right' }}>
-                        <button onClick={() => { if (window.confirm('Delete this movement?')) { dispatch({ type:'UPDATE_MODULE', mod:'stockMovements', data: stockMovements.filter(x => x.id !== m.id) }); saveDBLocal({ ...db, stockMovements: stockMovements.filter(x => x.id !== m.id) }, state.activity); } }} style={{ background:'transparent', border:'none', color:C.danger, cursor:'pointer', fontSize:13 }}>✕</button>
+                        <button onClick={() => { if (window.confirm('Delete this movement?')) { pushDelete('stockMovements', m.id); dispatch({ type:'UPDATE_MODULE', mod:'stockMovements', data: stockMovements.filter(x => x.id !== m.id) }); saveDBLocal({ ...db, stockMovements: stockMovements.filter(x => x.id !== m.id) }, state.activity); } }} style={{ background:'transparent', border:'none', color:C.danger, cursor:'pointer', fontSize:13 }}>✕</button>
                       </td>
                     </tr>
                   );

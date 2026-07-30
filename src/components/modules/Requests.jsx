@@ -13,6 +13,7 @@ import { saveDBLocal } from '../../utils/db';
 import { logActivity }  from '../../utils/audit';
 import { printHeader, PRINT_CSS } from '../../utils/logo';
 import { initApproval, applyDecision, canApproveAtCurrentLevel, approvalSummary } from '../../utils/approvalEngine';
+import { diffAndPush, pushOne } from '../../hooks/usePerRecordSync';
 
 const uid   = () => generateId();
 const today = () => new Date().toISOString().split('T')[0];
@@ -29,11 +30,9 @@ const DEPARTMENTS    = ['Engineering','HSE','Operations','Admin','Procurement','
 const PRIORITIES     = ['Low','Normal','High','Urgent'];
 const LEAVE_TYPES    = ['Annual Leave','Sick Leave','Maternity Leave','Paternity Leave','Compassionate','Unpaid Leave'];
 
-// Emptied 2026-07-28 — held four fabricated staff requests, two carrying
-// invented approval decisions attributed to a named approver (one "Approved",
-// one "Rejected — internal team to handle. Budget constraints."), plus a fake
-// leave request for a named employee.
-const SEED = [];
+// 2026-07-29 — seed fallback removed permanently (was already emptied
+// 2026-07-28, having held four fabricated staff requests with invented
+// approval decisions). See App.jsx boot-sequence note.
 
 // ── Shared UI ────────────────────────────────────────────────────────────────
 function Tag({ status }) {
@@ -145,10 +144,11 @@ export default function Requests({ onNav }) {
   const perms  = { add: canDo(currentUser,'canAdd','request',state.appSettings), edit: canDo(currentUser,'canEdit','request',state.appSettings), del: canDo(currentUser,'canDelete','request',state.appSettings) };
   const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'manager';
 
-  const stored = (db.request?.length || state.appSettings?.dataWiped) ? (db.request || []) : SEED;
+  const stored = db.request || [];
   const [reqs, setReqs] = useState(stored);
 
   const save = (data) => {
+    diffAndPush('request', reqs, data); // 2026-07-29 full-app sync sweep
     setReqs(data);
     dispatch({ type:'UPDATE_MODULE', mod:'request', data });
     saveDBLocal({ ...db, request: data }, state.activity);
@@ -259,6 +259,7 @@ export default function Requests({ onNav }) {
     };
 
     const updatedProc = { ...proc, pos: [...(proc.pos||[]), newPO] };
+    pushOne('procurementPos', newPO); // 2026-07-29 — one new record, no diff needed
     dispatch({ type: 'UPDATE_MODULE', mod: 'procurement', data: updatedProc });
 
     setModal(null);

@@ -12,6 +12,7 @@ import { logActivity }  from '../../utils/audit';
 import { printHeader, PRINT_CSS, SLOT_BRAND, SLOT_LOGO_SRC } from '../../utils/logo';
 import { getClients, getClientByCode } from '../../utils/clientMaster';
 import { getProjects, getProjectByCode } from '../../utils/projectMaster';
+import { diffAndPush } from '../../hooks/usePerRecordSync';
 
 const uid = () => generateId();
 const today = () => new Date().toISOString().split('T')[0];
@@ -27,10 +28,9 @@ const PAYMENT_TERMS = ['Net 7','Net 14','Net 30','Net 45','Net 60','50% Advance,
 const CATEGORIES    = ['Engineering Services','Procurement Services','Logistics','Consultancy','Maintenance','Project Management','Equipment Supply','Labour Supply','Other'];
 const VAT_RATE      = 7.5;
 
-// Emptied 2026-07-28 — held three fabricated invoices (~₦9.2m) naming Nigeria
-// LNG, Total Energies and Shell, one pre-marked "Paid" with a fake payment
-// reference and another pre-marked "Overdue" with a fake chase note.
-const SEED = [];
+// 2026-07-29 — seed fallback removed permanently (was already emptied
+// 2026-07-28, having held three fabricated invoices naming real customers).
+// See App.jsx boot-sequence note.
 
 // ── Shared UI ────────────────────────────────────────────────────────────────
 function Tag({ status }) {
@@ -202,7 +202,7 @@ export default function Invoices({ onNav }) {
   const { currentUser, db } = state;
   const perms = { add: canDo(currentUser,'canAdd'), edit: canDo(currentUser,'canEdit'), del: canDo(currentUser,'canDelete') };
 
-  const stored = (db.invoices?.length || state.appSettings?.dataWiped) ? (db.invoices || []) : SEED;
+  const stored = db.invoices || [];
   const [invoices, setInvoices] = useState(stored);
 
   // ── Master lists — replaces free-text Client/Project entry with proper
@@ -211,6 +211,7 @@ export default function Invoices({ onNav }) {
   const [projects] = useState(() => getProjects().filter(p=>p.status==='Active'));
 
   const save = (data) => {
+    diffAndPush('invoices', invoices, data); // 2026-07-29 full-app sync sweep
     setInvoices(data);
     const newDb = { ...db, invoices: data };
     dispatch({ type:'UPDATE_MODULE', mod:'invoices', data });

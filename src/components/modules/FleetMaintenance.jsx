@@ -11,6 +11,7 @@ import { showToast, formatDate } from '../../utils/helpers'; // auto-patched
 import { getDeepLinkTab } from '../../utils/helpers';
 import { logActivity } from '../../utils/audit';
 import { printHeader, PRINT_CSS } from '../../utils/logo';
+import { diffAndPush } from '../../hooks/usePerRecordSync';
 
 // ── Print helpers ─────────────────────────────────────────────────────────────
 function printFleetRegister(fleet) {
@@ -39,7 +40,7 @@ function printHandover(h) {
 }
 
 // ── Persistence ───────────────────────────────────────────────────────────────
-// ── Fleet data loader: central store → old private key → SEED ────────────────
+// ── Fleet data loader: central store → old private key → empty default ───────
 function migrateFleet(dbFleet, dataWiped) {
   const hasData = obj => obj && (
     obj.fleet?.length || obj.services?.length || obj.repairs?.length ||
@@ -48,9 +49,9 @@ function migrateFleet(dbFleet, dataWiped) {
   // 1. Central store has data → use it
   if (hasData(dbFleet)) return dbFleet;
   // 1b. Deliberately wiped (Backup → Wipe All Data) → empty means empty;
-  // don't fall through to the legacy key or the inline SEED below. (Falling
-  // back to SEED here, even as an edge-case safety net, would defeat the
-  // entire point of this branch.)
+  // don't fall through to the legacy key. (Falling back to a demo-data
+  // constant here, even as an edge-case safety net, would defeat the entire
+  // point of this branch — see App.jsx boot-sequence note.)
   if (dataWiped) return dbFleet || { fleet: [], services: [], maintLog: [], repairs: [], breakdowns: [], requests: [], handovers: [], facilitySchedule: [], calibration: [] };
   // 2. Old private localStorage key (pre-migration) → migrate once
   try {
@@ -61,8 +62,8 @@ function migrateFleet(dbFleet, dataWiped) {
       if (hasData(old)) return old;
     }
   } catch {}
-  // 3. Both empty → fall back to inline SEED (correct schema for this module)
-  return SEED;
+  // 3. Both empty → fall back to the empty default (correct schema for this module)
+  return EMPTY_FLEET_DATA;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -155,16 +156,16 @@ function Card({ children, style }) {
   return <div style={{ background:C.bgCard, border:'1px solid '+C.border, borderRadius:12, padding:'18px 20px', boxShadow:C.shadowCard, ...style }}>{children}</div>;
 }
 
-// ── Seed data ─────────────────────────────────────────────────────────────────
-// Emptied 2026-07-28 — held three fabricated vehicles with invented chassis and
-// engine numbers, two services, two equipment maintenance logs, a breakdown,
-// two maintenance requests carrying invented approval/certification sign-offs,
-// a handover record, six facility schedule rows, and two repairs totalling
-// ₦195,000 of invented parts and labour cost.
+// ── Empty default shape ──────────────────────────────────────────────────────
+// 2026-07-29 — renamed from SEED and stripped of the fabricated fleet data it
+// used to hold (three vehicles with invented chassis/engine numbers, services,
+// maintenance logs, a breakdown, requests with invented sign-offs, a
+// handover, facility schedule rows, and ₦195,000 of invented repair cost —
+// emptied 2026-07-28, see App.jsx boot-sequence note).
 //
 // Keys must stay — migrateFleet() and the useState calls below read each one by
-// name. Empty arrays, never rows.
-const SEED = {
+// name. Empty arrays, never rows, ever again.
+const EMPTY_FLEET_DATA = {
   fleet: [],
   services: [],
   maintLog: [],
@@ -677,14 +678,14 @@ export default function FleetMaintenance({ onNav }) {
   const perms = { add:canDo(currentUser,'canAdd'), edit:canDo(currentUser,'canEdit'), del:canDo(currentUser,'canDelete') };
 
   const saved = migrateFleet(state.db.fleet, state.appSettings?.dataWiped);
-  const [fleet,     setFleet]    = useState(saved?.fleet     || SEED.fleet);
-  const [services,  setServices] = useState(saved?.services  || SEED.services);
-  const [maintLog,  setMaintLog] = useState(saved?.maintLog  || SEED.maintLog);
-  const [repairs,   setRepairs]  = useState(saved?.repairs   || SEED.repairs);
-  const [breakdowns,setBreakdowns]=useState(saved?.breakdowns|| SEED.breakdowns);
-  const [requests,  setRequests] = useState(saved?.requests  || SEED.requests);
-  const [handovers, setHandovers]= useState(saved?.handovers || SEED.handovers);
-  const [facility,     setFacility]    = useState(saved?.facilitySchedule || SEED.facilitySchedule);
+  const [fleet,     setFleet]    = useState(saved?.fleet     || EMPTY_FLEET_DATA.fleet);
+  const [services,  setServices] = useState(saved?.services  || EMPTY_FLEET_DATA.services);
+  const [maintLog,  setMaintLog] = useState(saved?.maintLog  || EMPTY_FLEET_DATA.maintLog);
+  const [repairs,   setRepairs]  = useState(saved?.repairs   || EMPTY_FLEET_DATA.repairs);
+  const [breakdowns,setBreakdowns]=useState(saved?.breakdowns|| EMPTY_FLEET_DATA.breakdowns);
+  const [requests,  setRequests] = useState(saved?.requests  || EMPTY_FLEET_DATA.requests);
+  const [handovers, setHandovers]= useState(saved?.handovers || EMPTY_FLEET_DATA.handovers);
+  const [facility,     setFacility]    = useState(saved?.facilitySchedule || EMPTY_FLEET_DATA.facilitySchedule);
   const [calibration,  setCalibration] = useState(saved?.calibration || []);
   const [tab, setTab] = useState(() => getDeepLinkTab('fleet', 'fleet'));
 
@@ -705,8 +706,21 @@ export default function FleetMaintenance({ onNav }) {
   const [search, setSearch] = useState('');
   const [modal,  setModal]  = useState(null);
 
+  // fleet-object key → RECORD_TABLES key. facilitySchedule's state var is
+  // named `facility` (see useState above) but the db/next object key is
+  // `facilitySchedule` — keep that mismatch contained to this one map.
+  const FLEET_TABLE_BY_KEY = { fleet:'fleetVehicles', services:'fleetServices', maintLog:'fleetMaintLog', repairs:'fleetRepairs', breakdowns:'fleetBreakdowns', requests:'fleetVehicleRequests', handovers:'fleetHandovers', facilitySchedule:'fleetFacilitySchedule', calibration:'fleetCalibration' };
+
   function persist(updates) {
     const next = { fleet, services, maintLog, repairs, breakdowns, requests, handovers, facilitySchedule:facility, calibration, ...updates };
+    // Per-record push — 2026-07-29 full-app sync sweep. Every fleet mutation
+    // (crud/postRepairToAccounting/etc.) funnels through here, so diffing
+    // all 9 sub-collections once in this one place covers every caller.
+    // Only `repairs` had a table before today — see 015_terminal_fleet_gaps.sql.
+    const prevByKey = { fleet, services, maintLog, repairs, breakdowns, requests, handovers, facilitySchedule:facility, calibration };
+    for (const [key, table] of Object.entries(FLEET_TABLE_BY_KEY)) {
+      if (prevByKey[key] !== next[key]) diffAndPush(table, prevByKey[key], next[key]);
+    }
     dispatch({ type: 'UPDATE_MODULE', mod: 'fleet', data: next });
   }
 
@@ -766,7 +780,7 @@ export default function FleetMaintenance({ onNav }) {
   const inpS = { padding:'7px 10px', borderRadius:7, border:'1px solid '+C.border, background:C.bgCard, color:C.text, fontSize:12.5, outline:'none', fontFamily:'inherit' };
   const th = { padding:'8px 10px', textAlign:'left', fontSize:10, fontWeight:700, color:C.tableHeaderText, textTransform:'uppercase', letterSpacing:'0.4px', whiteSpace:'nowrap', background:C.tableHeaderBg };
   const td = (i) => ({ padding:'8px 10px', borderBottom:'1px solid '+C.borderLight, fontSize:12, color:C.text, background:i%2===1?C.greenPale2:'transparent' });
-  const tabBtn = k => ({ padding:'9px 16px', fontSize:12, background:'none', border:'none', cursor:'pointer', color:tab===k?C.green:C.textMuted, borderBottom:tab===k?'2px solid '+C.green:'2px solid transparent', fontWeight:tab===k?700:400, whiteSpace:'nowrap', marginBottom:-2 });
+  const tabBtn = k => ({ padding:'9px 16px', fontSize:12, background:'none', border:'none', cursor:'pointer', color:tab===k?C.green:C.textMuted, borderBottom:tab===k?'2px solid '+C.green:'2px solid transparent', fontWeight:tab===k?700:400, whiteSpace:'nowrap' });
 
   // Calibration computed values
   const calOverdue  = calibration.filter(c => CAL_STATUS(c.expiryDate).label === 'OVERDUE').length;
@@ -793,7 +807,7 @@ export default function FleetMaintenance({ onNav }) {
           <div style={{ fontSize:11, color:'rgba(255,255,255,0.65)', marginTop:2 }}>Doc Ref: SLOT-MTC-001 Rev.02 · Forms FMA-001 to FMA-010</div>
         </div>
 
-        <div style={{ display:'flex', borderBottom:'2px solid '+C.borderLight, padding:'0 20px', overflowX:'auto' }}>
+        <div style={{ display:'flex', flexWrap:'wrap', gap:'4px 0', borderBottom:'2px solid '+C.borderLight, padding:'0 20px' }}>
           {TABS.map(t=><button key={t.key} onClick={()=>{setTab(t.key);setSearch('');}} style={tabBtn(t.key)}>{t.label}</button>)}
         </div>
 

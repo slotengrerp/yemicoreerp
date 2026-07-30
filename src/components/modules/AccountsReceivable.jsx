@@ -16,6 +16,7 @@ import { showToast, formatDate, generateId } from '../../utils/helpers';
 import { saveDBLocal } from '../../utils/db';
 import { logActivity }  from '../../utils/audit';
 import { SLOT_LOGO_SRC } from '../../utils/logo';
+import { diffAndPush } from '../../hooks/usePerRecordSync';
 import { getClients, getClientByCode, addClient } from '../../utils/clientMaster';
 import { getProjects } from '../../utils/projectMaster';
 import { BANK_ACCOUNTS, DEFAULT_FX } from '../../utils/financeConstants';
@@ -42,13 +43,9 @@ const PAYMENT_TERMS = ['Net 7','Net 14','Net 30','Net 45','Net 60','50% Advance,
 const CATEGORIES    = ['Engineering Services','Procurement Services','Logistics','Consultancy','Maintenance','Project Management','Equipment Supply','Labour Supply','Other'];
 const VAT_RATE      = 7.5;
 
-// Emptied 2026-07-28 — held four fabricated sales invoices (~₦36m including a
-// USD one at an invented 1545 FX rate) naming real customers: Nigeria LNG,
-// Renaissance Africa Energy, Saipem. One was pre-marked "Paid" with a fake
-// bank transfer reference, and SEED_RECEIPTS carried the matching fake receipt
-// against a real-looking Access Bank account number.
-const SEED = [];
-const SEED_RECEIPTS = [];
+// 2026-07-29 — seed fallback removed permanently (was already emptied
+// 2026-07-28, having held four fabricated sales invoices ~₦36m naming real
+// customers, plus a matching fake receipt). See App.jsx boot-sequence note.
 
 // ── Shared UI ────────────────────────────────────────────────────────────────
 function Tag({ status }) {
@@ -256,8 +253,8 @@ export default function AccountsReceivable() {
   const { currentUser, db } = state;
   const perms = { add: canDo(currentUser,'canAdd'), edit: canDo(currentUser,'canEdit'), del: canDo(currentUser,'canDelete') };
 
-  const storedInv = ((db.invoices?.length || state.appSettings?.dataWiped) ? (db.invoices || []) : SEED).map(normalizeInvoice);
-  const storedRec = (db.arReceipts?.length || state.appSettings?.dataWiped) ? (db.arReceipts || []) : SEED_RECEIPTS;
+  const storedInv = (db.invoices || []).map(normalizeInvoice);
+  const storedRec = db.arReceipts || [];
   const [invoices, setInvoices] = useState(storedInv);
   const [receipts, setReceipts] = useState(storedRec);
 
@@ -268,6 +265,8 @@ export default function AccountsReceivable() {
   const [projects] = useState(() => getProjects().filter(p=>p.status==='Active'));
 
   const save = (newInv, newRec = receipts) => {
+    diffAndPush('invoices', invoices, newInv);     // 2026-07-29 full-app sync sweep
+    diffAndPush('arReceipts', receipts, newRec);
     setInvoices(newInv); setReceipts(newRec);
     dispatch({ type:'UPDATE_MODULE', mod:'invoices', data: newInv });
     dispatch({ type:'UPDATE_MODULE', mod:'arReceipts', data: newRec });

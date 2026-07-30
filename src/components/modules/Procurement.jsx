@@ -10,6 +10,10 @@ import { showToast, formatDate } from '../../utils/helpers';
 import { printHeader, PRINT_CSS } from '../../utils/logo';
 import { getVendors } from '../../utils/vendorMaster';
 import { initApproval, applyDecision, canApproveAtCurrentLevel, approvalSummary } from '../../utils/approvalEngine';
+import { diffAndPush } from '../../hooks/usePerRecordSync';
+
+// listName ('rfqs'|'pos'|'waybills'|'invoices') → RECORD_TABLES key, used by save() below.
+const PROC_TABLE_BY_LIST = { rfqs: 'procurementRfqs', pos: 'procurementPos', waybills: 'procurementWaybills', invoices: 'procurementInvoices' };
 
 const fmt = n => '₦' + (Number(n) || 0).toLocaleString('en-NG', { minimumFractionDigits: 0 });
 
@@ -74,16 +78,14 @@ function getPOStatus(po, waybills, invoices) {
   return 'Partial';
 }
 
-// ── Seed data ─────────────────────────────────────────────────────────────
-// Emptied 2026-07-28 — held a complete fabricated procurement chain: two RFQs,
-// a ₦2,687,500 purchase order pre-marked "Approved" by a named approver, a
-// waybill recording a part-delivery, and a ₦2,085,500 supplier invoice. Because
-// these were linked end to end (rfqId → poId → waybillId), they presented as a
-// fully audited paper trail for a purchase that never happened.
-//
-// Keys must stay — the module destructures SEED.rfqs / .pos / .waybills /
-// .invoices directly. Empty arrays, never rows.
-const SEED = {
+// ── Empty default shape ──────────────────────────────────────────────────
+// 2026-07-29 — renamed from SEED and stripped of the fabricated procurement
+// chain it used to hold (two RFQs, an "Approved" PO, a waybill, and an
+// invoice, all linked end to end to look like a fully audited real
+// purchase — emptied 2026-07-28, see App.jsx boot-sequence note). Keys must
+// stay — the module destructures EMPTY_PROC.rfqs / .pos / .waybills /
+// .invoices directly — but there must never be rows in them again.
+const EMPTY_PROC = {
   rfqs: [], pos: [], waybills: [], invoices: [],
 };
 
@@ -888,7 +890,7 @@ export default function Procurement({ onNav }) {
       return central;
     }
     // Deliberately wiped (Backup → Wipe All Data) → an empty central store
-    // means empty, full stop. Don't fall through to the legacy key or SEED.
+    // means empty, full stop. Don't fall through to the legacy key.
     if (state.appSettings?.dataWiped) return central || { rfqs: [], pos: [], waybills: [], invoices: [] };
     const legacy = loadProc();
     if (legacy) {
@@ -898,10 +900,10 @@ export default function Procurement({ onNav }) {
     return null;
   }
   const saved = loadInitial();
-  const [rfqs,      setRfqs]      = useState(saved?.rfqs      || SEED.rfqs);
-  const [pos,       setPos]       = useState(saved?.pos       || SEED.pos);
-  const [waybills,  setWaybills]  = useState(saved?.waybills  || SEED.waybills);
-  const [invoices,  setInvoices]  = useState(saved?.invoices  || SEED.invoices);
+  const [rfqs,      setRfqs]      = useState(saved?.rfqs      || EMPTY_PROC.rfqs);
+  const [pos,       setPos]       = useState(saved?.pos       || EMPTY_PROC.pos);
+  const [waybills,  setWaybills]  = useState(saved?.waybills  || EMPTY_PROC.waybills);
+  const [invoices,  setInvoices]  = useState(saved?.invoices  || EMPTY_PROC.invoices);
 
   // Pick up changes that arrive from another device (initial cloud load
   // finishing after this component already mounted, or a live realtime
@@ -924,6 +926,13 @@ export default function Procurement({ onNav }) {
   }, [dispatch]);
 
   function save(setFn, listName, newList) {
+    // Per-record push — 2026-07-29 full-app sync sweep. `listName` tells us
+    // exactly which of the four sub-collections changed and what its prior
+    // list was, so this pushes only the changed/added/removed records
+    // instead of the whole procurement blob.
+    const prevByList = { rfqs, pos, waybills, invoices };
+    const table = PROC_TABLE_BY_LIST[listName];
+    if (table) diffAndPush(table, prevByList[listName], newList);
     setFn(newList);
     // CRITICAL FIX: previously `next` was built from render-closure values
     // of rfqs/pos/waybills/invoices — captured ONCE per render. Two rapid

@@ -10,6 +10,7 @@ import { journalFromInvoice, journalFromReceipt, journalFromAPBill, journalFromA
 import { periodOf, isPeriodClosed, isYearClosed } from "../../utils/periods";
 import { mergeCOA } from "../../utils/chartOfAccounts";
 import { FG } from "../ui";
+import { diffAndPush } from "../../hooks/usePerRecordSync";
 
 // ════════════════════════════════════════════════════════════════════
 // SLOT ENGINEERING — ACCOUNTING MODULE v3.0
@@ -151,30 +152,18 @@ function maskAcctName(name) {
 // dropped; the detailed versions, which glPosting.js's depreciation
 // postings depend on, were kept). See DEFAULT_COA import above.
 
-// ── Seed journal entries ───────────────────────────────────────────
-// Emptied 2026-07-28 — held twelve fabricated journal entries posting roughly
-// ₦120m of invented revenue, payroll and bank movement into the General Ledger,
-// including named customers (NLNG, Renaissance Africa) and specific invoice
-// references. These are double-entry postings: had they ever reached the
-// ledger they would have flowed straight through the Trial Balance, P&L and
-// Balance Sheet as real financial results.
-const SEED_JOURNALS = [];
-
-// Emptied 2026-07-28 — held six fabricated fixed assets totalling ~₦56.4m of
-// invented cost and ~₦26.6m of invented accumulated depreciation.
-const SEED_ASSETS = [];
-
-// Emptied 2026-07-28 — held seven fabricated bank statement lines, several
-// pre-marked "reconciled", inventing ~₦52m of bank movement.
-const SEED_BANK_STMT = [];
-
-// Emptied 2026-07-28 — held two fabricated withholding tax entries with
-// invented TINs and vendor names. Tax records must never be invented.
-const SEED_WHT = [];
-
-// Emptied 2026-07-28 — held ₦16.5m/month of invented departmental budgets,
-// which fed Budget vs Actual reporting as though they were approved figures.
-const SEED_BUDGETS = [];
+// ── Seed data — REMOVED PERMANENTLY, 2026-07-29 ─────────────────────────────
+// This module used to carry five SEED_* constants (journals, fixed assets,
+// bank statement lines, WHT entries, budgets) as fallback data whenever the
+// real store was empty. All five had already been emptied on 2026-07-28
+// after fabricated figures (invented revenue/payroll postings, invented
+// asset costs, invented bank movement, invented TINs, invented budgets — see
+// App.jsx's boot-sequence note for the incident this caused) reached the
+// live Trial Balance, P&L and Balance Sheet. The constants and every
+// `saved?.field || SEED_X` fallback that read them are now deleted outright
+// rather than left as empty arrays — an empty fallback sitting next to a
+// live data path is exactly what got "helpfully" refilled last time. Do not
+// reintroduce this pattern.
 
 // ════════════════════════════════════════════════════════════════════
 // DESIGN SYSTEM (matches App.jsx exactly)
@@ -202,7 +191,14 @@ const Inp=({label,error,...p})=>(<div style={{display:"flex",flexDirection:"colu
 const Sel=({label,options,...p})=>(<div style={{display:"flex",flexDirection:"column",gap:3}}>{label&&<label style={{fontSize:11,color:C.textMid,fontWeight:600}}>{label}</label>}<select {...p} style={{borderRadius:7,border:`1px solid ${C.border}`,padding:"7px 10px",fontSize:13,background:C.bgCard,color:C.text,width:"100%",boxSizing:"border-box",...p.style}}>{options.map(o=><option key={o.value||o} value={o.value||o}>{o.label||o}</option>)}</select></div>);
 const Tbl=({cols,rows,onRow,emptyMsg="No records.",compact})=>(<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:compact?12:13}}><thead><tr style={{background:C.tableHeaderBg}}>{cols.map(c=><th key={c.key} style={{textAlign:c.align||"left",padding:compact?"7px 8px":"9px 10px",fontSize:10.5,fontWeight:700,color:C.tableHeaderText,whiteSpace:"nowrap",letterSpacing:"0.4px",textTransform:"uppercase"}}>{c.label}</th>)}</tr></thead><tbody>{rows.length===0&&<tr><td colSpan={cols.length} style={{textAlign:"center",padding:32,color:C.textMuted}}>{emptyMsg}</td></tr>}{rows.map((r,i)=>(<tr key={r.id||i} onClick={()=>onRow&&onRow(r)} style={{borderBottom:`1px solid ${C.borderLight}`,cursor:onRow?"pointer":"default",background:i%2===1?C.greenPale2:"transparent"}} onMouseEnter={e=>{if(onRow)e.currentTarget.style.background=C.greenPale;}} onMouseLeave={e=>{e.currentTarget.style.background=i%2===1?C.greenPale2:"transparent";}}>{cols.map(c=><td key={c.key} style={{padding:compact?"7px 8px":"9px 10px",textAlign:c.align||"left",whiteSpace:c.wrap?"normal":"nowrap",maxWidth:c.maxW||"none"}}>{c.render?c.render(r):r[c.key]}</td>)}</tr>))}</tbody></table></div>);
 const Modal=({title,onClose,children,wide,xl})=>(<div style={{position:"fixed",inset:0,zIndex:9999,background:"rgba(10,35,15,0.6)",display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"28px 16px",overflowY:"auto",backdropFilter:"blur(3px)"}}><div style={{background:C.bgCard,borderRadius:14,width:"100%",maxWidth:xl?1000:wide?740:560,padding:"1.5rem",boxShadow:"0 24px 80px rgba(0,0,0,0.30)",boxSizing:"border-box",marginBottom:28}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18,paddingBottom:14,borderBottom:`1px solid ${C.borderLight}`}}><h3 style={{margin:0,fontSize:16,fontWeight:700,color:C.text}}>{title}</h3><button onClick={onClose} style={{background:"none",border:"none",cursor:"pointer",fontSize:24,color:C.textMuted,lineHeight:1}}>&times;</button></div>{children}</div></div>);
-const Tabs=({tabs,active,onChange,sm})=>(<div style={{display:"flex",gap:0,borderBottom:`2px solid ${C.borderLight}`,marginBottom:16,overflowX:"auto",flexShrink:0}}>{tabs.map(t=>(<button key={t.id} onClick={()=>onChange(t.id)} style={{padding:sm?"8px 12px":"10px 16px",fontSize:sm?12:13,background:"none",border:"none",cursor:"pointer",color:active===t.id?C.green:C.textMuted,borderBottom:active===t.id?`2px solid ${C.green}`:"2px solid transparent",fontWeight:active===t.id?700:400,whiteSpace:"nowrap",marginBottom:-2}}>{t.label}</button>))}</div>);
+// 2026-07-29: was a single non-wrapping row with overflowX:"auto", which
+// forced horizontal scrolling once Accounting grew past ~8 tabs (14 now).
+// flexWrap lets it spill onto a second/third row instead — no tab is ever
+// off-screen or behind a scrollbar. The per-button marginBottom:-2 hack
+// (flush-aligning each tab's underline against the container's bottom
+// border) only works for a single row, so it's gone; a small row-gap
+// replaces it to keep wrapped rows from visually colliding.
+const Tabs=({tabs,active,onChange,sm})=>(<div style={{display:"flex",flexWrap:"wrap",gap:"4px 0",borderBottom:`2px solid ${C.borderLight}`,marginBottom:16,flexShrink:0}}>{tabs.map(t=>(<button key={t.id} onClick={()=>onChange(t.id)} style={{padding:sm?"8px 12px":"10px 16px",fontSize:sm?12:13,background:"none",border:"none",cursor:"pointer",color:active===t.id?C.green:C.textMuted,borderBottom:active===t.id?`2px solid ${C.green}`:"2px solid transparent",fontWeight:active===t.id?700:400,whiteSpace:"nowrap"}}>{t.label}</button>))}</div>);
 const Alert=({type="info",children,style={}})=>{const M={info:{bg:C.greenPale,b:C.greenLight,t:C.green},warning:{bg:C.amberPale,b:C.amberLight,t:C.amber},danger:{bg:"#FDEDEC",b:"#E07070",t:C.danger}};const s=M[type]||M.info;return(<div style={{background:s.bg,border:`1px solid ${s.b}`,borderLeft:`4px solid ${s.b}`,borderRadius:8,padding:"9px 14px",fontSize:12,color:s.t,...style}}>{children}</div>);};
 const Divider=({label})=>(<div style={{display:"flex",alignItems:"center",gap:10,margin:"12px 0"}}>{label&&<span style={{fontSize:10,fontWeight:700,color:C.textMuted,whiteSpace:"nowrap",textTransform:"uppercase",letterSpacing:"0.5px"}}>{label}</span>}<div style={{flex:1,height:1,background:C.borderLight}}/></div>);
 
@@ -676,6 +672,7 @@ function JournalTab({journals,setJournals,coa,filter,setFilter,sourceFilter,setS
   const templates = (db.recurringTemplates || []).filter(t => !t.voided);
 
   function persistTemplates(next) {
+    diffAndPush('recurringTemplates', db.recurringTemplates, next); // 2026-07-29 full-app sync sweep
     dispatch({ type:'UPDATE_MODULE', mod:'recurringTemplates', data: next });
     saveDBLocal({ ...db, recurringTemplates: next }, state.activity);
   }
@@ -2854,7 +2851,8 @@ export default function Accounting({data,setData}){
     const central = appState?.acctData;
     if (central?.journals?.length || central?.coa?.length) return central;
     // Deliberately wiped (Backup → Wipe All Data) → empty means empty; don't
-    // fall through to the legacy key or the individual SEED_* fallbacks below.
+    // fall through to the legacy 'slot_acct' migration below and risk
+    // resurrecting whatever was in that old key pre-wipe.
     if (appState?.appSettings?.dataWiped) return central || { journals:[], coa:[], bankStmt:[], vatAdj:[], whtEntries:[], assets:[] };
     try {
       const raw = localStorage.getItem('slot_acct');
@@ -2865,17 +2863,17 @@ export default function Accounting({data,setData}){
 
   const saved = loadAcct();
   const [tab,setTab]=useState(() => getDeepLinkTab('accounting', 'overview'));
-  const [journals,setJournals]=useState(saved?.journals || SEED_JOURNALS);
+  const [journals,setJournals]=useState(saved?.journals || []);
   // 2026-07-28: was `saved?.coa || DEFAULT_COA`, which froze the chart of
   // accounts into each browser on first run and never refreshed it — two users
   // on the same build saw different balances. mergeCOA() rebuilds it from
   // chartOfAccounts.js on every load while keeping any accounts a user added
   // themselves. See the long note above mergeCOA for why.
   const [coa,setCoa]=useState(()=>mergeCOA(saved?.coa));
-  const [bankStmt,setBankStmt]=useState(saved?.bankStmt || SEED_BANK_STMT);
+  const [bankStmt,setBankStmt]=useState(saved?.bankStmt || []);
   const [vatAdj,setVatAdj]=useState(saved?.vatAdj || []);
-  const [whtEntries,setWhtEntries]=useState(saved?.whtEntries || SEED_WHT);
-  const [assets,setAssets]=useState(saved?.assets || SEED_ASSETS);
+  const [whtEntries,setWhtEntries]=useState(saved?.whtEntries || []);
+  const [assets,setAssets]=useState(saved?.assets || []);
   const [jFilter,setJFilter]=useState("");
   const [jSource,setJSource]=useState("");
 

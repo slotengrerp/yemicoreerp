@@ -13,6 +13,14 @@ import { showToast, generateId, formatDate } from '../../utils/helpers';
 import { saveDBLocal } from '../../utils/db';
 import { logActivity }  from '../../utils/audit';
 import { printHeader }  from '../../utils/logo';
+import { diffAndPush } from '../../hooks/usePerRecordSync';
+
+// terminal sub-collection name → RECORD_TABLES key, used by persist() below.
+const TERMINAL_TABLE_BY_SECTION = {
+  containers: 'terminalContainers', bols: 'terminalBols', charges: 'terminalCharges',
+  logistics: 'terminalLogistics', advances: 'terminalAdvances',
+  consignees: 'terminalConsignees', shippingCompanies: 'terminalShippingCompanies',
+};
 
 // ── Status pipeline ────────────────────────────────────────────────────────────
 const STATUS_STAGES = ['Arrived','Transit Applied','Received in W/H','Under Exam','Released'];
@@ -55,10 +63,12 @@ function LBL({ t, full, children }) {
 // placeholders added during the 2026-07-25 Bill of Lading upgrade, not SLOT's
 // own master data, so they go too.
 //
-// The KEYS must stay — TerminalOps reads termData.containers, .charges, .bols
-// and so on directly, and a missing key would throw rather than show an empty
-// tab. Empty arrays, never rows.
-const SEED = {
+// 2026-07-29 — renamed from SEED: this holds no demo content and never
+// should again (see App.jsx boot-sequence note on why a "SEED" fallback
+// sitting next to a live data path is dangerous). It only exists because
+// TerminalOps reads termData.containers, .charges, .bols and so on directly,
+// and a missing key would throw rather than show an empty tab.
+const EMPTY_TERMINAL_DATA = {
   bols: [], containers: [], charges: [], logistics: [],
   advances: [], consignees: [], shippingCompanies: [],
 };
@@ -251,7 +261,7 @@ export default function TerminalOps({ onNav }) {
   const {C}=useTheme();
   const {currentUser,db}=state;
 
-  const termData=useMemo(()=>(db.terminal&&!Array.isArray(db.terminal))?db.terminal:SEED,[db.terminal]);
+  const termData=useMemo(()=>(db.terminal&&!Array.isArray(db.terminal))?db.terminal:EMPTY_TERMINAL_DATA,[db.terminal]);
   const containers=(termData.containers||[]).filter(c=>!c.voided);
   const bols      =(termData.bols||[]).filter(b=>!b.voided);
   const charges   =(termData.charges||[]).filter(c=>!c.voided);
@@ -273,6 +283,13 @@ export default function TerminalOps({ onNav }) {
   const perms={add:canDo(currentUser,'canAdd','terminal',state.appSettings),edit:canDo(currentUser,'canEdit','terminal',state.appSettings),del:canDo(currentUser,'canDelete','terminal',state.appSettings)};
 
   function persist(next) {
+    // Per-record push — 2026-07-29 full-app sync sweep. Every terminal
+    // mutation (deleteItem/saveItem/saveBoLWithContainers) funnels through
+    // here, so diffing all 7 sub-collections once in this one place covers
+    // every caller — no need to touch each of them individually.
+    for (const [section, table] of Object.entries(TERMINAL_TABLE_BY_SECTION)) {
+      if (termData[section] !== next[section]) diffAndPush(table, termData[section], next[section]);
+    }
     dispatch({type:'UPDATE_MODULE',mod:'terminal',data:next});
     saveDBLocal({...db,terminal:next},state.activity);
   }
@@ -411,7 +428,7 @@ export default function TerminalOps({ onNav }) {
   const totalCharges=charges.reduce((s,c)=>s+(Number(c.totalAmount)||0),0);
   const heldCount=containers.filter(c=>c.status==='Held').length;
 
-  const tabBtn=k=>({padding:'9px 16px',fontSize:12,background:'none',border:'none',cursor:'pointer',color:tab===k?C.green:C.textMuted,borderBottom:tab===k?'2px solid '+C.green:'2px solid transparent',fontWeight:tab===k?700:400,whiteSpace:'nowrap',marginBottom:-2});
+  const tabBtn=k=>({padding:'9px 16px',fontSize:12,background:'none',border:'none',cursor:'pointer',color:tab===k?C.green:C.textMuted,borderBottom:tab===k?'2px solid '+C.green:'2px solid transparent',fontWeight:tab===k?700:400,whiteSpace:'nowrap'});
   const th={padding:'9px 10px',textAlign:'left',fontSize:10.5,fontWeight:700,color:C.tableHeaderText||C.textMid,textTransform:'uppercase',letterSpacing:'.4px',whiteSpace:'nowrap',background:C.tableHeaderBg||C.greenPale,borderBottom:'2px solid '+C.border};
   const td=i=>({padding:'9px 10px',borderBottom:'1px solid '+C.borderLight,color:C.text,fontSize:12.5,background:i%2===1?C.greenPale2:'transparent'});
   const inpSt={flex:1,minWidth:200,padding:'7px 11px',borderRadius:7,border:'1px solid '+C.border,background:C.bgCard,color:C.text,fontSize:13,outline:'none'};
@@ -449,7 +466,7 @@ export default function TerminalOps({ onNav }) {
           <div style={{fontSize:11,color:'rgba(255,255,255,0.6)',marginTop:2}}>Slot Terminal (clearing agent) · Floping Logistics (transit records) · linked by Container No</div>
         </div>
 
-        <div style={{display:'flex',borderBottom:'2px solid '+C.borderLight,padding:'0 20px',overflowX:'auto'}}>
+        <div style={{display:'flex',flexWrap:'wrap',gap:'4px 0',borderBottom:'2px solid '+C.borderLight,padding:'0 20px'}}>
           {TABS.map(t=><button key={t.key} onClick={()=>{setTab(t.key);setSearch('');setContainerFilter('');}} style={tabBtn(t.key)}>{t.label}</button>)}
         </div>
 

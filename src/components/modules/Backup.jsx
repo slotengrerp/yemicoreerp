@@ -275,14 +275,17 @@ export default function Backup() {
       // 2) Write seed version gate — without this, the app re-seeds
       localStorage.setItem('slot_seed_version', 'slot-seed-v3');
 
-      // 2b) Mark this install as deliberately wiped. Every module's "no data
-      // yet → show demo records" fallback (Procurement, FleetMaintenance,
-      // PettyCash, Requests, SalesOrders, AccountsReceivable, Invoices,
-      // FixedAssets, Accounting) checks this before falling back to its
-      // inline SEED constant — without it, an empty array after a wipe
-      // looks identical to an empty array on a brand-new install, and the
-      // demo data floods right back in even though bc_db/bc_accounting are
-      // correctly emptied below.
+      // 2b) Mark this install as deliberately wiped. Historically this let
+      // each module's "no data yet" fallback tell a deliberate wipe apart
+      // from a brand-new install before deciding whether to show demo
+      // records. As of 2026-07-29 every one of those inline SEED constants
+      // (Procurement, FleetMaintenance, PettyCash, Requests, SalesOrders,
+      // AccountsReceivable, Invoices, FixedAssets, Accounting) has been
+      // deleted outright — the fallback is always an empty array/object now,
+      // wiped or not. This flag is kept for the few remaining call sites
+      // that still read it (e.g. FleetMaintenance's migrateFleet) and as a
+      // clear on/off record of the last wipe, but it no longer gates any
+      // demo-data path, because none exists to gate.
       localStorage.setItem(WIPE_FLAG_KEY, '1');
       const wipedSettings = { ...appSettings, dataWiped: true };
 

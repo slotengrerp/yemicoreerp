@@ -31,6 +31,7 @@ import { printHeader, PRINT_CSS, SLOT_LOGO_SRC } from '../../utils/logo';
 import { getClients, getClientByCode } from '../../utils/clientMaster';
 import { getVendors, getVendorByCode } from '../../utils/vendorMaster';
 import { BANK_ACCOUNTS } from '../../utils/financeConstants';
+import { diffAndPush, pushOne } from '../../hooks/usePerRecordSync';
 
 // Tier 2 features (6 additional tabs)
 import {
@@ -747,6 +748,7 @@ function CreditNotesTab({ state, dispatch, inp }) {
     .reduce((s, cn) => s + (Number(cn.amount) || 0), 0);
 
   function saveCreditNotes(list) {
+    diffAndPush('creditNotes', creditNotes, list); // 2026-07-29 full-app sync sweep
     const newDb = { ...db, creditNotes: list };
     dispatch({ type:'UPDATE_MODULE', mod:'creditNotes', data: list });
     saveDBLocal(newDb, state.activity);
@@ -1694,6 +1696,7 @@ function BatchPaymentTab({ state, dispatch, inp }) {
   }, 0);
 
   function saveBatches(list) {
+    diffAndPush('paymentBatches', batches, list); // 2026-07-29 full-app sync sweep
     const newDb = { ...db, paymentBatches: list };
     dispatch({ type:'UPDATE_MODULE', mod:'paymentBatches', data: list });
     saveDBLocal(newDb, state.activity);
@@ -1752,6 +1755,8 @@ function BatchPaymentTab({ state, dispatch, inp }) {
       bills: updatedBills,
       payments: [...(apData.payments || []), ...newPayments],
     };
+    diffAndPush('apBills', apData.bills, updatedBills); // 2026-07-29 full-app sync sweep
+    newPayments.forEach(p => pushOne('apPayments', p)); // new rows only, no diff needed
     dispatch({ type:'UPDATE_MODULE', mod:'ap', data: newAp });
     saveDBLocal({ ...db, ap: newAp }, state.activity);
 

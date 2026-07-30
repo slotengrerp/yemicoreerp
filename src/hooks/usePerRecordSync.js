@@ -18,7 +18,7 @@
 import { useEffect, useRef } from 'react';
 import {
   loadAll, loadAppSettings, loadJournals, loadActivity,
-  saveRecord, saveAppSettings, postJournalEntry, logActivityServer,
+  saveRecord, deleteRecord, saveAppSettings, postJournalEntry, logActivityServer,
   backfillFromBlob, backfillAccountingData, saveAttachment, subscribePerRecord,
   RECORD_TABLES,
 } from '../supabase/syncPerRecord';
@@ -40,6 +40,29 @@ function getRecordList(db, key) {
     case 'stockItems':         return db?.stockItems         || [];
     case 'stockMovements':     return db?.stockMovements     || [];
     case 'salesOrders':        return db?.salesOrders        || [];
+    // FIX 2026-07-29: kept in sync with syncPerRecord.getRecordList — see the
+    // comment there. apBills/apPayments live at db.ap.{bills,payments}, not
+    // flat top-level keys; procurement sub-collections live at
+    // db.procurement.{rfqs,pos,waybills,invoices}. Without these cases this
+    // hook's own initial-load path would silently treat them as empty.
+    case 'apBills':          return db?.ap?.bills    || [];
+    case 'apPayments':       return db?.ap?.payments || [];
+    case 'procurementRfqs':     return db?.procurement?.rfqs     || [];
+    case 'procurementPos':      return db?.procurement?.pos      || [];
+    case 'procurementWaybills': return db?.procurement?.waybills || [];
+    case 'procurementInvoices': return db?.procurement?.invoices || [];
+    // Terminal + Fleet remaining sub-collections — kept in sync with
+    // syncPerRecord.getRecordList, see 015_terminal_fleet_gaps.sql.
+    case 'terminalContainers':    return db?.terminal?.containers      || [];
+    case 'terminalLogistics':     return db?.terminal?.logistics       || [];
+    case 'fleetVehicles':         return db?.fleet?.fleet              || [];
+    case 'fleetServices':         return db?.fleet?.services           || [];
+    case 'fleetMaintLog':         return db?.fleet?.maintLog           || [];
+    case 'fleetBreakdowns':       return db?.fleet?.breakdowns         || [];
+    case 'fleetVehicleRequests':  return db?.fleet?.requests           || [];
+    case 'fleetHandovers':        return db?.fleet?.handovers          || [];
+    case 'fleetFacilitySchedule': return db?.fleet?.facilitySchedule   || [];
+    case 'fleetCalibration':      return db?.fleet?.calibration        || [];
     default:                   return db?.[key] || [];
   }
 }
@@ -175,6 +198,86 @@ export function usePerRecordSync({ state, dispatch }) {
                   ...(db.fleet || {}),
                   repairs: (db.fleet?.repairs || []).filter(r => r.id !== old),
                 }});
+              } else if (key === 'apBills') {
+                dispatch({ type: 'UPDATE_MODULE', mod: 'ap', data: {
+                  ...(db.ap || {}),
+                  bills: (db.ap?.bills || []).filter(r => r.id !== old),
+                }});
+              } else if (key === 'apPayments') {
+                dispatch({ type: 'UPDATE_MODULE', mod: 'ap', data: {
+                  ...(db.ap || {}),
+                  payments: (db.ap?.payments || []).filter(r => r.id !== old),
+                }});
+              } else if (key === 'procurementRfqs') {
+                dispatch({ type: 'UPDATE_MODULE', mod: 'procurement', data: {
+                  ...(db.procurement || {}),
+                  rfqs: (db.procurement?.rfqs || []).filter(r => r.id !== old),
+                }});
+              } else if (key === 'procurementPos') {
+                dispatch({ type: 'UPDATE_MODULE', mod: 'procurement', data: {
+                  ...(db.procurement || {}),
+                  pos: (db.procurement?.pos || []).filter(r => r.id !== old),
+                }});
+              } else if (key === 'procurementWaybills') {
+                dispatch({ type: 'UPDATE_MODULE', mod: 'procurement', data: {
+                  ...(db.procurement || {}),
+                  waybills: (db.procurement?.waybills || []).filter(r => r.id !== old),
+                }});
+              } else if (key === 'procurementInvoices') {
+                dispatch({ type: 'UPDATE_MODULE', mod: 'procurement', data: {
+                  ...(db.procurement || {}),
+                  invoices: (db.procurement?.invoices || []).filter(r => r.id !== old),
+                }});
+              } else if (key === 'terminalContainers') {
+                dispatch({ type: 'UPDATE_MODULE', mod: 'terminal', data: {
+                  ...(db.terminal || {}),
+                  containers: (db.terminal?.containers || []).filter(r => r.id !== old),
+                }});
+              } else if (key === 'terminalLogistics') {
+                dispatch({ type: 'UPDATE_MODULE', mod: 'terminal', data: {
+                  ...(db.terminal || {}),
+                  logistics: (db.terminal?.logistics || []).filter(r => r.id !== old),
+                }});
+              } else if (key === 'fleetVehicles') {
+                dispatch({ type: 'UPDATE_MODULE', mod: 'fleet', data: {
+                  ...(db.fleet || {}),
+                  fleet: (db.fleet?.fleet || []).filter(r => r.id !== old),
+                }});
+              } else if (key === 'fleetServices') {
+                dispatch({ type: 'UPDATE_MODULE', mod: 'fleet', data: {
+                  ...(db.fleet || {}),
+                  services: (db.fleet?.services || []).filter(r => r.id !== old),
+                }});
+              } else if (key === 'fleetMaintLog') {
+                dispatch({ type: 'UPDATE_MODULE', mod: 'fleet', data: {
+                  ...(db.fleet || {}),
+                  maintLog: (db.fleet?.maintLog || []).filter(r => r.id !== old),
+                }});
+              } else if (key === 'fleetBreakdowns') {
+                dispatch({ type: 'UPDATE_MODULE', mod: 'fleet', data: {
+                  ...(db.fleet || {}),
+                  breakdowns: (db.fleet?.breakdowns || []).filter(r => r.id !== old),
+                }});
+              } else if (key === 'fleetVehicleRequests') {
+                dispatch({ type: 'UPDATE_MODULE', mod: 'fleet', data: {
+                  ...(db.fleet || {}),
+                  requests: (db.fleet?.requests || []).filter(r => r.id !== old),
+                }});
+              } else if (key === 'fleetHandovers') {
+                dispatch({ type: 'UPDATE_MODULE', mod: 'fleet', data: {
+                  ...(db.fleet || {}),
+                  handovers: (db.fleet?.handovers || []).filter(r => r.id !== old),
+                }});
+              } else if (key === 'fleetFacilitySchedule') {
+                dispatch({ type: 'UPDATE_MODULE', mod: 'fleet', data: {
+                  ...(db.fleet || {}),
+                  facilitySchedule: (db.fleet?.facilitySchedule || []).filter(r => r.id !== old),
+                }});
+              } else if (key === 'fleetCalibration') {
+                dispatch({ type: 'UPDATE_MODULE', mod: 'fleet', data: {
+                  ...(db.fleet || {}),
+                  calibration: (db.fleet?.calibration || []).filter(r => r.id !== old),
+                }});
               } else {
                 const list = db[key] || [];
                 dispatch({ type: 'UPDATE_MODULE', mod: key, data: list.filter(r => r.id !== old) });
@@ -198,6 +301,54 @@ export function usePerRecordSync({ state, dispatch }) {
               } else if (key === 'fleetRepairs') {
                 const next = [...(db.fleet?.repairs || []).filter(r => r.id !== newRow.id), newRow];
                 dispatch({ type: 'UPDATE_MODULE', mod: 'fleet', data: { ...(db.fleet || {}), repairs: next } });
+              } else if (key === 'apBills') {
+                const next = [...(db.ap?.bills || []).filter(r => r.id !== newRow.id), newRow];
+                dispatch({ type: 'UPDATE_MODULE', mod: 'ap', data: { ...(db.ap || {}), bills: next } });
+              } else if (key === 'apPayments') {
+                const next = [...(db.ap?.payments || []).filter(r => r.id !== newRow.id), newRow];
+                dispatch({ type: 'UPDATE_MODULE', mod: 'ap', data: { ...(db.ap || {}), payments: next } });
+              } else if (key === 'procurementRfqs') {
+                const next = [...(db.procurement?.rfqs || []).filter(r => r.id !== newRow.id), newRow];
+                dispatch({ type: 'UPDATE_MODULE', mod: 'procurement', data: { ...(db.procurement || {}), rfqs: next } });
+              } else if (key === 'procurementPos') {
+                const next = [...(db.procurement?.pos || []).filter(r => r.id !== newRow.id), newRow];
+                dispatch({ type: 'UPDATE_MODULE', mod: 'procurement', data: { ...(db.procurement || {}), pos: next } });
+              } else if (key === 'procurementWaybills') {
+                const next = [...(db.procurement?.waybills || []).filter(r => r.id !== newRow.id), newRow];
+                dispatch({ type: 'UPDATE_MODULE', mod: 'procurement', data: { ...(db.procurement || {}), waybills: next } });
+              } else if (key === 'procurementInvoices') {
+                const next = [...(db.procurement?.invoices || []).filter(r => r.id !== newRow.id), newRow];
+                dispatch({ type: 'UPDATE_MODULE', mod: 'procurement', data: { ...(db.procurement || {}), invoices: next } });
+              } else if (key === 'terminalContainers') {
+                const next = [...(db.terminal?.containers || []).filter(r => r.id !== newRow.id), newRow];
+                dispatch({ type: 'UPDATE_MODULE', mod: 'terminal', data: { ...(db.terminal || {}), containers: next } });
+              } else if (key === 'terminalLogistics') {
+                const next = [...(db.terminal?.logistics || []).filter(r => r.id !== newRow.id), newRow];
+                dispatch({ type: 'UPDATE_MODULE', mod: 'terminal', data: { ...(db.terminal || {}), logistics: next } });
+              } else if (key === 'fleetVehicles') {
+                const next = [...(db.fleet?.fleet || []).filter(r => r.id !== newRow.id), newRow];
+                dispatch({ type: 'UPDATE_MODULE', mod: 'fleet', data: { ...(db.fleet || {}), fleet: next } });
+              } else if (key === 'fleetServices') {
+                const next = [...(db.fleet?.services || []).filter(r => r.id !== newRow.id), newRow];
+                dispatch({ type: 'UPDATE_MODULE', mod: 'fleet', data: { ...(db.fleet || {}), services: next } });
+              } else if (key === 'fleetMaintLog') {
+                const next = [...(db.fleet?.maintLog || []).filter(r => r.id !== newRow.id), newRow];
+                dispatch({ type: 'UPDATE_MODULE', mod: 'fleet', data: { ...(db.fleet || {}), maintLog: next } });
+              } else if (key === 'fleetBreakdowns') {
+                const next = [...(db.fleet?.breakdowns || []).filter(r => r.id !== newRow.id), newRow];
+                dispatch({ type: 'UPDATE_MODULE', mod: 'fleet', data: { ...(db.fleet || {}), breakdowns: next } });
+              } else if (key === 'fleetVehicleRequests') {
+                const next = [...(db.fleet?.requests || []).filter(r => r.id !== newRow.id), newRow];
+                dispatch({ type: 'UPDATE_MODULE', mod: 'fleet', data: { ...(db.fleet || {}), requests: next } });
+              } else if (key === 'fleetHandovers') {
+                const next = [...(db.fleet?.handovers || []).filter(r => r.id !== newRow.id), newRow];
+                dispatch({ type: 'UPDATE_MODULE', mod: 'fleet', data: { ...(db.fleet || {}), handovers: next } });
+              } else if (key === 'fleetFacilitySchedule') {
+                const next = [...(db.fleet?.facilitySchedule || []).filter(r => r.id !== newRow.id), newRow];
+                dispatch({ type: 'UPDATE_MODULE', mod: 'fleet', data: { ...(db.fleet || {}), facilitySchedule: next } });
+              } else if (key === 'fleetCalibration') {
+                const next = [...(db.fleet?.calibration || []).filter(r => r.id !== newRow.id), newRow];
+                dispatch({ type: 'UPDATE_MODULE', mod: 'fleet', data: { ...(db.fleet || {}), calibration: next } });
               } else {
                 const next = [...(db[key] || []).filter(r => r.id !== newRow.id), newRow];
                 dispatch({ type: 'UPDATE_MODULE', mod: key, data: next });
@@ -283,9 +434,42 @@ export async function pushOne(table, record) {
   return saveRecord(table, record);
 }
 
+// `pushDelete(table, id)` — hard-delete a single record. Only meaningful for
+// NO_VOID_TABLES (standing reference data — vendors/clients/projects/staff);
+// transactional tables should void via pushOne(table, {...record, voided:true})
+// instead, never delete.
+export async function pushDelete(table, id) {
+  if (!USE_PER_RECORD || !supabaseReady) return { ok: false, reason: 'per-record-sync-disabled' };
+  return deleteRecord(table, id);
+}
+
 export async function pushAll(db) {
   if (!USE_PER_RECORD || !supabaseReady) return { ok: false, reason: 'per-record-sync-disabled' };
   return backfillFromBlob(db);
+}
+
+// `diffAndPush(table, prevList, nextList)` — added 2026-07-29 as part of the
+// full-app per-record wiring sweep. Every module's save/persist function
+// has the same shape: it knows the list BEFORE the edit (component state,
+// or db[key] read at the top of the function) and the list AFTER. Rather
+// than hand-writing the same Map/Set diff in 15+ files (the way
+// ContractStaff.jsx/SlotStaff.jsx originally did for staff), call this once
+// from each module's save choke point. It pushes only what actually
+// changed — added or edited records via pushOne, removed records via
+// pushDelete — never the whole list. Fire-and-forget, same contract as
+// pushOne/pushDelete (never throws/rejects; resolves quietly on failure).
+export function diffAndPush(table, prevList, nextList) {
+  if (!USE_PER_RECORD || !supabaseReady) return;
+  const prevById = new Map((prevList || []).filter(Boolean).map(r => [r.id, r]));
+  const next = (nextList || []).filter(Boolean);
+  const nextIds = new Set(next.map(r => r.id));
+  for (const rec of next) {
+    const prev = prevById.get(rec.id);
+    if (!prev || JSON.stringify(prev) !== JSON.stringify(rec)) pushOne(table, rec);
+  }
+  for (const id of prevById.keys()) {
+    if (!nextIds.has(id)) pushDelete(table, id);
+  }
 }
 
 export async function pushSettings(settings) {

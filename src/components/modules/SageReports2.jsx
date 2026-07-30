@@ -25,6 +25,7 @@ import { logActivity }  from '../../utils/audit';
 import { printHeader, PRINT_CSS } from '../../utils/logo';
 import { getClients, getClientByCode } from '../../utils/clientMaster';
 import { BANK_ACCOUNTS } from '../../utils/financeConstants';
+import { diffAndPush, pushOne } from '../../hooks/usePerRecordSync';
 
 const uid   = () => generateId();
 const today = () => new Date().toISOString().split('T')[0];
@@ -154,6 +155,7 @@ function RecurringInvoicesTab({ state, dispatch, inp }) {
   });
 
   function saveRecurring(list) {
+    diffAndPush('recurringInvoices', recurring, list); // 2026-07-29 full-app sync sweep
     const newDb = { ...db, recurringInvoices: list };
     dispatch({ type:'UPDATE_MODULE', mod:'recurringInvoices', data: list });
     saveDBLocal(newDb, state.activity);
@@ -231,10 +233,13 @@ function RecurringInvoicesTab({ state, dispatch, inp }) {
     };
     // Save invoice
     const newInvoices = [newInv, ...invoices];
+    pushOne('invoices', newInv); // 2026-07-29 full-app sync sweep — one new record
     dispatch({ type:'UPDATE_MODULE', mod:'invoices', data: newInvoices });
     // Update template: lastGenerated = today, nextDue = next period
     const nextDue = computeNextDue(todayDate, tpl.frequency);
-    const updatedTpls = recurring.map(t => t.id === tpl.id ? { ...t, lastGenerated: todayDate, nextDue } : t);
+    const updatedTpl = { ...tpl, lastGenerated: todayDate, nextDue };
+    const updatedTpls = recurring.map(t => t.id === tpl.id ? updatedTpl : t);
+    pushOne('recurringInvoices', updatedTpl); // one edited record
     const newDb = { ...db, invoices: newInvoices, recurringInvoices: updatedTpls };
     saveDBLocal(newDb, state.activity);
     logActivity(dispatch, `Recurring invoice ${nextNo} generated from template ${tpl.tplNo} for ${tpl.clientName} — ${fmt(netPayable)}`, currentUser);
@@ -478,6 +483,10 @@ function BankReconciliationTab({ state, dispatch, inp }) {
     };
     const recList = [recon, ...(db.bankReconciliations || [])];
     const finalDb = { ...newDb, bankReconciliations: recList };
+    // Per-record push — 2026-07-29 full-app sync sweep.
+    diffAndPush('arReceipts', db.arReceipts, newReceipts);
+    diffAndPush('apPayments', db.ap?.payments, newPayments);
+    pushOne('bankReconciliations', recon); // one new record
     dispatch({ type:'UPDATE_MODULE', mod:'arReceipts', data: newReceipts });
     dispatch({ type:'UPDATE_MODULE', mod:'ap', data: newAp });
     dispatch({ type:'UPDATE_MODULE', mod:'bankReconciliations', data: recList });
@@ -597,6 +606,7 @@ function PrepaymentsAccrualsTab({ state, dispatch, inp }) {
   });
 
   function savePrepay(list) {
+    diffAndPush('prepayAccruals', prepayAccruals, list); // 2026-07-29 full-app sync sweep
     const newDb = { ...db, prepayAccruals: list };
     dispatch({ type:'UPDATE_MODULE', mod:'prepayAccruals', data: list });
     saveDBLocal(newDb, state.activity);
@@ -955,6 +965,8 @@ function AssetDisposalTab({ state, dispatch, inp }) {
     // Save disposal record
     const newDisposals = [disp, ...disposals];
     const newDb = { ...db, fixedassets: newAssets, assetDisposals: newDisposals };
+    diffAndPush('fixedassets', assets, newAssets); // 2026-07-29 full-app sync sweep
+    pushOne('assetDisposals', disp); // one new record
     dispatch({ type:'UPDATE_MODULE', mod:'fixedassets', data: newAssets });
     dispatch({ type:'UPDATE_MODULE', mod:'assetDisposals', data: newDisposals });
     saveDBLocal(newDb, state.activity);
@@ -1145,6 +1157,7 @@ function BudgetVsActualTab({ state, dispatch, inp }) {
   }, [journals, coa, budgetYear]);
 
   function saveBudgets(list) {
+    diffAndPush('budgets', budgets, list); // 2026-07-29 full-app sync sweep
     const newDb = { ...db, budgets: list };
     dispatch({ type:'UPDATE_MODULE', mod:'budgets', data: list });
     saveDBLocal(newDb, state.activity);
@@ -1385,6 +1398,7 @@ function StockTakeTab({ state, dispatch, inp }) {
   }
 
   function saveStockTakes(list) {
+    diffAndPush('stockTakes', stockTakes, list); // 2026-07-29 full-app sync sweep
     const newDb = { ...db, stockTakes: list };
     dispatch({ type:'UPDATE_MODULE', mod:'stockTakes', data: list });
     saveDBLocal(newDb, state.activity);
@@ -1470,6 +1484,8 @@ function StockTakeTab({ state, dispatch, inp }) {
       stockTakes: [st, ...stockTakes],
       stockMovements: updatedMovements,
     };
+    pushOne('stockTakes', st); // 2026-07-29 full-app sync sweep — one new record
+    diffAndPush('stockMovements', stockMovements, updatedMovements);
     dispatch({ type:'UPDATE_MODULE', mod:'stockTakes', data: [st, ...stockTakes] });
     dispatch({ type:'UPDATE_MODULE', mod:'stockMovements', data: updatedMovements });
     saveDBLocal(newDb, state.activity);

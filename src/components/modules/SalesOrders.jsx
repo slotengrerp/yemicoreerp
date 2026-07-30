@@ -16,6 +16,7 @@ import { saveDBLocal } from '../../utils/db';
 import { logActivity }  from '../../utils/audit';
 import { getClients } from '../../utils/clientMaster';
 import { getProjects } from '../../utils/projectMaster';
+import { diffAndPush, pushOne } from '../../hooks/usePerRecordSync';
 import { Btn, Tag, Card, FG, SearchBar, TabBar, EmptyState, Confirm, StatCard, AttachmentUploader } from '../ui';
 import { printHeader, PRINT_CSS } from '../../utils/logo';
 
@@ -29,10 +30,9 @@ const STATUS_COLOR = {
   'Cancelled':          { color: '#C0392B', bg: 'rgba(192,57,43,.12)' },
 };
 
-// Emptied 2026-07-28 — held three fabricated sales orders (~₦24m plus a USD
-// one) against real customer names, two carrying invented invoicedQty figures
-// that would have shown work as already billed.
-const SEED = [];
+// 2026-07-29 — seed fallback removed permanently (was already emptied
+// 2026-07-28, having held three fabricated sales orders against real
+// customer names). See App.jsx boot-sequence note.
 
 const fmt    = n => '₦' + (Number(n)||0).toLocaleString('en-NG', { maximumFractionDigits: 0 });
 const fmtFC  = (n, c) => { const sym = { USD:'$', EUR:'€', GBP:'£' }[c] || ''; return `${sym}${(Number(n)||0).toLocaleString('en-US',{maximumFractionDigits:2})}`; };
@@ -79,7 +79,7 @@ export default function SalesOrders() {
   const { state, dispatch } = useApp();
   const { C } = useTheme();
   const { currentUser, db } = state;
-  const stored = ((db.salesOrders?.length || state.appSettings?.dataWiped) ? (db.salesOrders || []) : SEED);
+  const stored = db.salesOrders || [];
   const [sos, setSos] = useState(stored);
   const [tab, setTab] = useState('list');           // list | detail | new
   const [sel, setSel]   = useState(null);
@@ -93,6 +93,7 @@ export default function SalesOrders() {
   const inp = { padding:'7px 10px', borderRadius:7, border:'1px solid '+C.border, background:C.bgCard, color:C.text, fontSize:13, width:'100%', outline:'none', fontFamily:'inherit', boxSizing:'border-box' };
 
   function persist(next) {
+    diffAndPush('salesOrders', sos, next); // 2026-07-29 full-app sync sweep
     setSos(next);
     dispatch({ type:'UPDATE_MODULE', mod:'salesOrders', data: next });
     saveDBLocal({ ...db, salesOrders: next }, state.activity);
@@ -162,6 +163,7 @@ export default function SalesOrders() {
     // review, and post from there. This keeps the SO module from
     // accidentally posting revenue without review.
     const nextInv = [...(db.invoices || []), newInv];
+    pushOne('invoices', newInv); // 2026-07-29 — exactly one new record, no diff needed
     dispatch({ type:'UPDATE_MODULE', mod:'invoices', data: nextInv });
     saveDBLocal({ ...db, invoices: nextInv, salesOrders: sos }, state.activity);
     logActivity(dispatch, `Generated AR invoice draft from Sales Order ${so.soNo}`, currentUser, { module:'salesorders', action:'create' });

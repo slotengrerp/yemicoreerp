@@ -68,6 +68,56 @@ export const RECORD_TABLES = {
   vendors:         'vendors',
   clients:         'clients',
   projects:        'projects',
+  // HR — staff (added 2026-07-29; see 013_staff_per_record_tables.sql for
+  // why this was missing and what it broke)
+  nlng:            'nlng_staff',
+  slot:            'slot_staff',
+  // 2026-07-29 — everything below added same day. Audited every db.* key
+  // the app actually writes to (grep for UPDATE_MODULE dispatches) against
+  // this list and found that, before today, only vendors/clients/projects
+  // had ever been listed here — apBills/apPayments were listed but mapped
+  // to the wrong db path (fixed in getRecordList() below), and nothing else
+  // had a table at all. See 014_full_per_record_coverage.sql.
+  //
+  // Procurement — split by sub-collection, same pattern as terminal/fleet
+  // (Procurement.jsx dispatches the whole db.procurement object at once).
+  procurementRfqs:     'procurement_rfqs',
+  procurementPos:      'procurement_pos',
+  procurementWaybills: 'procurement_waybills',
+  procurementInvoices: 'procurement_invoices',
+  request:             'requests',
+  inventory:           'inventory_items',
+  vehicles:            'vehicles',
+  creditNotes:         'credit_notes',
+  paymentBatches:      'payment_batches',
+  recurringInvoiceTemplates: 'recurring_invoice_templates',
+  recurringInvoices:         'recurring_invoices',
+  bankReconciliations: 'bank_reconciliations',
+  prepayAccruals:      'prepay_accruals',
+  assetDisposals:      'asset_disposals',
+  prepayments:         'prepayments',
+  accruals:            'accruals',
+  budgets:             'budgets',
+  stockTakes:          'stock_takes',
+  warehouses:          'warehouses',
+  stockTransfers:      'stock_transfers',
+  serialBatches:       'serial_batches',
+  boms:                'boms',
+  bomBuilds:           'bom_builds',
+  // 2026-07-29, discovered mid-sweep while wiring the actual push calls
+  // (not just adding tables): db.terminal has 7 sub-collections but only 5
+  // were ever mapped, and db.fleet has 9 but only `repairs` was. See
+  // 015_terminal_fleet_gaps.sql.
+  terminalContainers:  'terminal_containers',
+  terminalLogistics:   'terminal_logistics',
+  fleetVehicles:            'fleet_vehicles',
+  fleetServices:            'fleet_services',
+  fleetMaintLog:            'fleet_maint_log',
+  fleetBreakdowns:          'fleet_breakdowns',
+  fleetVehicleRequests:     'fleet_vehicle_requests',
+  fleetHandovers:           'fleet_handovers',
+  fleetFacilitySchedule:    'fleet_facility_schedule',
+  fleetCalibration:         'fleet_calibration',
 };
 
 // ── Tables with no `voided` column ────────────────────────────────────────────
@@ -82,7 +132,13 @@ export const RECORD_TABLES = {
 // silently return an empty list for these three on every load, and would have
 // made saveRecord() silently fail to save any vendor/client/project edit once
 // live. Fixed 2026-07-24 by gating on this set instead of assuming.
-const NO_VOID_TABLES = new Set(['vendors', 'clients', 'projects']);
+// nlng_staff/slot_staff added 2026-07-29 for the same reason: staff are
+// standing HR records edited over time (Active/Inactive/Terminated is a
+// status field, not an accounting void), not transactions to reverse.
+// warehouses/boms added same day for the same reason — a warehouse or a
+// bill-of-materials definition gets edited or retired via its own status
+// field, not voided the way an invoice or a PO is.
+const NO_VOID_TABLES = new Set(['vendors', 'clients', 'projects', 'nlng_staff', 'slot_staff', 'warehouses', 'boms']);
 
 // ── Sub-collection reader ────────────────────────────────────────────────────
 // Returns the list of records for a given db key. Centralised here so
@@ -99,6 +155,35 @@ function getRecordList(db, key) {
     case 'stockItems':       return db?.stockItems        || [];
     case 'stockMovements':   return db?.stockMovements    || [];
     case 'salesOrders':      return db?.salesOrders       || [];
+    // FIX 2026-07-29: apBills/apPayments were in RECORD_TABLES already, but
+    // this function had no case for them, so the default branch looked for
+    // db.apBills/db.apPayments (flat) — fields that don't exist. The real
+    // data lives at db.ap.bills/db.ap.payments (AccountsPayable.jsx's own
+    // saveBills/saveAll dispatch db.ap as one {bills,payments} object). Any
+    // load/backfill of AP data would have silently returned empty for as
+    // long as this table existed without this case.
+    case 'apBills':          return db?.ap?.bills    || [];
+    case 'apPayments':       return db?.ap?.payments || [];
+    // Procurement — added 2026-07-29, same sub-collection pattern as
+    // terminal/fleet (Procurement.jsx dispatches the whole db.procurement
+    // object at once via its own save()/persist() helpers).
+    case 'procurementRfqs':     return db?.procurement?.rfqs     || [];
+    case 'procurementPos':      return db?.procurement?.pos      || [];
+    case 'procurementWaybills': return db?.procurement?.waybills || [];
+    case 'procurementInvoices': return db?.procurement?.invoices || [];
+    // Terminal + Fleet remaining sub-collections — added 2026-07-29, see
+    // 015_terminal_fleet_gaps.sql for why these two were missed the first
+    // time (terminal) and why fleet had eight uncovered sub-collections.
+    case 'terminalContainers':   return db?.terminal?.containers || [];
+    case 'terminalLogistics':    return db?.terminal?.logistics  || [];
+    case 'fleetVehicles':         return db?.fleet?.fleet              || [];
+    case 'fleetServices':         return db?.fleet?.services           || [];
+    case 'fleetMaintLog':         return db?.fleet?.maintLog            || [];
+    case 'fleetBreakdowns':       return db?.fleet?.breakdowns          || [];
+    case 'fleetVehicleRequests':  return db?.fleet?.requests            || [];
+    case 'fleetHandovers':        return db?.fleet?.handovers           || [];
+    case 'fleetFacilitySchedule': return db?.fleet?.facilitySchedule    || [];
+    case 'fleetCalibration':      return db?.fleet?.calibration         || [];
     default:                 return db?.[key] || [];
   }
 }
@@ -133,6 +218,32 @@ export async function saveRecord(table, record) {
     return { ok: true };
   } catch (e) {
     console.warn(`[SLOT] Per-record save failed for ${table}/${record.id}:`, e?.message);
+    return { ok: false, error: e?.message, queued: true };
+  }
+}
+
+// ── Delete ONE record (hard delete, NO_VOID_TABLES only) ────────────────────
+// Transactional tables use the voided flag (set via saveRecord, never
+// physically removed — audit trail). Standing-reference tables (vendors,
+// clients, projects, and as of 2026-07-29 staff) have no voided column, and
+// their modules DO hard-delete records (see ContractStaff.jsx/SlotStaff.jsx
+// handleDelete) — this was the missing piece: those local deletes had
+// nothing to call to remove the row from Supabase, so a deleted-locally
+// staff member would otherwise linger in the cloud table forever.
+export async function deleteRecord(table, id) {
+  if (!supabase) return { ok: false, queued: true };
+  if (!id) return { ok: false, error: 'id required' };
+  if (!RECORD_TABLES[table]) return { ok: false, error: `unknown table: ${table}` };
+  try {
+    const { error } = await supabase
+      .from(RECORD_TABLES[table])
+      .delete()
+      .eq('id', id)
+      .eq('company_id', COMPANY_ID);
+    if (error) throw error;
+    return { ok: true };
+  } catch (e) {
+    console.warn(`[SLOT] Per-record delete failed for ${table}/${id}:`, e?.message);
     return { ok: false, error: e?.message, queued: true };
   }
 }
@@ -189,7 +300,17 @@ export async function loadAll() {
     else if (key === 'terminalAdvances') out.terminal.advances = records;
     else if (key === 'terminalConsignees')        out.terminal.consignees        = records;
     else if (key === 'terminalShippingCompanies') out.terminal.shippingCompanies = records;
+    else if (key === 'terminalContainers')        out.terminal.containers        = records;
+    else if (key === 'terminalLogistics')         out.terminal.logistics         = records;
     else if (key === 'fleetRepairs')     out.fleet.repairs     = records;
+    else if (key === 'fleetVehicles')         out.fleet.fleet              = records;
+    else if (key === 'fleetServices')         out.fleet.services           = records;
+    else if (key === 'fleetMaintLog')         out.fleet.maintLog           = records;
+    else if (key === 'fleetBreakdowns')       out.fleet.breakdowns         = records;
+    else if (key === 'fleetVehicleRequests')  out.fleet.requests           = records;
+    else if (key === 'fleetHandovers')        out.fleet.handovers          = records;
+    else if (key === 'fleetFacilitySchedule') out.fleet.facilitySchedule   = records;
+    else if (key === 'fleetCalibration')      out.fleet.calibration        = records;
     else                                 out[key] = records;
   }
   return out;

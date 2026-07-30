@@ -11,6 +11,7 @@ import { saveDBLocal } from '../../utils/db';
 import { logActivity }  from '../../utils/audit';
 import { printHeader, PRINT_CSS } from '../../utils/logo';
 import { initApproval, applyDecision, canApproveAtCurrentLevel, approvalSummary } from '../../utils/approvalEngine';
+import { diffAndPush } from '../../hooks/usePerRecordSync';
 
 const uid   = () => generateId();
 const today = () => new Date().toISOString().split('T')[0];
@@ -47,10 +48,9 @@ function migrateFund(dbFund) {
   return DEFAULT_FUND;
 }
 
-// Emptied 2026-07-28 — held four fabricated petty cash vouchers (₦160,500),
-// three of them pre-marked "Approved" by a named approver and flagged as
-// having receipts on file. Approval records must never be invented.
-const SEED = [];
+// 2026-07-29 — seed fallback removed permanently (was already emptied
+// 2026-07-28, having held four fabricated petty cash vouchers with invented
+// approvals). See App.jsx boot-sequence note.
 
 function Tag({ status }) {
   const { C } = useTheme();
@@ -160,7 +160,7 @@ export default function PettyCash({ onNav }) {
   const perms = { add: canDo(currentUser,'canAdd','pettycash',state.appSettings), edit: canDo(currentUser,'canEdit','pettycash',state.appSettings), del: canDo(currentUser,'canDelete','pettycash',state.appSettings) };
   const isAdmin = currentUser?.role === 'admin';
 
-  const stored = (db.pettycash?.length || state.appSettings?.dataWiped) ? (db.pettycash || []) : SEED;
+  const stored = db.pettycash || [];
   const [entries, setEntries] = useState(stored);
   const [fund, setFund] = useState(() => migrateFund(state.db.pettycash_fund));
 
@@ -187,6 +187,7 @@ export default function PettyCash({ onNav }) {
   }, [state.db.pettycash_fund]);
 
   const save = (data) => {
+    diffAndPush('pettycash', entries, data); // 2026-07-29 full-app sync sweep
     setEntries(data);
     dispatch({ type:'UPDATE_MODULE', mod:'pettycash', data });
     saveDBLocal({ ...db, pettycash: data }, state.activity);

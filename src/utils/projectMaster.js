@@ -11,6 +11,7 @@
 // rather than inventing fuller descriptions.
 // ══════════════════════════════════════════════════════════════════════════════
 import { generateId } from './helpers';
+import { diffAndPush } from '../hooks/usePerRecordSync';
 
 const PROJECT_KEY = 'bc_projects';
 
@@ -44,8 +45,14 @@ export function getProjects() {
 }
 
 export function saveProjects(projects) {
+  // Per-record push — 2026-07-29 full-app sync sweep. Same fix as
+  // vendorMaster.js/clientMaster.js — the 'slot:masterDataChanged' bridge to
+  // App.jsx only reaches Supabase via the legacy whole-document engine;
+  // under VITE_USE_PER_RECORD_SYNC=true nothing ever pushed 'projects'.
+  const prev = getProjects();
   try { localStorage.setItem(PROJECT_KEY, JSON.stringify(projects)); } catch {}
   try { window.dispatchEvent(new CustomEvent('slot:masterDataChanged', { detail: { mod: 'projects', data: projects } })); } catch {}
+  diffAndPush('projects', prev, projects);
 }
 
 export function addProject(project) {

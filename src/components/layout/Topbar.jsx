@@ -51,7 +51,7 @@ export default function Topbar({ page, onLogout, online = true, pendingSync = 0,
     (db.procurement?.pos || []).forEach(r => push('procurement', r.poNo || 'PO',             '🛒', r, ['poNo','supplier','description']));
     (db.request     || []).forEach(r => push('request',     r.requestNo || 'Request',       '📋', r, ['requestNo','subject','requestedBy','description']));
     (db.nlng        || []).forEach(r => push('nlng',        r.fullName || 'Staff',          '👷', r, ['fullName','refId','department','email']));
-    (db.slot        || []).forEach(r => push('slot',        r.fullName || 'Staff',          '👤', r, ['fullName','staffId','department','email']));
+    (db.slot        || []).forEach(r => push('slot',        r.fullName || 'Staff',          '👤', r, ['fullName','refId','department','email']));
     (db.pettycash   || []).forEach(r => push('pettycash',   r.voucherNo || 'Petty Cash',    '💵', r, ['voucherNo','purpose','payee','category']));
     (db.grn         || []).forEach(r => push('grn',         r.grnNo || 'GRN',               '📥', r, ['grnNo','supplier','poRef','description']));
     (db.fixedassets || []).forEach(r => push('fixedassets', r.assetTag || 'Asset',          '🏗', r, ['assetTag','assetName','location','serialNo']));

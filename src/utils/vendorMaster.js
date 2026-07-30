@@ -19,6 +19,7 @@
 //     currencies (Euro/USD respectively).
 // ══════════════════════════════════════════════════════════════════════════════
 import { generateId } from './helpers';
+import { diffAndPush } from '../hooks/usePerRecordSync';
 
 const VENDOR_KEY = 'bc_vendors';
 
@@ -69,8 +70,16 @@ export function getVendors() {
 }
 
 export function saveVendors(vendors) {
+  // Per-record push — 2026-07-29 full-app sync sweep. This whole file is a
+  // standalone localStorage store (see header) that predates the per-record
+  // sync engine and was never wired to it — 'vendors' has had a Supabase
+  // table since before this session, but nothing ever pushed to it. Capture
+  // the prior list BEFORE overwriting localStorage so diffAndPush has a real
+  // "before" to compare against.
+  const prev = getVendors();
   try { localStorage.setItem(VENDOR_KEY, JSON.stringify(vendors)); } catch {}
   try { window.dispatchEvent(new CustomEvent('slot:masterDataChanged', { detail: { mod: 'vendors', data: vendors } })); } catch {}
+  diffAndPush('vendors', prev, vendors);
 }
 
 export function addVendor(vendor) {

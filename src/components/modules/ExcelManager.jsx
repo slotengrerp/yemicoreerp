@@ -9,6 +9,30 @@ import { showToast, generateId } from '../../utils/helpers';
 import { saveDBLocal } from '../../utils/db';
 import { logActivity } from '../../utils/audit';
 import { exportToXLSX, importFromXLSX, downloadTemplate, MODULE_COLUMNS } from '../../utils/excelIO';
+import { diffAndPush } from '../../hooks/usePerRecordSync';
+
+// modKey → RECORD_TABLES key, for the bulk-import push below. Most flat
+// modules match 1:1 (the modKey IS the RECORD_TABLES key — nlng, slot,
+// invoices, inventory, vehicles, pettycash, fixedassets, salesOrders all
+// happen to already agree); only the four NESTED_TARGETS ones need
+// remapping since their modKey names differ from the RECORD_TABLES keys.
+// 'grn' has no per-record table (see Approvals.jsx's note — nothing in the
+// app has a GRN-creation flow yet), so it maps to null and diffAndPush is
+// skipped rather than passed an unknown table name.
+//
+// FOUND 2026-07-29, same sweep that wired every other module's save
+// function: this import path bypasses every module's own save/updateDB
+// entirely (dispatches UPDATE_MODULE + saveDBLocal directly), so wiring
+// ContractStaff.jsx/SlotStaff.jsx's updateDB alone did NOT cover a staff
+// list imported from here — the exact same class of bug as the original
+// incident, reachable through a second door.
+const IMPORT_TABLE_OVERRIDES = {
+  procurement: 'procurementPos',
+  ap_bills: 'apBills',
+  fleet_roster: 'fleetVehicles',
+  terminal_containers: 'terminalContainers',
+  grn: null,
+};
 
 function Btn({ children, onClick, variant='primary', sm, disabled, style={} }) {
   const { C } = useTheme();
@@ -162,6 +186,13 @@ export default function ExcelManager() {
     const importData = nestedTarget
       ? { ...db[nestedTarget.parentKey], [nestedTarget.childKey]: merged }
       : merged;
+
+    // Per-record push — 2026-07-29 full-app sync sweep. `merged` is additions
+    // only (existing + normalised), so this is really just "push every newly
+    // imported row" — diffAndPush handles that correctly since none of the
+    // `existing` rows changed.
+    const pushTable = modKey in IMPORT_TABLE_OVERRIDES ? IMPORT_TABLE_OVERRIDES[modKey] : modKey;
+    if (pushTable) diffAndPush(pushTable, existing, merged);
 
     dispatch({ type:'UPDATE_MODULE', mod: dbKey, data: importData });
     saveDBLocal({ ...db, [dbKey]: importData }, state.activity);

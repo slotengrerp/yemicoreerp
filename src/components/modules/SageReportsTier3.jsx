@@ -20,6 +20,7 @@ import { saveDBLocal } from '../../utils/db';
 import { logActivity }  from '../../utils/audit';
 import { printHeader, PRINT_CSS } from '../../utils/logo';
 import { DEFAULT_FX } from '../../utils/financeConstants';
+import { diffAndPush, pushOne } from '../../hooks/usePerRecordSync';
 
 const uid   = () => generateId();
 const today = () => new Date().toISOString().split('T')[0];
@@ -313,11 +314,13 @@ export function MultiWarehouseTab({ state, dispatch, inp }) {
   const [xferForm, setXferForm] = useState({ itemId:'', fromWhId:'', toWhId:'', qty:'', date:today(), notes:'' });
 
   function saveWarehouses(list) {
+    diffAndPush('warehouses', warehouses, list); // 2026-07-29 full-app sync sweep
     const newDb = { ...db, warehouses: list };
     dispatch({ type:'UPDATE_MODULE', mod:'warehouses', data: list });
     saveDBLocal(newDb, state.activity);
   }
   function saveTransfers(list) {
+    diffAndPush('stockTransfers', transfers, list); // 2026-07-29 full-app sync sweep
     const newDb = { ...db, stockTransfers: list };
     dispatch({ type:'UPDATE_MODULE', mod:'stockTransfers', data: list });
     saveDBLocal(newDb, state.activity);
@@ -366,6 +369,8 @@ export function MultiWarehouseTab({ state, dispatch, inp }) {
     const outMove = { id: uid(), itemId: item.id, type:'TRANSFER_OUT', qty, unitCost: Number(item.unitCost)||0, refType:'transfer', refId: rec.id, warehouseId: xferForm.fromWhId, date: xferForm.date, notes: `Transfer out to ${toWh?.name}`, postedToGL:false, createdAt: new Date().toISOString() };
     const inMove  = { id: uid(), itemId: item.id, type:'TRANSFER_IN',  qty, unitCost: Number(item.unitCost)||0, refType:'transfer', refId: rec.id, warehouseId: xferForm.toWhId,   date: xferForm.date, notes: `Transfer in from ${fromWh?.name}`, postedToGL:false, createdAt: new Date().toISOString() };
     const updatedMovements = [...stockMovements, outMove, inMove];
+    pushOne('stockMovements', outMove); // 2026-07-29 — new rows only
+    pushOne('stockMovements', inMove);
     dispatch({ type:'UPDATE_MODULE', mod:'stockMovements', data: updatedMovements });
     saveDBLocal({ ...db, stockMovements: updatedMovements }, state.activity);
     saveTransfers([rec, ...transfers]);
@@ -529,6 +534,7 @@ export function SerialBatchTab({ state, dispatch, inp }) {
   const [filterItem, setFilterItem] = useState('');
 
   function saveSerialBatches(list) {
+    diffAndPush('serialBatches', serialBatches, list); // 2026-07-29 full-app sync sweep
     const newDb = { ...db, serialBatches: list };
     dispatch({ type:'UPDATE_MODULE', mod:'serialBatches', data: list });
     saveDBLocal(newDb, state.activity);
@@ -713,11 +719,13 @@ export function BOMTab({ state, dispatch, inp }) {
   const [buildForm, setBuildForm] = useState({ bomId:'', qty:1, date:today(), notes:'' });
 
   function saveBoms(list) {
+    diffAndPush('boms', boms, list); // 2026-07-29 full-app sync sweep
     const newDb = { ...db, boms: list };
     dispatch({ type:'UPDATE_MODULE', mod:'boms', data: list });
     saveDBLocal(newDb, state.activity);
   }
   function saveBomBuilds(list) {
+    diffAndPush('bomBuilds', bomBuilds, list); // 2026-07-29 full-app sync sweep
     const newDb = { ...db, bomBuilds: list };
     dispatch({ type:'UPDATE_MODULE', mod:'bomBuilds', data: list });
     saveDBLocal(newDb, state.activity);
@@ -792,6 +800,7 @@ export function BOMTab({ state, dispatch, inp }) {
       postedToGL: false, createdAt: new Date().toISOString(),
     });
     const updatedMovements = [...stockMovements, ...newMovements];
+    newMovements.forEach(m => pushOne('stockMovements', m)); // 2026-07-29 — new rows only
     dispatch({ type:'UPDATE_MODULE', mod:'stockMovements', data: updatedMovements });
     saveDBLocal({ ...db, stockMovements: updatedMovements }, state.activity);
 

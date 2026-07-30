@@ -9,6 +9,15 @@ import { useTheme } from '../../context/ThemeContext';
 import { showToast, formatDate } from '../../utils/helpers';
 import { saveDBLocal } from '../../utils/db';
 import { logActivity }  from '../../utils/audit';
+import { diffAndPush } from '../../hooks/usePerRecordSync';
+
+// Approvals mod key → RECORD_TABLES key. 'procurement' here only ever
+// touches .pos (see getModRecords/saveModRecords below), so it maps to
+// procurementPos specifically, not the whole procurement collection.
+// 'grn' has no per-record table (nothing in the app currently creates GRN
+// records — Approvals is the only writer, and only for approve/reject on an
+// always-empty list) — diffAndPush no-ops safely against an unmapped table.
+const APPROVAL_TABLE_BY_MOD = { request: 'request', pettycash: 'pettycash', invoices: 'invoices', procurement: 'procurementPos', grn: 'grn' };
 
 const today = () => new Date().toISOString().split('T')[0];
 
@@ -153,6 +162,11 @@ export default function Approvals() {
     return db[mod] || [];
   }
   function saveModRecords(mod, updated) {
+    // Per-record push — 2026-07-29 full-app sync sweep. getModRecords(mod)
+    // above is the exact same reader used to build `allPending`, so it's
+    // also the correct "prev" list to diff against here.
+    const table = APPROVAL_TABLE_BY_MOD[mod];
+    if (table) diffAndPush(table, getModRecords(mod), updated);
     if (mod === 'procurement') {
       const next = { ...db.procurement, pos: updated };
       dispatch({ type:'UPDATE_MODULE', mod:'procurement', data: next });
