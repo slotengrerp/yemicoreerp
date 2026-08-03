@@ -73,9 +73,26 @@ const EMPTY_TERMINAL_DATA = {
   advances: [], consignees: [], shippingCompanies: [],
 };
 
+// 2026-08-03 — renamed and reordered at the terminal team's request.
+//
+// Their working register is organised by Bill of Lading: the BoL is written
+// once and its containers listed beneath it. The 'bols' view is the screen
+// that mirrors that, so it is what they mean by "where everything is
+// registered" — it is now called Container Registry and comes first.
+//
+// The flat one-row-per-container table keeps its place as a searchable list
+// of every box. They suggested calling it "Overview"; it is named "All
+// Containers" instead because the KPI cards directly above the tabs are
+// already the overview, and two things called overview on one screen is the
+// confusion this rename exists to remove. The name says exactly what the tab
+// holds, which is what someone hunting for a single container number needs.
+//
+// The `key` values are UNCHANGED on purpose — deep links (getDeepLinkTab),
+// saved tab state and every `tab === 'containers'` check throughout this file
+// still work. Only the labels and the order moved.
 const TABS = [
-  { key:'containers', label:'📦  Container Registry' },
-  { key:'bols',       label:'📄  Bill of Lading'     },
+  { key:'bols',       label:'📦  Container Registry' },
+  { key:'containers', label:'📋  All Containers'     },
   { key:'masters',    label:'🏢  Master Data'         },
   { key:'charges',    label:'💰  Clearing & Charges' },
   { key:'logistics',  label:'🚢  Logistics & Transit'},
@@ -274,7 +291,10 @@ export default function TerminalOps({ onNav }) {
   const [tab,setTab] = useState(() => {
     const stored = sessionStorage.getItem('slot_erp_nav_tab_terminal');
     if (stored) { sessionStorage.removeItem('slot_erp_nav_tab_terminal'); return stored; }
-    return 'containers';
+    // Land on the Container Registry (the BoL-grouped view) — it is the tab
+    // that matches how the terminal team actually keeps their register, so it
+    // is what they expect to see first. Was 'containers' (the flat list).
+    return 'bols';
   });
   const [containerFilter,setContainerFilter]=useState('');
   const [search,setSearch]=useState('');
@@ -681,7 +701,7 @@ export default function TerminalOps({ onNav }) {
                 <KPI label="Containers"      value={containers.length} sub="across all BoLs"/>
               </div>
               {fl(bols,['billOfLadingNo','shippingCompany','shippingVessel','portOfDischarge','status']).length===0
-                ? <div style={{textAlign:'center',padding:40,color:C.textMuted,background:C.bgCard,borderRadius:10,border:'1px dashed '+C.border}}>No Bills of Lading recorded yet. Add one above to start grouping containers under a parent BoL.</div>
+                ? <div style={{textAlign:'center',padding:40,color:C.textMuted,background:C.bgCard,borderRadius:10,border:'1px dashed '+C.border}}>Nothing registered yet. Click <strong>+ Add Bill of Lading</strong> above to register a shipment, then list its containers underneath — the same way your register sheet is laid out. Importing a spreadsheet from Excel Import/Export fills this in automatically.</div>
                 : fl(bols,['billOfLadingNo','shippingCompany','shippingVessel','portOfDischarge','status']).map((bol, i) => {
                   const childContainers = containers.filter(c => c.bolId === bol.id);
                   // FIX (found while verifying this upgrade): LogisticsModal
