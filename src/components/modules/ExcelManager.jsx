@@ -8,7 +8,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { showToast, generateId } from '../../utils/helpers';
 import { saveDBLocal } from '../../utils/db';
 import { logActivity } from '../../utils/audit';
-import { exportToXLSX, importFromXLSX, downloadTemplate, MODULE_COLUMNS } from '../../utils/excelIO';
+import { exportToXLSX, importAdapted, downloadTemplate, MODULE_COLUMNS } from '../../utils/excelIO';
 import { diffAndPush } from '../../hooks/usePerRecordSync';
 
 // modKey → RECORD_TABLES key, for the bulk-import push below. Most flat
@@ -82,6 +82,73 @@ export default function ExcelManager() {
     terminal_containers: { parentKey: 'terminal',      childKey: 'containers' },
   };
 
+  // ── Duplicate defence ─────────────────────────────────────────────────────
+  // Every import used to be a blind append: `[...existing, ...incoming]`. Two
+  // people uploading the same spreadsheet — which is exactly what happens when
+  // several staff are testing at once and nobody knows who has already done it
+  // — silently doubled every record, and nothing in the app or the database
+  // objected, because the only unique key anywhere is the randomly generated
+  // `id`. Same invoice, two ids, both stored.
+  //
+  // This maps each import type to the field(s) that identify a record in the
+  // real world. A row whose natural key already exists is a re-upload, not new
+  // data.
+  //
+  // Terminal containers deliberately key on containerNo + billOfLading, NOT
+  // containerNo alone: the same physical box legitimately returns months later
+  // on a different Bill of Lading, and blocking that would reject real work.
+  // The same box on the SAME BoL is always a duplicate.
+  const NATURAL_KEYS = {
+    nlng:                ['refId'],
+    slot:                ['refId'],
+    invoices:            ['invoiceNo'],
+    procurement:         ['poNo'],
+    ap_bills:            ['vendor', 'date', 'amount'],
+    fixedassets:         ['serialNo'],
+    fleet_roster:        ['vehicleNo'],
+    salesOrders:         ['orderNo'],
+    terminal_containers: ['containerNo', 'billOfLading'],
+  };
+
+  function keyOf(row, fields) {
+    return fields
+      .map(f => String(row?.[f] ?? '').trim().toUpperCase())
+      .join('␟');                     // unit separator — can't occur in real data
+  }
+
+  // Returns { fresh, dupInFile, dupExisting } without mutating anything.
+  function splitDuplicates(rows, modKey) {
+    const fields = NATURAL_KEYS[modKey];
+    if (!fields) return { fresh: rows, dupInFile: [], dupExisting: [], fields: null };
+
+    const nestedT = NESTED_TARGETS[modKey];
+    const current = nestedT
+      ? (db[nestedT.parentKey]?.[nestedT.childKey] || [])
+      : (Array.isArray(db[modKey]) ? db[modKey] : []);
+
+    // A row with a blank natural key can't be judged, so it is treated as new
+    // rather than silently dropped — losing data would be worse than a dupe.
+    const known = new Set(
+      current
+        .filter(r => fields.some(f => String(r?.[f] ?? '').trim()))
+        .map(r => keyOf(r, fields))
+    );
+
+    const seen = new Set();
+    const fresh = [], dupInFile = [], dupExisting = [];
+
+    rows.forEach(row => {
+      if (!fields.some(f => String(row?.[f] ?? '').trim())) { fresh.push(row); return; }
+      const k = keyOf(row, fields);
+      if (known.has(k))      { dupExisting.push(row); return; }
+      if (seen.has(k))       { dupInFile.push(row);   return; }
+      seen.add(k);
+      fresh.push(row);
+    });
+
+    return { fresh, dupInFile, dupExisting, fields };
+  }
+
   const nested  = NESTED_TARGETS[selectedMod];
   const dbRows  = nested
     ? (db[nested.parentKey]?.[nested.childKey] || [])
@@ -129,16 +196,29 @@ export default function ExcelManager() {
     setPreview(null);
     setImporting(true);
     try {
-      const rows = await importFromXLSX(file);
+      // importAdapted finds the real header row (skipping any title banner),
+      // translates the sheet's own column labels into our field names, reads
+      // day-first dates, and carries merged-cell values down. `info` records
+      // what it changed so we can show the user rather than transform their
+      // file silently.
+      const { rows, info } = await importAdapted(file, selectedMod);
       if (!rows || rows.length === 0) { setImportError('File is empty or has no data rows.'); return; }
-      // Validate that at least one expected column is present
+
       const fileHeaders = Object.keys(rows[0]);
       const matched = cfg.columns.filter(c => fileHeaders.includes(c));
       if (matched.length < 2) {
-        setImportError(`File columns don't match the expected format. Download the template first.\nExpected: ${cfg.columns.slice(0,5).join(', ')} …\nFound: ${fileHeaders.slice(0,5).join(', ')} …`);
+        setImportError(
+          `Couldn't recognise the columns in this file.\n` +
+          `Expected columns like: ${cfg.columns.slice(0,5).join(', ')} …\n` +
+          `Found in your file: ${fileHeaders.slice(0,6).join(', ')} …\n\n` +
+          `If this is a working spreadsheet with its own column names, tell us the headings and we can teach the app to read them — or download the template and paste your data into it.`
+        );
         return;
       }
-      setPreview({ rows, modKey: selectedMod, file: file.name });
+      // Work out the duplicate picture BEFORE the user commits, so the
+      // preview can state plainly what will and won't be added.
+      const dup = splitDuplicates(rows, selectedMod);
+      setPreview({ rows, modKey: selectedMod, file: file.name, info, ...dup });
     } catch (err) {
       setImportError(err.message);
     } finally {
@@ -150,7 +230,24 @@ export default function ExcelManager() {
   // ── Import — Step 2: confirm and merge ───────────────────────────────────
   function handleConfirmImport() {
     if (!preview) return;
-    const { rows, modKey } = preview;
+    const { modKey } = preview;
+
+    // Import ONLY the rows that aren't already here. `fresh` is computed at
+    // preview time by splitDuplicates() and shown to the user before they
+    // confirm, so this is never a surprise. Re-derived here rather than
+    // trusted blindly in case the underlying data changed while the preview
+    // was open — another user importing the same file at the same moment is
+    // precisely the scenario this guards.
+    const recheck = splitDuplicates(preview.rows, modKey);
+    const rows = recheck.fresh;
+    const skipped = recheck.dupInFile.length + recheck.dupExisting.length;
+
+    if (rows.length === 0) {
+      showToast(`Nothing imported — all ${preview.rows.length} rows are already in ${MODULE_COLUMNS[modKey].label}`, 'error');
+      logActivity(dispatch, `Blocked a duplicate import of ${preview.file} into ${MODULE_COLUMNS[modKey].label} — all ${preview.rows.length} rows already present`, currentUser, { module:modKey, action:'info' });
+      setPreview(null);
+      return;
+    }
 
     // Sales Orders is a special row shape: each imported row becomes ONE
     // order with a SINGLE line item built from description/qty/unit/
@@ -224,8 +321,8 @@ export default function ExcelManager() {
       const importData = { ...db.terminal, bols: mergedBols, containers: mergedContainers };
       dispatch({ type:'UPDATE_MODULE', mod:'terminal', data: importData });
       saveDBLocal({ ...db, terminal: importData }, state.activity);
-      logActivity(dispatch, `Imported ${normalised.length} containers across ${newBols.length} bills of lading from ${preview.file}`, currentUser, { module:'terminal', action:'create' });
-      showToast(`${normalised.length} containers imported under ${newBols.length} new bills of lading`);
+      logActivity(dispatch, `Imported ${normalised.length} containers across ${newBols.length} bills of lading from ${preview.file}${skipped ? ` (${skipped} duplicate row(s) skipped)` : ''}`, currentUser, { module:'terminal', action:'create' });
+      showToast(`${normalised.length} containers imported under ${newBols.length} new bills of lading` + (skipped ? ` · ${skipped} duplicate row(s) skipped` : ''));
       setPreview(null);
       return;
     }
@@ -255,8 +352,8 @@ export default function ExcelManager() {
 
     dispatch({ type:'UPDATE_MODULE', mod: dbKey, data: importData });
     saveDBLocal({ ...db, [dbKey]: importData }, state.activity);
-    logActivity(dispatch, `Imported ${normalised.length} rows into ${MODULE_COLUMNS[modKey].label} from ${preview.file}`, currentUser, { module:modKey, action:'create' });
-    showToast(`${normalised.length} rows imported into ${MODULE_COLUMNS[modKey].label}`);
+    logActivity(dispatch, `Imported ${normalised.length} rows into ${MODULE_COLUMNS[modKey].label} from ${preview.file}${skipped ? ` (${skipped} duplicate row(s) skipped)` : ''}`, currentUser, { module:modKey, action:'create' });
+    showToast(`${normalised.length} rows imported into ${MODULE_COLUMNS[modKey].label}` + (skipped ? ` · ${skipped} duplicate row(s) skipped` : ''));
     setPreview(null);
   }
 
@@ -347,10 +444,70 @@ export default function ExcelManager() {
             <div>
               <div style={{ fontSize:14, fontWeight:700, color:C.text }}>Preview Import — {preview.rows.length} rows from "{preview.file}"</div>
               <div style={{ fontSize:11.5, color:C.textMuted, marginTop:2 }}>Review the data below. Confirming will add these rows to {MODULE_COLUMNS[preview.modKey].label}.</div>
+
+              {/* What the importer had to adapt to read this file. Shown so a
+                  user can see their sheet was understood correctly — silently
+                  reshaping someone's data and hoping they don't notice is how
+                  you lose their trust the first time it guesses wrong. */}
+              {preview.info && (preview.info.bannerSkipped || preview.info.filledDown > 0 || preview.info.datesConverted > 0) && (
+                <div style={{
+                  marginTop:10, padding:'10px 12px', borderRadius:8, fontSize:12, lineHeight:1.6,
+                  background:'rgba(26,92,42,0.10)', border:'1px solid '+C.green, color:C.text,
+                }}>
+                  <strong>✓ Read your spreadsheet as-is.</strong>
+                  <div style={{ marginTop:4 }}>
+                    {preview.info.bannerSkipped && (
+                      <div>Found your column headings on <strong>row {preview.info.headerRow}</strong> and skipped the title above it.</div>
+                    )}
+                    <div>Recognised <strong>{preview.info.matchedColumns}</strong> of your column names.</div>
+                    {preview.info.filledDown > 0 && (
+                      <div>Carried merged-cell values down into <strong>{preview.info.filledDown}</strong> blank cell(s), so rows under a shared Bill of Lading keep their details.</div>
+                    )}
+                    {preview.info.datesConverted > 0 && (
+                      <div>Converted <strong>{preview.info.datesConverted}</strong> day-first date(s) (13/1/2026 → 2026-01-13).</div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Duplicate report — shown BEFORE confirming, never after.
+                  The whole point is that someone about to re-upload a file a
+                  colleague already imported finds out here, not by discovering
+                  doubled records later. */}
+              {preview.fields && (preview.dupExisting.length > 0 || preview.dupInFile.length > 0) && (
+                <div style={{
+                  marginTop:10, padding:'10px 12px', borderRadius:8, fontSize:12, lineHeight:1.6,
+                  background:C.amberBg || 'rgba(255,176,32,0.12)', border:'1px solid '+(C.amber||'#FFB020'), color:C.text,
+                }}>
+                  <strong>⚠ Duplicates found — these will be skipped.</strong>
+                  <div style={{ marginTop:4 }}>
+                    {preview.dupExisting.length > 0 && (
+                      <div>{preview.dupExisting.length} row(s) are <strong>already in {MODULE_COLUMNS[preview.modKey].label}</strong> — most likely this file was imported before, possibly by someone else.</div>
+                    )}
+                    {preview.dupInFile.length > 0 && (
+                      <div>{preview.dupInFile.length} row(s) are repeated <strong>within this file itself</strong>.</div>
+                    )}
+                    <div style={{ marginTop:4, opacity:0.85 }}>
+                      Matched on: {preview.fields.join(' + ')}. Only the {preview.fresh.length} new row(s) will be added.
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {preview.fields && preview.fresh.length === 0 && (
+                <div style={{
+                  marginTop:10, padding:'10px 12px', borderRadius:8, fontSize:12,
+                  background:'rgba(220,38,38,0.12)', border:'1px solid '+(C.danger||'#DC2626'), color:C.text,
+                }}>
+                  <strong>Nothing to import.</strong> Every row in this file is already in {MODULE_COLUMNS[preview.modKey].label}.
+                </div>
+              )}
             </div>
             <div style={{ display:'flex', gap:8 }}>
               <Btn variant="ghost" sm onClick={() => setPreview(null)}>Cancel</Btn>
-              <Btn sm onClick={handleConfirmImport}>✓ Confirm Import ({preview.rows.length} rows)</Btn>
+              <Btn sm onClick={handleConfirmImport} disabled={preview.fields && preview.fresh.length === 0}>
+                ✓ Confirm Import ({preview.fields ? preview.fresh.length : preview.rows.length} rows)
+              </Btn>
             </div>
           </div>
           <div style={{ overflowX:'auto', maxHeight:360, overflowY:'auto' }}>

@@ -70,6 +70,202 @@ function parseCSVLine(line) {
   return result;
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// Real-world spreadsheet adaptation
+// ══════════════════════════════════════════════════════════════════════════════
+//
+// Staff do not keep their records in our field names. A terminal register is
+// a human sheet: a company banner across row 1, headers like "CONTAINER Nos"
+// and "SHIPPING COY", typos that have been there for years ("RECIPT",
+// "TRANSIRE"), day-first dates, and merged cells where one Bill of Lading
+// covers several containers.
+//
+// Telling people to restructure that by hand before every upload guarantees
+// two things: it won't get done, and when it is done it will be done
+// inconsistently. So the importer meets the spreadsheet where it is.
+//
+// Four adaptations, all reversible and all reported to the user:
+//   1. find the real header row (skip banners)
+//   2. translate known column labels to field names
+//   3. read day-first dates
+//   4. carry merged-cell values down
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Compare headers ignoring case, spaces, punctuation and trailing blanks, so
+// "BILL OF LADING No." · "bill_of_lading_no" · "billOfLading" all agree.
+function normaliseHeader(h) {
+  return String(h || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+// Known real-world labels → our field names. Add to this list whenever a new
+// client sheet turns up; it is cheaper than asking them to change their file.
+const COLUMN_ALIASES = {
+  terminal_containers: {
+    DATEOFTRANSIREAPPLICATION: 'transireDate',
+    TRANSIREDATE:              'transireDate',
+    BILLOFLADINGNO:            'billOfLading',
+    BILLOFLADING:              'billOfLading',
+    BL:                        'billOfLading',
+    NOOFCONTAINERSBILLLADDING: 'noOfContainers',
+    NOOFCONTAINERSBILLLADING:  'noOfContainers',
+    NOOFCONTAINERS:            'noOfContainers',
+    SIZESOFCONTAINERS:         'size',
+    SIZE:                      'size',
+    CONTAINERNOS:              'containerNo',
+    CONTAINERNO:               'containerNo',
+    CONTAINERNUMBER:           'containerNo',
+    MATERIALDESCRIPTIONPACKAGE:'materialDescription',
+    MATERIALDESCRIPTION:       'materialDescription',
+    NAMEOFCONSIGNEE:           'consigneeName',
+    CONSIGNEE:                 'consigneeName',
+    CONSIGNEENAME:             'consigneeName',
+    SHIPPINGCOY:               'shippingCompany',
+    SHIPPINGCOMPANY:           'shippingCompany',
+    SHIPPINGLINE:              'shippingCompany',
+    SHIPPINGVESSEL:            'shippingVessel',
+    VESSEL:                    'shippingVessel',
+    DATEOFRECIPTINTOWAREHOUSE: 'warehouseReceiptDate',   // sic — their spelling
+    DATEOFRECEIPTINTOWAREHOUSE:'warehouseReceiptDate',
+    WAREHOUSERECEIPTDATE:      'warehouseReceiptDate',
+    DATEOFEXAMINATION:         'examinationDate',
+    EXAMINATIONDATE:           'examinationDate',
+    DATEOFRELEASE:             'releaseDate',
+    RELEASEDATE:               'releaseDate',
+    REMARK:                    'remark',
+    REMARKS:                   'remark',
+    PORTTYPE:                  'portType',
+    STATUS:                    'status',
+    CONTAINERTYPE:             'containerType',
+  },
+};
+
+// Fields read as dates, per module.
+const DATE_FIELDS = {
+  terminal_containers: ['transireDate', 'warehouseReceiptDate', 'examinationDate', 'releaseDate'],
+};
+
+// Fields that carry DOWN a merged block. Never include an identity field —
+// inheriting a container number would silently duplicate boxes.
+const INHERITED_FIELDS = {
+  terminal_containers: ['billOfLading', 'noOfContainers', 'transireDate', 'materialDescription',
+                        'consigneeName', 'shippingCompany', 'shippingVessel', 'size'],
+};
+
+/**
+ * Day-first date → ISO. Returns the original string untouched if it is not a
+ * recognisable day-first date, so ISO input and free text both pass through.
+ *
+ * Day-first is the right assumption for these sheets: values like 13/1/2026
+ * are unambiguous (there is no 13th month) and the registers are written by
+ * Nigerian operators, where DD/MM/YYYY is standard. Reading them as US dates
+ * would silently turn 5/1/2026 (5 January) into 1 May.
+ */
+export function parseDayFirstDate(value) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;              // already ISO
+
+  // Letter O typed for a zero, inside an otherwise numeric date.
+  let v = raw;
+  if (/^[\dOo]{1,2}[/-][\dOo]{1,2}[/-][\dOo]{2,5}$/.test(v)) v = v.replace(/[Oo]/g, '0');
+
+  const m = v.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,5})$/);
+  if (!m) return raw;
+
+  const day = +m[1], month = +m[2];
+  let year = +m[3];
+  if (m[3].length > 4) return '';                               // "10126" — a slip
+  if (year < 100) year += 2000;
+
+  // Outside this range the value is a typo, not a date. Blank it rather than
+  // guess — an invented date in a customs record is worse than a missing one.
+  if (year < 2000 || year > 2035) return '';
+  if (month < 1 || month > 12 || day < 1 || day > 31) return '';
+
+  return `${String(year).padStart(4,'0')}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+}
+
+/**
+ * Pick the header row. A human sheet often opens with a title banner, so the
+ * real headers can be on row 2, 3 or lower. Score each candidate by how many
+ * of its cells we recognise and take the best — never guess blindly.
+ */
+function findHeaderRow(rows, modKey) {
+  const aliases = COLUMN_ALIASES[modKey] || {};
+  const known = new Set([...Object.keys(aliases), ...(MODULE_COLUMNS[modKey]?.columns || []).map(normaliseHeader)]);
+  let best = { index: 0, score: -1 };
+
+  rows.slice(0, 10).forEach((cells, i) => {
+    const score = cells.filter(c => c && known.has(normaliseHeader(c))).length;
+    if (score > best.score) best = { index: i, score };
+  });
+  return best;
+}
+
+/**
+ * Turn a raw grid into field-named rows, applying all four adaptations.
+ * Returns { rows, info } — `info` describes what was adapted so the UI can
+ * tell the user rather than silently transforming their file.
+ */
+export function adaptRows(grid, modKey) {
+  const { index: hdrIdx, score } = findHeaderRow(grid, modKey);
+  const aliases = COLUMN_ALIASES[modKey] || {};
+  const headers = (grid[hdrIdx] || []).map(h => {
+    const n = normaliseHeader(h);
+    return aliases[n] || (MODULE_COLUMNS[modKey]?.columns || []).find(c => normaliseHeader(c) === n) || h;
+  });
+
+  const dateFields = DATE_FIELDS[modKey] || [];
+  const inherit    = INHERITED_FIELDS[modKey] || [];
+  const carried    = {};
+  const info       = { headerRow: hdrIdx + 1, matchedColumns: score, bannerSkipped: hdrIdx > 0, filledDown: 0, datesConverted: 0 };
+
+  const rows = [];
+  grid.slice(hdrIdx + 1).forEach(cells => {
+    if (!cells.some(c => String(c || '').trim())) return;       // wholly blank line
+
+    const row = {};
+    headers.forEach((h, i) => { row[h] = String(cells[i] ?? '').trim(); });
+
+    inherit.forEach(f => {
+      if (!(f in row)) return;
+      if (row[f]) carried[f] = row[f];
+      else if (carried[f]) { row[f] = carried[f]; info.filledDown++; }
+    });
+
+    dateFields.forEach(f => {
+      if (!row[f]) return;
+      const iso = parseDayFirstDate(row[f]);
+      if (iso !== row[f]) info.datesConverted++;
+      row[f] = iso;
+    });
+
+    rows.push(row);
+  });
+
+  return { rows, info };
+}
+
+/**
+ * Import rows from an uploaded CSV, adapted to the target module's fields.
+ * @param {File} file
+ * @param {string} modKey  which MODULE_COLUMNS entry the file is destined for
+ */
+export function importAdapted(file, modKey) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = ev => {
+      try {
+        const lines = String(ev.target.result).split(/\r?\n/).filter(l => l.trim());
+        if (lines.length < 2) { reject(new Error('File has no data rows')); return; }
+        resolve(adaptRows(lines.map(parseCSVLine), modKey));
+      } catch (err) { reject(err); }
+    };
+    r.onerror = () => reject(new Error('Could not read file'));
+    r.readAsText(file, 'utf-8');
+  });
+}
+
 // Keep same API — alias importFromCSV as importFromXLSX
 export const importFromXLSX = importFromCSV;
 
