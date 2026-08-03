@@ -1,4 +1,5 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { lazyWithRetry, prefetchAllChunks } from './utils/lazyWithRetry';
 import { Toaster } from 'react-hot-toast';
 import ErrorBoundary from './components/ErrorBoundary';
 import { AppProvider, useApp, defaultAppState } from './context/AppContext';
@@ -59,30 +60,30 @@ try {
 // Code-split heavy modules — they each get their own chunk and load on
 // demand the first time the user navigates to them. Cuts the initial
 // payload from a single ~917KB bundle to a much smaller landing bundle.
-const Dashboard        = lazy(() => import('./components/modules/Dashboard'));
-const ContractStaff    = lazy(() => import('./components/modules/ContractStaff'));
-const SlotStaff        = lazy(() => import('./components/modules/SlotStaff'));
-const Procurement      = lazy(() => import('./components/modules/Procurement'));
-const Inventory        = lazy(() => import('./components/modules/Inventory'));
-const TerminalOps      = lazy(() => import('./components/modules/TerminalOps'));
-const FleetMaintenance = lazy(() => import('./components/modules/FleetMaintenance'));
-const Accounting       = lazy(() => import('./components/modules/Accounting'));
-const AccountsPayable  = lazy(() => import('./components/modules/AccountsPayable'));
-const AccountsReceivable = lazy(() => import('./components/modules/AccountsReceivable'));
-const ProjectPL        = lazy(() => import('./components/modules/ProjectPL'));
-const PettyCash        = lazy(() => import('./components/modules/PettyCash'));
-const Requests         = lazy(() => import('./components/modules/Requests'));
-const Approvals        = lazy(() => import('./components/modules/Approvals'));
-const Analytics        = lazy(() => import('./components/modules/Analytics'));
-const Users            = lazy(() => import('./components/modules/Users'));
-const Settings         = lazy(() => import('./components/modules/Settings'));
-const Backup           = lazy(() => import('./components/modules/Backup'));
-const ExcelManager     = lazy(() => import('./components/modules/ExcelManager'));
-const ModuleEditor     = lazy(() => import('./components/modules/ModuleEditor'));
-const FixedAssets      = lazy(() => import('./components/modules/FixedAssets'));
-const SalesOrders      = lazy(() => import('./components/modules/SalesOrders'));
-const SageReports      = lazy(() => import('./components/modules/SageReports'));
-const SageReports2     = lazy(() => import('./components/modules/SageReports2'));
+const Dashboard        = lazyWithRetry(() => import('./components/modules/Dashboard'), 'Dashboard');
+const ContractStaff    = lazyWithRetry(() => import('./components/modules/ContractStaff'), 'ContractStaff');
+const SlotStaff        = lazyWithRetry(() => import('./components/modules/SlotStaff'), 'SlotStaff');
+const Procurement      = lazyWithRetry(() => import('./components/modules/Procurement'), 'Procurement');
+const Inventory        = lazyWithRetry(() => import('./components/modules/Inventory'), 'Inventory');
+const TerminalOps      = lazyWithRetry(() => import('./components/modules/TerminalOps'), 'TerminalOps');
+const FleetMaintenance = lazyWithRetry(() => import('./components/modules/FleetMaintenance'), 'FleetMaintenance');
+const Accounting       = lazyWithRetry(() => import('./components/modules/Accounting'), 'Accounting');
+const AccountsPayable  = lazyWithRetry(() => import('./components/modules/AccountsPayable'), 'AccountsPayable');
+const AccountsReceivable = lazyWithRetry(() => import('./components/modules/AccountsReceivable'), 'AccountsReceivable');
+const ProjectPL        = lazyWithRetry(() => import('./components/modules/ProjectPL'), 'ProjectPL');
+const PettyCash        = lazyWithRetry(() => import('./components/modules/PettyCash'), 'PettyCash');
+const Requests         = lazyWithRetry(() => import('./components/modules/Requests'), 'Requests');
+const Approvals        = lazyWithRetry(() => import('./components/modules/Approvals'), 'Approvals');
+const Analytics        = lazyWithRetry(() => import('./components/modules/Analytics'), 'Analytics');
+const Users            = lazyWithRetry(() => import('./components/modules/Users'), 'Users');
+const Settings         = lazyWithRetry(() => import('./components/modules/Settings'), 'Settings');
+const Backup           = lazyWithRetry(() => import('./components/modules/Backup'), 'Backup');
+const ExcelManager     = lazyWithRetry(() => import('./components/modules/ExcelManager'), 'ExcelManager');
+const ModuleEditor     = lazyWithRetry(() => import('./components/modules/ModuleEditor'), 'ModuleEditor');
+const FixedAssets      = lazyWithRetry(() => import('./components/modules/FixedAssets'), 'FixedAssets');
+const SalesOrders      = lazyWithRetry(() => import('./components/modules/SalesOrders'), 'SalesOrders');
+const SageReports      = lazyWithRetry(() => import('./components/modules/SageReports'), 'SageReports');
+const SageReports2     = lazyWithRetry(() => import('./components/modules/SageReports2'), 'SageReports2');
 
 const PAGES = {
   dashboard:    Dashboard,
@@ -315,6 +316,18 @@ function Shell() {
 
   // ── Land restricted roles on their own module, not Dashboard ─────────────
   // page defaults to 'dashboard' before we know who's signed in. Once
+  // ── Warm every module's code once the user is in ──────────────────────────
+  // Modules are code-split, so their JavaScript is normally only fetched at
+  // the moment someone clicks into them — which is precisely when a weak
+  // connection will bite. SLOT staff reported the "Something went wrong in
+  // the ... module" screen constantly for this reason. Pulling all the chunks
+  // into cache while the user reads the dashboard means that click no longer
+  // needs the network at all. See prefetchAllChunks() for the throttling.
+  useEffect(() => {
+    if (!currentUser) return;
+    prefetchAllChunks();
+  }, [currentUser]);
+
   // currentUser loads, redirect away from it if this role isn't allowed to
   // see the cross-module view (see computeHomePage/canSeeDashboard). This
   // also self-corrects after the SIGNED_OUT and logout handlers below reset
