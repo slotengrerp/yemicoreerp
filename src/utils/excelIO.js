@@ -177,8 +177,13 @@ export const MODULE_COLUMNS = {
   },
   terminal_containers: {
     label: 'Terminal Containers',
-    columns: ['containerNo','containerType','size','portType','shippingCompany','shippingVessel','consigneeName','materialDescription','billOfLading','noOfContainers','status'],
-    example: [{ containerNo:'SAMPLE0000001', containerType:'20ft DV', size:'20ft', portType:'Sea', shippingCompany:'SAMPLE — Delete This Row', shippingVessel:'Sample Vessel', consigneeName:'Sample Consignee Ltd', materialDescription:'Sample material description', billOfLading:'SAMPLE-BOL-001', noOfContainers:1, status:'Arrived' }],
-    note: 'Imports into Containers only — Bills of Lading, Charges, Logistics, and Advances are separate record types not covered by import.',
+    // 2026-08-03: extended with the four clearing-lifecycle dates
+    // (transire application → receipt into warehouse → examination →
+    // release). A real terminal record keeps these per container, and
+    // without them an import is just a list of box numbers with no history.
+    // `remark` carries the free-text status note operators actually write.
+    columns: ['containerNo','containerType','size','portType','shippingCompany','shippingVessel','consigneeName','materialDescription','billOfLading','noOfContainers','status','transireDate','warehouseReceiptDate','examinationDate','releaseDate','remark'],
+    example: [{ containerNo:'SAMPLE0000001', containerType:'20ft DV', size:'20ft', portType:'Sea', shippingCompany:'SAMPLE — Delete This Row', shippingVessel:'Sample Vessel', consigneeName:'Sample Consignee Ltd', materialDescription:'Sample material description', billOfLading:'SAMPLE-BOL-001', noOfContainers:1, status:'Arrived', transireDate:'2026-01-05', warehouseReceiptDate:'2026-01-10', examinationDate:'2026-01-13', releaseDate:'2026-01-13', remark:'Delete this row before importing' }],
+    note: 'Rows sharing a Bill of Lading number are grouped into one BoL automatically, with their containers linked underneath. Dates must be YYYY-MM-DD — a day-first date like 13/1/2026 is ambiguous to a spreadsheet and will not import.',
   },
 };

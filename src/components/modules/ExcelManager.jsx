@@ -171,6 +171,65 @@ export default function ExcelManager() {
       return { id: generateId(), ...row, createdAt: row.createdAt || new Date().toISOString() };
     });
 
+    // ── Terminal: rebuild the BoL → containers hierarchy ─────────────────────
+    // A terminal spreadsheet is one row per CONTAINER, but many containers
+    // share a Bill of Lading — in the source files the BoL number is written
+    // once and the rows beneath it are left blank (merged cells in Excel).
+    // Importing those rows flat produced containers with no parent, so the
+    // Bills of Lading screen stayed empty and the 40-odd BoL-level features
+    // (charges, logistics, advances) had nothing to attach to.
+    //
+    // Group by billOfLading, create one BoL per distinct number, and link
+    // every container to it. Shipment-level details (carrier, vessel) are
+    // taken from the first row of each group, matching how saveBoL() mirrors
+    // them back down onto containers.
+    if (modKey === 'terminal_containers') {
+      const existingBols = db.terminal?.bols || [];
+      const byNumber = new Map(existingBols.map(b => [String(b.billOfLadingNo || '').trim().toUpperCase(), b]));
+      const newBols = [];
+
+      normalised.forEach(c => {
+        const key = String(c.billOfLading || '').trim().toUpperCase();
+        if (!key) return;                    // container with no BoL stays unlinked
+        let bol = byNumber.get(key);
+        if (!bol) {
+          bol = {
+            id: generateId(),
+            billOfLadingNo: String(c.billOfLading).trim(),
+            shippingCompany: c.shippingCompany || '',
+            shippingVessel: c.shippingVessel || '',
+            consigneeName: c.consigneeName || '',
+            portOfLoading: '',
+            portOfDischarge: '',
+            portType: c.portType || 'Sea',
+            status: c.status || 'Arrived',
+            transireDate: c.transireDate || '',
+            createdAt: new Date().toISOString(),
+          };
+          byNumber.set(key, bol);
+          newBols.push(bol);
+        }
+        c.bolId = bol.id;
+        // noOfContainers on the sheet describes the BoL, not the row.
+        bol.noOfContainers = (bol.noOfContainers || 0) + 1;
+      });
+
+      const mergedBols = [...existingBols, ...newBols];
+      const existingContainers = db.terminal?.containers || [];
+      const mergedContainers = [...existingContainers, ...normalised];
+
+      diffAndPush('terminalBols', existingBols, mergedBols);
+      diffAndPush('terminalContainers', existingContainers, mergedContainers);
+
+      const importData = { ...db.terminal, bols: mergedBols, containers: mergedContainers };
+      dispatch({ type:'UPDATE_MODULE', mod:'terminal', data: importData });
+      saveDBLocal({ ...db, terminal: importData }, state.activity);
+      logActivity(dispatch, `Imported ${normalised.length} containers across ${newBols.length} bills of lading from ${preview.file}`, currentUser, { module:'terminal', action:'create' });
+      showToast(`${normalised.length} containers imported under ${newBols.length} new bills of lading`);
+      setPreview(null);
+      return;
+    }
+
     const nestedTarget = NESTED_TARGETS[modKey];
     const existing = nestedTarget
       ? (db[nestedTarget.parentKey]?.[nestedTarget.childKey] || [])

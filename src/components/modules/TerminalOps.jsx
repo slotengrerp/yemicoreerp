@@ -380,6 +380,17 @@ export default function TerminalOps({ onNav }) {
         consigneeName: r.consigneeName || '',
         materialDescription: r.materialDescription || '',
         status: r.status || prev.status || 'Arrived',
+        // ── Clearing lifecycle dates ──────────────────────────────────────
+        // transire application → receipt into warehouse → examination →
+        // release. Added 2026-08-03 when importing FLOPENG's historical
+        // register, which tracked all four per container. `?? prev.x` (not
+        // `|| prev.x`) so a deliberately CLEARED date stays cleared instead
+        // of silently reverting to the previous value.
+        transireDate:         r.transireDate         ?? prev.transireDate         ?? '',
+        warehouseReceiptDate: r.warehouseReceiptDate ?? prev.warehouseReceiptDate ?? '',
+        examinationDate:      r.examinationDate      ?? prev.examinationDate      ?? '',
+        releaseDate:          r.releaseDate          ?? prev.releaseDate          ?? '',
+        remark:               r.remark               ?? prev.remark               ?? '',
         // Shipment details live on the BoL — mirror them onto each container
         // so the Container Registry columns and the printed sheets read
         // correctly without having to join back to the BoL every time.

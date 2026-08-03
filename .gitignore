@@ -48,3 +48,9 @@ npm-install.log
 test.log
 
 .vercel
+
+# Customer/operational data files — this repository is PUBLIC.
+# Container registers name real consignees, vessels and shipments; they must
+# never be committed. Import them through the app, not through git.
+FLOPENG_terminal_import.csv
+*_terminal_import.csv
