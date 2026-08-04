@@ -240,6 +240,34 @@ export function adaptRows(grid, modKey) {
       row[f] = iso;
     });
 
+    // ── Derive the fields a working sheet doesn't have a column for ─────────
+    // A terminal register records SIZE ("40FT") but not our containerType,
+    // and records progress in a free-text REMARK rather than a status.
+    // Without this the imported rows showed a blank Type and an empty status
+    // pill on every line — technically imported, visibly useless.
+    if (modKey === 'terminal_containers') {
+      // The letter O typed for a zero shows up in sizes too ("2OFT", "4OFT"),
+      // exactly as it does in the dates. Only digits-and-O strings are
+      // touched, so a genuine word is never mangled. 45ft is a real size —
+      // 27 of them in the first register we imported — not a typo.
+      const size = String(row.size || '').toUpperCase().replace(/\s/g, '').replace(/O/g, '0');
+      if      (size.startsWith('45')) { row.size = '45ft'; row.containerType = row.containerType || '45ft HC'; }
+      else if (size.startsWith('40')) { row.size = '40ft'; row.containerType = row.containerType || '40ft DV'; }
+      else if (size.startsWith('20')) { row.size = '20ft'; row.containerType = row.containerType || '20ft DV'; }
+
+      if (!row.status) {
+        const r = String(row.remark || '').toUpperCase();
+        // Release date is harder evidence than a remark someone typed, so it
+        // is checked first.
+        if (row.releaseDate || r.includes('RELEASE'))   row.status = 'Released';
+        else if (r.includes('EXAMIN'))                  row.status = 'Under Examination';
+        else if (r.includes('RECEIV') || row.warehouseReceiptDate) row.status = 'In Warehouse';
+        else if (r.includes('HOLD') || r.includes('HELD')) row.status = 'Held';
+        else                                            row.status = 'Arrived';
+        info.statusesDerived = (info.statusesDerived || 0) + 1;
+      }
+    }
+
     rows.push(row);
   });
 

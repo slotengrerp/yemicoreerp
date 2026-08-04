@@ -192,6 +192,82 @@ function printFlopingLogisticsSheet(list) {
   w.document.close();
 }
 
+// ── Print: ONE Bill of Lading and its containers ──────────────────────────────
+// Requested by the terminal team 2026-08-03. The registry print covers all
+// 1,000+ containers at once, which is the wrong document when you need to hand
+// a single consignee the sheet for THEIR shipment, or file one job.
+//
+// This prints the BoL as it is worked: shipment details at the top, then every
+// container beneath it with the four clearing dates — the same layout as their
+// own register sheet, so it can be checked against the original line by line.
+function printSingleBoL(bol, childContainers, charges = []) {
+  const d = v => v ? formatDate(v) : '—';
+  const money = n => '₦' + Number(n || 0).toLocaleString('en-NG');
+  const totalCharges = charges.reduce((s, c) => s + (Number(c.totalAmount) || 0), 0);
+
+  const rows = childContainers.map((c, i) => `
+    <tr style="background:${i % 2 ? '#f3faf5' : '#fff'}">
+      <td>${i + 1}</td>
+      <td><strong>${c.containerNo || '—'}</strong></td>
+      <td>${c.containerType || c.size || '—'}</td>
+      <td>${c.consigneeName || '—'}</td>
+      <td>${c.materialDescription || '—'}</td>
+      <td>${d(c.transireDate)}</td>
+      <td>${d(c.warehouseReceiptDate)}</td>
+      <td>${d(c.examinationDate)}</td>
+      <td>${d(c.releaseDate)}</td>
+      <td>${c.status || '—'}</td>
+    </tr>`).join('');
+
+  const consignees = Array.from(new Set(childContainers.map(c => c.consigneeName).filter(Boolean)));
+
+  const w = window.open('', '_blank', 'width=1000,height=700');
+  w.document.write(`<!DOCTYPE html><html><head><title>BoL ${bol.billOfLadingNo || ''}</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{font-family:'Segoe UI',Arial,sans-serif;font-size:11px;padding:22px;color:#182A1C}
+    table{width:100%;border-collapse:collapse;margin-top:14px}
+    th{background:#1A5C2A;color:#fff;padding:7px 8px;text-align:left;font-size:9px;text-transform:uppercase;letter-spacing:.3px}
+    td{padding:6px 8px;border-bottom:1px solid #EAF0EB;font-size:10px}
+    .meta{display:grid;grid-template-columns:repeat(4,1fr);gap:8px 18px;margin-top:6px;
+          padding:12px 14px;background:#F3FAF5;border:1px solid #D4E0D6;border-radius:6px}
+    .meta div span{display:block;font-size:8.5px;color:#6E8C74;text-transform:uppercase;letter-spacing:.4px}
+    .meta div strong{font-size:11.5px;color:#182A1C}
+    .sign{margin-top:34px;display:flex;justify-content:space-between;gap:40px}
+    .sign div{flex:1;border-top:1px solid #7A8C7E;padding-top:5px;font-size:9px;color:#4A5C4E}
+    @media print{body{padding:10px}@page{margin:12mm}}
+  </style></head><body>
+  ${printHeader('BILL OF LADING — CONTAINER SHEET', 'BoL ' + (bol.billOfLadingNo || '—'))}
+  <div class="meta">
+    <div><span>Bill of Lading</span><strong>${bol.billOfLadingNo || '—'}</strong></div>
+    <div><span>Shipping Company</span><strong>${bol.shippingCompany || '—'}</strong></div>
+    <div><span>Vessel</span><strong>${bol.shippingVessel || '—'}</strong></div>
+    <div><span>Containers</span><strong>${childContainers.length}</strong></div>
+    <div><span>Consignee${consignees.length > 1 ? 's' : ''}</span><strong>${consignees.join(', ') || '—'}</strong></div>
+    <div><span>Port of Loading</span><strong>${bol.portOfLoading || '—'}</strong></div>
+    <div><span>Port of Discharge</span><strong>${bol.portOfDischarge || '—'}</strong></div>
+    <div><span>Status</span><strong>${bol.status || '—'}</strong></div>
+    <div><span>ETA</span><strong>${d(bol.etaDate)}</strong></div>
+    <div><span>ATA</span><strong>${d(bol.ataDate)}</strong></div>
+    <div><span>Free Time Expiry</span><strong>${d(bol.freeTimeExpiry)}</strong></div>
+    <div><span>Total Charges</span><strong>${money(totalCharges)}</strong></div>
+  </div>
+  <table>
+    <thead><tr>
+      <th>S/N</th><th>Container No</th><th>Type</th><th>Consignee</th><th>Material</th>
+      <th>Transire</th><th>Into Warehouse</th><th>Examination</th><th>Release</th><th>Status</th>
+    </tr></thead>
+    <tbody>${rows || '<tr><td colspan="10" style="text-align:center;padding:18px;color:#6E8C74">No containers linked to this Bill of Lading.</td></tr>'}</tbody>
+  </table>
+  <div class="sign">
+    <div>Prepared by — name, signature &amp; date</div>
+    <div>Checked by — name, signature &amp; date</div>
+    <div>Received by — name, signature &amp; date</div>
+  </div>
+  <script>window.onload=()=>window.print()<\/script></body></html>`);
+  w.document.close();
+}
+
 // ── Print: Container Registry ─────────────────────────────────────────────────
 function printContainerRegistry(list) {
   const rows = list.map((c,i) => `
@@ -727,6 +803,12 @@ export default function TerminalOps({ onNav }) {
                         <div style={{fontSize:11,color:'rgba(255,255,255,0.8)'}}>POL: {bol.portOfLoading||'—'} → POD: {bol.portOfDischarge||'—'}</div>
                         <div style={{fontSize:11,color:'rgba(255,255,255,0.8)'}}>ETA: {formatDate(bol.etaDate)||'—'} · ATA: {formatDate(bol.ataDate)||'—'}</div>
                         <div style={{display:'flex',gap:4}} onClick={e=>e.stopPropagation()}>
+                          {/* Print THIS shipment only — see printSingleBoL. Available to
+                              everyone who can view the tab: printing reads nothing that
+                              isn't already on screen, so gating it behind edit rights
+                              would only stop clerks doing their job. */}
+                          <Btn variant="outline" sm style={{background:'rgba(255,255,255,0.1)',borderColor:'rgba(255,255,255,0.3)',color:'#fff'}}
+                            onClick={()=>printSingleBoL(bol, childContainers, charges.filter(ch => childContainers.some(cc => belongsToContainer(ch, cc))))}>🖨 Print</Btn>
                           {perms.edit&&<Btn variant="outline" sm style={{background:'rgba(255,255,255,0.1)',borderColor:'rgba(255,255,255,0.3)',color:'#fff'}} onClick={()=>setModal({type:'bol_edit',data:{...bol}})}>Edit BoL</Btn>}
                           {perms.del &&<Btn variant="danger"  sm onClick={()=>deleteItem('bols',bol.id)}>Del</Btn>}
                         </div>
