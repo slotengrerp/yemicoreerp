@@ -9,7 +9,7 @@ import { canDo }    from '../../utils/auth';
 import { showToast, formatDate, generateId } from '../../utils/helpers';
 import { saveDBLocal } from '../../utils/db';
 import { logActivity }  from '../../utils/audit';
-import { printHeader, PRINT_CSS } from '../../utils/logo';
+import { printHeader, PRINT_CSS, printBootstrap } from '../../utils/logo';
 import { initApproval, applyDecision, canApproveAtCurrentLevel, approvalSummary } from '../../utils/approvalEngine';
 import { diffAndPush } from '../../hooks/usePerRecordSync';
 
@@ -129,7 +129,7 @@ function printVoucher(v) {
       <div><div class="sig">Received By / Date</div></div>
     </div>
   </div>
-  <script>window.onload=()=>window.print()<\/script></body></html>`);
+  ${printBootstrap({landscape:false})}</body></html>`);
   w.document.close();
 }
 
@@ -149,7 +149,7 @@ function printRegister(list, fund) {
   <tbody>${rows}</tbody>
   <tfoot><tr class="total-row"><td colspan="6" style="text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:.5px">Total Disbursed</td><td style="text-align:right;font-size:14px">₦${total.toLocaleString('en-NG')}</td><td colspan="2"></td></tr></tfoot>
   </table>
-  <script>window.onload=()=>window.print()<\/script></body></html>`);
+  ${printBootstrap({landscape:false})}</body></html>`);
   w.document.close();
 }
 

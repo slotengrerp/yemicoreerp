@@ -22,7 +22,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { showToast, formatDate, generateId } from '../../utils/helpers';
 import { saveDBLocal } from '../../utils/db';
 import { logActivity }  from '../../utils/audit';
-import { printHeader, PRINT_CSS } from '../../utils/logo';
+import { printHeader, PRINT_CSS, printBootstrap } from '../../utils/logo';
 import { getClients, getClientByCode } from '../../utils/clientMaster';
 import { BANK_ACCOUNTS } from '../../utils/financeConstants';
 import { diffAndPush, pushOne } from '../../hooks/usePerRecordSync';
@@ -1234,7 +1234,7 @@ function BudgetVsActualTab({ state, dispatch, inp }) {
       <table class="bva"><thead><tr><th>Code</th><th>Account</th><th style="text-align:right">Budget</th><th style="text-align:right">Actual</th><th style="text-align:right">Variance</th><th style="text-align:center">Used %</th></tr></thead>
         <tbody>${rows || '<tr><td colspan="6" style="text-align:center;color:#6E8C74;padding:14px">No budgets set</td></tr>'}</tbody>
       </table>
-      <script>window.onload=()=>window.print()<\/script>
+      ${printBootstrap({landscape:true})}
       </body></html>`);
     w.document.close();
   }
@@ -1523,7 +1523,7 @@ function StockTakeTab({ state, dispatch, inp }) {
         <tbody>${rows}</tbody>
       </table>
       <p style="margin-top:24px;font-size:11px;color:#6E8C74">Counted by: ____________________________ &nbsp;&nbsp; Date: ____________ &nbsp;&nbsp; Witnessed by: ____________________________</p>
-      <script>window.onload=()=>window.print()<\/script>
+      ${printBootstrap({landscape:true})}
       </body></html>`);
     w.document.close();
   }

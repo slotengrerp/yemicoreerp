@@ -11,7 +11,7 @@ import { showToast, formatDate, generateId } from '../../utils/helpers'; // auto
 import { getDeepLinkTab } from '../../utils/helpers';
 import { saveDBLocal } from '../../utils/db';
 import { logActivity }  from '../../utils/audit';
-import { printHeader, PRINT_CSS } from '../../utils/logo';
+import { printHeader, PRINT_CSS, printBootstrap } from '../../utils/logo';
 import { initApproval, applyDecision, canApproveAtCurrentLevel, approvalSummary } from '../../utils/approvalEngine';
 import { diffAndPush, pushOne } from '../../hooks/usePerRecordSync';
 
@@ -132,7 +132,7 @@ function printRequest(r) {
     <div><div class="sig">Approved By / Date</div></div>
     <div><div class="sig">HOD / Date</div></div>
   </div>
-  <script>window.onload=()=>window.print()<\/script></body></html>`);
+  ${printBootstrap({landscape:false})}</body></html>`);
   w.document.close();
 }
 

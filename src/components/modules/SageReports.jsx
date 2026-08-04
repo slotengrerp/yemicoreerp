@@ -27,7 +27,7 @@ import { canDo }    from '../../utils/auth';
 import { showToast, formatDate, generateId } from '../../utils/helpers';
 import { saveDBLocal } from '../../utils/db';
 import { logActivity }  from '../../utils/audit';
-import { printHeader, PRINT_CSS, SLOT_LOGO_SRC } from '../../utils/logo';
+import { printHeader, PRINT_CSS, SLOT_LOGO_SRC, printBootstrap } from '../../utils/logo';
 import { getClients, getClientByCode } from '../../utils/clientMaster';
 import { getVendors, getVendorByCode } from '../../utils/vendorMaster';
 import { BANK_ACCOUNTS } from '../../utils/financeConstants';
@@ -376,7 +376,7 @@ function CustomerStatementTab({ state, dispatch, inp }) {
     <p style="margin-top:24px;font-size:10px;color:#6E8C74;text-align:center">
       This statement is system-generated. Please reconcile with your records and contact SLOT Engineering Finance within 7 days of any discrepancy.
     </p>
-    <script>window.onload=()=>window.print()<\/script>
+    ${printBootstrap({landscape:true})}
     </body></html>`);
     w.document.close();
   }
@@ -594,7 +594,7 @@ function SupplierStatementTab({ state, dispatch, inp }) {
         <tbody>${agingRows}</tbody>
       </table>
     </div>
-    <script>window.onload=()=>window.print()<\/script>
+    ${printBootstrap({landscape:true})}
     </body></html>`);
     w.document.close();
   }
@@ -644,7 +644,7 @@ function SupplierStatementTab({ state, dispatch, inp }) {
     </table>
     <div class="grand"><span>Total Remitted</span><span>${fmtN(total)}</span></div>
     <p style="margin-top:24px;font-size:10px;color:#6E8C74">Please confirm receipt and reconcile with your records.</p>
-    <script>window.onload=()=>window.print()<\/script>
+    ${printBootstrap({landscape:true})}
     </body></html>`);
     w.document.close();
   }
@@ -834,7 +834,7 @@ function CreditNotesTab({ state, dispatch, inp }) {
       <div><div style="border-top:1px solid #ccc;padding-top:6px;font-size:10px;color:#6E8C74">Prepared By / Date</div></div>
       <div><div style="border-top:1px solid #ccc;padding-top:6px;font-size:10px;color:#6E8C74">Authorised Signatory / Date</div></div>
     </div>
-    <script>window.onload=()=>window.print()<\/script>
+    ${printBootstrap({landscape:true})}
     </body></html>`);
     w.document.close();
   }
@@ -995,7 +995,7 @@ function VAT201Tab({ state, dispatch, inp }) {
       Filed by: SLOT Engineering Nigeria Limited · TIN: 00499389-0001 · VAT Reg No: PHVO500258586<br/>
       Due on or before the 21st of the following month. Negative balance = refund due from FIRS.
     </p>
-    <script>window.onload=()=>window.print()<\/script>
+    ${printBootstrap({landscape:true})}
     </body></html>`);
     w.document.close();
   }
@@ -1224,7 +1224,7 @@ function ComparativeTab({ state, dispatch, inp }) {
       <div class="comp-title">COMPARATIVE ${isPnL?'PROFIT AND LOSS STATEMENT':'BALANCE SHEET'}</div>
       <div class="comp-sub">For the year ended 31 December ${thisYear} — compared with ${lastYear}</div>
       ${body}
-      <script>window.onload=()=>window.print()<\/script>
+      ${printBootstrap({landscape:true})}
       </body></html>`);
     w.document.close();
   }
@@ -1435,7 +1435,7 @@ function GLDetailTab({ state, dispatch, inp }) {
         <div class="tot-row"><span>Total Credits</span><span>${fmtN(totalCr)}</span></div>
         <div class="tot-row grand"><span>Closing Balance (${esc(account?.normalBal||'Dr')})</span><span>${fmtN(closingNatural)}</span></div>
       </div>
-      <script>window.onload=()=>window.print()<\/script>
+      ${printBootstrap({landscape:true})}
       </body></html>`);
     w.document.close();
   }
@@ -1610,7 +1610,7 @@ function AgingTab({ state, dispatch, inp }) {
           <td style="text-align:right">${fmtN(totals.total)}</td>
         </tr></tfoot>
       </table>
-      <script>window.onload=()=>window.print()<\/script>
+      ${printBootstrap({landscape:true})}
       </body></html>`);
     w.document.close();
   }
@@ -1813,7 +1813,7 @@ function BatchPaymentTab({ state, dispatch, inp }) {
         <div><div style="border-top:1px solid #ccc;padding-top:6px;font-size:10px;color:#6E8C74">Approved By</div></div>
         <div><div style="border-top:1px solid #ccc;padding-top:6px;font-size:10px;color:#6E8C74">Bank Officer Stamp</div></div>
       </div>
-      <script>window.onload=()=>window.print()<\/script>
+      ${printBootstrap({landscape:true})}
       </body></html>`);
     w.document.close();
   }
@@ -2007,7 +2007,7 @@ function WHTTab({ state, dispatch, inp }) {
         <div><div style="border-top:1px solid #ccc;padding-top:6px;font-size:10px;color:#6E8C74">Prepared By / Date</div></div>
         <div><div style="border-top:1px solid #ccc;padding-top:6px;font-size:10px;color:#6E8C74">Authorised Signatory / Date</div></div>
       </div>
-      <script>window.onload=()=>window.print()<\/script>
+      ${printBootstrap({landscape:true})}
       </body></html>`);
     w.document.close();
   }

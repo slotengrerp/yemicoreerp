@@ -18,7 +18,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { showToast, formatDate, generateId } from '../../utils/helpers';
 import { saveDBLocal } from '../../utils/db';
 import { logActivity }  from '../../utils/audit';
-import { printHeader, PRINT_CSS, SLOT_LOGO_SRC } from '../../utils/logo';
+import { printHeader, PRINT_CSS, SLOT_LOGO_SRC, printBootstrap } from '../../utils/logo';
 import { getClients, getClientByCode } from '../../utils/clientMaster';
 import { BANK_ACCOUNTS } from '../../utils/financeConstants';
 import { diffAndPush, pushOne } from '../../hooks/usePerRecordSync';
@@ -911,7 +911,7 @@ export function AssetDisposalTab({ state, dispatch, inp }) {
         <div><div style="border-top:1px solid #ccc;padding-top:6px;font-size:10px;color:#6E8C74">Prepared By</div></div>
         <div><div style="border-top:1px solid #ccc;padding-top:6px;font-size:10px;color:#6E8C74">Authorised By</div></div>
       </div>
-      <script>window.onload=()=>window.print()<\/script>
+      ${printBootstrap({landscape:true})}
       </body></html>`);
     w.document.close();
   }
@@ -1175,7 +1175,7 @@ export function BudgetVsActualTab({ state, dispatch, inp }) {
       <p style="margin-top:18px;font-size:10px;color:#6E8C74">
         Variance colour: red = over budget (unfavourable), green = under budget (favourable). For revenue accounts, red means actual revenue is below budget.
       </p>
-      <script>window.onload=()=>window.print()<\/script>
+      ${printBootstrap({landscape:true})}
       </body></html>`);
     w.document.close();
   }
@@ -1430,7 +1430,7 @@ export function StockTakeTab({ state, dispatch, inp }) {
       <p style="margin-top:18px;font-size:10px;color:#6E8C74">
         Counted Qty = physical count. Variance = Counted − System. Positive variance = stock found extra (Dr Inventory / Cr Stock Adjustment). Negative variance = stock short (Dr Stock Adjustment / Cr Inventory).
       </p>
-      <script>window.onload=()=>window.print()<\/script>
+      ${printBootstrap({landscape:true})}
       </body></html>`);
     w.document.close();
   }

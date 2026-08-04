@@ -7,7 +7,7 @@ import { getDeepLinkTab } from '../../utils/helpers';
 import { saveDBLocal } from '../../utils/db';
 import { logActivity } from '../../utils/audit';
 import { Btn, Tag, StatCard, Modal, FG, FormGrid, SectionLabel, SearchBar, TabBar, EmptyState, Confirm } from '../ui';
-import { printHeader, SLOT_BRAND, PRINT_CSS } from '../../utils/logo';
+import { printHeader, SLOT_BRAND, PRINT_CSS, printBootstrap } from '../../utils/logo';
 import { valueIssue, journalFromStockIssue } from '../../utils/inventoryModel';
 import { diffAndPush, pushOne, pushDelete } from '../../hooks/usePerRecordSync';
 
@@ -26,7 +26,7 @@ function printInventory(items, tab) {
   const hdrMap = { vehicles:['S/N','Vehicle No.','Make / Model','Year','Unit Serving'], heavy:['S/N','Reg No.','Equipment / Vehicle Name','Make','Company No.','Status'], materials:['S/N','Material Name','Quantity','Position','Status'], office:['S/N','Description','Office ID','Location','Status'] };
   const hdrs = (hdrMap[tab]||[]).map(h=>`<th>${h}</th>`).join('');
   const w = window.open('','_blank');
-  w.document.write(`<!DOCTYPE html><html><head><title>${label}</title><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Segoe UI',Arial,sans-serif;font-size:12px;color:#182A1C;padding:24px}table{width:100%;border-collapse:collapse;margin-bottom:16px}th{background:#1A5C2A;color:#fff;padding:8px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.4px}td{padding:7px 10px;border-bottom:1px solid #EAF0EB;font-size:11px}.footer{margin-top:40px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:40px}.sig{border-top:1px solid #ccc;padding-top:6px;font-size:10px;color:#6E8C74}@media print{body{padding:12px}}</style></head><body>${printHeader(label.toUpperCase(),'Total: '+items.length+' items')}<table><thead><tr>${hdrs}</tr></thead><tbody>${rows}</tbody></table><div class="footer"><div><div class="sig">Prepared By / Date</div></div><div><div class="sig">Reviewed By / Date</div></div><div><div class="sig">Approved By / Date</div></div></div><script>window.onload=()=>window.print()<\/script></body></html>`);
+  w.document.write(`<!DOCTYPE html><html><head><title>${label}</title><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Segoe UI',Arial,sans-serif;font-size:12px;color:#182A1C;padding:24px}table{width:100%;border-collapse:collapse;margin-bottom:16px}th{background:#1A5C2A;color:#fff;padding:8px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.4px}td{padding:7px 10px;border-bottom:1px solid #EAF0EB;font-size:11px}.footer{margin-top:40px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:40px}.sig{border-top:1px solid #ccc;padding-top:6px;font-size:10px;color:#6E8C74}@media print{body{padding:12px}}</style></head><body>${printHeader(label.toUpperCase(),'Total: '+items.length+' items')}<table><thead><tr>${hdrs}</tr></thead><tbody>${rows}</tbody></table><div class="footer"><div><div class="sig">Prepared By / Date</div></div><div><div class="sig">Reviewed By / Date</div></div><div><div class="sig">Approved By / Date</div></div></div>${printBootstrap({landscape:false})}</body></html>`);
   w.document.close();
 }
 

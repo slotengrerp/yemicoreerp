@@ -77,3 +77,72 @@ export const PRINT_CSS = `
   .badge-amber { background:#fff3cd; color:#856404; }
   @media print { body { padding:14px; } .no-print { display:none !important; } }
 `;
+
+// ══════════════════════════════════════════════════════════════════════════════
+// printBootstrap — make a generated print window actually print
+// ══════════════════════════════════════════════════════════════════════════════
+//
+// THE BUG THIS REPLACES (found 2026-08-04, reported by the terminal team)
+//
+// Every print in this app was built the same way: open a blank window,
+// document.write() the HTML, document.close(), and end the markup with
+//
+//     <script>window.onload=()=>window.print()<\/script>
+//
+// That handler frequently never fires. document.close() finishes the document
+// immediately, so by the time the inline script runs the `load` event has
+// often already been dispatched — assigning window.onload afterwards attaches
+// a listener to an event that is never coming. The user gets a page with no
+// print dialog and no button, which is exactly what was reported: "immediately
+// I click print, it pops up this page which has nowhere to click print."
+//
+// It was in 34 places across 14 modules, so it was fixed here rather than
+// once at the call site.
+//
+// THREE LAYERS, so a print always reaches the user:
+//   1. a visible toolbar with Print and Close buttons — .no-print keeps it off
+//      the paper. Even if every automatic trigger fails, there is a button.
+//   2. requestAnimationFrame + a short delay before printing, so images (the
+//      SLOT logo especially) have laid out — printing too early produces a
+//      sheet with a blank header.
+//   3. document.readyState is checked instead of trusting onload.
+//
+// @param {object} opts
+//   landscape — wide tables (10+ columns) are unreadable on portrait A4
+// ══════════════════════════════════════════════════════════════════════════════
+export function printBootstrap({ landscape = false } = {}) {
+  return `
+  <style>
+    @page { size: A4 ${landscape ? 'landscape' : 'portrait'}; margin: 10mm; }
+    .print-toolbar{position:fixed;top:0;left:0;right:0;z-index:9999;display:flex;gap:10px;
+      align-items:center;justify-content:flex-end;padding:10px 16px;background:#0F3A1A;
+      box-shadow:0 2px 8px rgba(0,0,0,.25);font-family:'Segoe UI',Arial,sans-serif}
+    .print-toolbar span{margin-right:auto;color:rgba(255,255,255,.75);font-size:12px}
+    .print-toolbar button{border:none;border-radius:6px;padding:7px 16px;font-size:13px;
+      font-weight:600;cursor:pointer}
+    .print-toolbar .go{background:#2FA84F;color:#fff}
+    .print-toolbar .close{background:transparent;color:#fff;border:1px solid rgba(255,255,255,.4)}
+    body{padding-top:56px !important}
+    @media print{.print-toolbar{display:none !important}body{padding-top:0 !important}}
+  </style>
+  <div class="print-toolbar no-print">
+    <span>Use your browser's print dialog to change paper size, orientation or save as PDF.</span>
+    <button class="go" onclick="window.print()">🖨 Print</button>
+    <button class="close" onclick="window.close()">Close</button>
+  </div>
+  <script>
+    (function () {
+      var fired = false;
+      function go() {
+        if (fired) return; fired = true;
+        // Two frames then a beat: lets the logo image and table layout settle.
+        requestAnimationFrame(function () {
+          requestAnimationFrame(function () { setTimeout(function () { window.print(); }, 250); });
+        });
+      }
+      if (document.readyState === 'complete') go();
+      else window.addEventListener('load', go);
+      setTimeout(go, 1200);   // last resort if load never arrives
+    })();
+  <\/script>`;
+}

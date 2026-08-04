@@ -9,7 +9,7 @@ import { canDo }    from '../../utils/auth';
 import { showToast, formatDate, generateId } from '../../utils/helpers';
 import { saveDBLocal } from '../../utils/db';
 import { logActivity }  from '../../utils/audit';
-import { printHeader, PRINT_CSS, SLOT_BRAND, SLOT_LOGO_SRC } from '../../utils/logo';
+import { printHeader, PRINT_CSS, SLOT_BRAND, SLOT_LOGO_SRC, printBootstrap } from '../../utils/logo';
 import { getClients, getClientByCode } from '../../utils/clientMaster';
 import { getProjects, getProjectByCode } from '../../utils/projectMaster';
 import { diffAndPush } from '../../hooks/usePerRecordSync';
@@ -192,7 +192,7 @@ function printInvoice(inv) {
     <div><div class="sig">Client Acknowledgement</div></div>
   </div>
   <div class="confidential">SLOT Engineering Nigeria Limited · This document is system-generated</div>
-  <script>window.onload=()=>window.print()<\/script></body></html>`);
+  ${printBootstrap({landscape:false})}</body></html>`);
   w.document.close();
 }
 // ── Main Component ────────────────────────────────────────────────────────────

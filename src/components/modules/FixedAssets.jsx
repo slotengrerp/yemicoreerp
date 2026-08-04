@@ -10,7 +10,7 @@ import { showToast, formatDate, generateId } from '../../utils/helpers'; // auto
 import { getDeepLinkTab } from '../../utils/helpers';
 import { saveDBLocal } from '../../utils/db';
 import { logActivity }  from '../../utils/audit';
-import { printHeader, PRINT_CSS } from '../../utils/logo';
+import { printHeader, PRINT_CSS, printBootstrap } from '../../utils/logo';
 import { diffAndPush } from '../../hooks/usePerRecordSync';
 
 const uid   = () => generateId();
@@ -115,7 +115,7 @@ function printRegister(assets) {
   <tbody>${rows}</tbody>
   <tfoot><tr class="total-row"><td colspan="4" style="text-align:right;font-size:10px;text-transform:uppercase">Totals</td><td style="text-align:right">₦${totalCost.toLocaleString('en-NG')}</td><td></td><td style="text-align:right">₦${totalNBV.toLocaleString('en-NG',{maximumFractionDigits:0})}</td><td colspan="3"></td></tr></tfoot>
   </table>
-  <script>window.onload=()=>window.print()<\/script></body></html>`);
+  ${printBootstrap({landscape:false})}</body></html>`);
   w.document.close();
 }
 

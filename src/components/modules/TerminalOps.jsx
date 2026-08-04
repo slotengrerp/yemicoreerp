@@ -14,6 +14,7 @@ import { saveDBLocal } from '../../utils/db';
 import { logActivity }  from '../../utils/audit';
 import { printHeader }  from '../../utils/logo';
 import { diffAndPush } from '../../hooks/usePerRecordSync';
+import { printBootstrap } from '../../utils/logo';
 
 // terminal sub-collection name → RECORD_TABLES key, used by persist() below.
 const TERMINAL_TABLE_BY_SECTION = {
@@ -145,7 +146,7 @@ function printSlotTerminalSheet(list, containers) {
     <div style="border-top:1px solid #ccc;padding-top:6px;font-size:10px;color:#6E8C74">Reviewed By / Date</div>
     <div style="border-top:1px solid #ccc;padding-top:6px;font-size:10px;color:#6E8C74">Approved By / Date</div>
   </div>
-  <script>window.onload=()=>window.print()<\/script></body></html>`);
+  ${printBootstrap({landscape:true})}</body></html>`);
   w.document.close();
 }
 
@@ -188,7 +189,7 @@ function printFlopingLogisticsSheet(list) {
     </tr></thead>
     <tbody>${rows}</tbody>
   </table>
-  <script>window.onload=()=>window.print()<\/script></body></html>`);
+  ${printBootstrap({landscape:true})}</body></html>`);
   w.document.close();
 }
 
@@ -264,7 +265,7 @@ function printSingleBoL(bol, childContainers, charges = []) {
     <div>Checked by — name, signature &amp; date</div>
     <div>Received by — name, signature &amp; date</div>
   </div>
-  <script>window.onload=()=>window.print()<\/script></body></html>`);
+  ${printBootstrap({landscape:true})}</body></html>`);
   w.document.close();
 }
 
@@ -296,7 +297,7 @@ function printContainerRegistry(list) {
     </tr></thead>
     <tbody>${rows}</tbody>
   </table>
-  <script>window.onload=()=>window.print()<\/script></body></html>`);
+  ${printBootstrap({landscape:true})}</body></html>`);
   w.document.close();
 }
 

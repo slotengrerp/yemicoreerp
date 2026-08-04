@@ -18,7 +18,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { showToast, formatDate, generateId } from '../../utils/helpers';
 import { saveDBLocal } from '../../utils/db';
 import { logActivity }  from '../../utils/audit';
-import { printHeader, PRINT_CSS } from '../../utils/logo';
+import { printHeader, PRINT_CSS, printBootstrap } from '../../utils/logo';
 import { DEFAULT_FX } from '../../utils/financeConstants';
 import { diffAndPush, pushOne } from '../../hooks/usePerRecordSync';
 
@@ -213,7 +213,7 @@ export function FXRevaluationTab({ state, dispatch, inp }) {
       <p style="margin-top:14px;font-size:11px;color:#6E8C74">
         Rates used: USD=${fmtN(newRates.USD)}, EUR=${fmtN(newRates.EUR)}, GBP=${fmtN(newRates.GBP)}. Post this revaluation to record the gain/loss in the GL (Dr/Cr FX accounts, offset to 4501 Profit on Exchange or 9100 Loss on Exchange).
       </p>
-      <script>window.onload=()=>window.print()<\/script>
+      ${printBootstrap({landscape:true})}
       </body></html>`);
     w.document.close();
   }

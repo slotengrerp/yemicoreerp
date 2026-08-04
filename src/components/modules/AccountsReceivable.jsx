@@ -15,7 +15,7 @@ import { canDo }    from '../../utils/auth';
 import { showToast, formatDate, generateId } from '../../utils/helpers';
 import { saveDBLocal } from '../../utils/db';
 import { logActivity }  from '../../utils/audit';
-import { SLOT_LOGO_SRC } from '../../utils/logo';
+import { SLOT_LOGO_SRC, printBootstrap } from '../../utils/logo';
 import { diffAndPush } from '../../hooks/usePerRecordSync';
 import { getClients, getClientByCode, addClient } from '../../utils/clientMaster';
 import { getProjects } from '../../utils/projectMaster';
@@ -204,7 +204,7 @@ function printInvoice(inv) {
     <div><div class="sig">Client Acknowledgement</div></div>
   </div>
   <div class="confidential">SLOT Engineering Nigeria Limited · This document is system-generated</div>
-  <script>window.onload=()=>window.print()</script></body></html>`);
+  ${printBootstrap({landscape:false})}</body></html>`);
   w.document.close();
 }
 
@@ -1133,7 +1133,7 @@ export default function AccountsReceivable() {
                     <h2>Customer Ledger — ${cust.name}</h2>
                     <div>${cust.code} · ${cust.currency}</div>
                     <table><thead><tr><th>Date</th><th>Type</th><th>Ref</th><th>Description</th><th>Amount</th><th>Balance</th></tr></thead><tbody>${rowsHtml}</tbody></table>
-                    <script>window.onload=()=>window.print()</script>
+                    ${printBootstrap({landscape:false})}
                   </body></html>`);
                   w.document.close();
                 }}>Print</Btn>
