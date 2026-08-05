@@ -213,10 +213,10 @@ function THead({ cols }) {
   return <thead><tr style={{ background: C.tableHeaderBg }}>{cols.map(c => <th key={c} style={{ ...S.th, background: C.tableHeaderBg, color: C.tableHeaderText }}>{c}</th>)}</tr></thead>;
 }
 
-function Btn({ children, onClick, variant = 'primary', sm, disabled, style = {} }) {
+function Btn({ children, onClick, variant = 'primary', sm, disabled, style = {}, title }) {
   const { C } = useTheme();
   const V = { primary: { bg: C.green, co: '#fff', b: 'none' }, amber: { bg: C.amber, co: '#fff', b: 'none' }, ghost: { bg: 'transparent', co: C.textMid, b: '1px solid ' + C.border }, danger: { bg: C.danger, co: '#fff', b: 'none' }, outline: { bg: 'transparent', co: C.green, b: '1px solid ' + C.green } }[variant] || {};
-  return <button onClick={onClick} disabled={disabled} style={{ background: V.bg, color: V.co, border: V.b, borderRadius: 7, padding: sm ? '4px 11px' : '7px 16px', fontSize: sm ? 11.5 : 13, fontWeight: 500, cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1, display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap', ...style }}>{children}</button>;
+  return <button onClick={onClick} disabled={disabled} title={title} style={{ background: V.bg, color: V.co, border: V.b, borderRadius: 7, padding: sm ? '4px 11px' : '7px 16px', fontSize: sm ? 11.5 : 13, fontWeight: 500, cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1, display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap', ...style }}>{children}</button>;
 }
 
 function KPI({ label, value, sub, accent, onClick }) {
@@ -642,46 +642,13 @@ function POModal({ po, rfq, poType, onSave, onClose, onCreateWaybill, onViewWayb
 }
 
 // ── Waybill Create/View Modal ──────────────────────────────────────────────
-function WaybillModal({ wb, po, onSave, onClose, onCreateInvoice, allWaybills = [] }) {
-  const { C } = useTheme();
-  const S = useStyles();
-  const isView = !!wb?.id;
-
-  // FIX: New waybill shows ONLY items with remaining qty (not yet fully delivered)
-  const initItems = (() => {
-    const poItems = po?.items || [];
-    return poItems
-      .map(pi => {
-        // Sum up all previously delivered qty for this PO item across all waybills
-        const prevDelivered = allWaybills
-          .filter(w => w.poId === po?.id && w.id !== wb?.id)
-          .flatMap(w => w.items || [])
-          .filter(wi => wi.poItemId === pi.id)
-          .reduce((s, wi) => s + (Number(wi.deliveredQty) || 0), 0);
-        const remaining = Math.max(0, (Number(pi.qty) || 0) - prevDelivered);
-        return { id: uid(), poItemId: pi.id, description: pi.description, orderedQty: Number(pi.qty) || 0, previouslyDelivered: prevDelivered, remaining, deliveredQty: '', unit: pi.unit, unitPrice: Number(pi.unitPrice) || 0 };
-      })
-      .filter(item => item.remaining > 0); // Only show items still outstanding
-  })();
-
-  const [form, setForm] = useState(wb || {
-    waybillNo: '', poId: po?.id || '', poNo: po?.poNo || '',
-    supplier: po?.supplier || '',
-    date: new Date().toISOString().split('T')[0], receivedBy: '', vehicleNo: '', driverName: '',
-    deliveryAddress: po?.deliveryAddress || '',
-    items: initItems,
-    status: 'Pending Inspection', notes: '',
-  });
-
-  const set = k => e => setForm(p => ({ ...p, [k]: e.target.value }));
-  function setItem(i, k, v) { setForm(p => ({ ...p, items: p.items.map((x, j) => j === i ? { ...x, [k]: v } : x) })); }
-
-  const totalDelivered = form.items.reduce((s, i) => s + (Number(i.deliveredQty) || 0), 0);
-  const totalValue = form.items.reduce((s, i) => s + (Number(i.deliveredQty) || 0) * (Number(i.unitPrice) || 0), 0);
-
-  // Print waybill
-  function handlePrintWaybill() {
-    openPrintWindow(`<!DOCTYPE html><html><head><title>${form.waybillNo}</title><style>
+// ── Print: Waybill / Goods Received Note ─────────────────────────────────────
+// Takes a waybill record, so the same sheet can be printed from inside
+// WaybillModal (passing the in-progress form) and from a row in the waybills
+// list without opening the record first.
+function printWaybill(form) {
+  const totalDelivered = (form.items || []).reduce((s, i) => s + (Number(i.deliveredQty) || 0), 0);
+  openPrintWindow(`<!DOCTYPE html><html><head><title>${form.waybillNo}</title><style>
       body{font-family:'Segoe UI',Arial,sans-serif;font-size:12px;color:#182A1C;padding:28px;max-width:860px;margin:0 auto}
       .header-bar{background:#C97A0A;color:#fff;padding:8px 16px;display:flex;justify-content:space-between;font-weight:700;font-size:13px}
       table{width:100%;border-collapse:collapse;margin-top:14px}
@@ -726,7 +693,48 @@ function WaybillModal({ wb, po, onSave, onClose, onCreateInvoice, allWaybills = 
       </div>
       ${printBootstrap({ landscape: false })}
     </body></html>`);
-  }
+}
+
+function WaybillModal({ wb, po, onSave, onClose, onCreateInvoice, allWaybills = [] }) {
+  const { C } = useTheme();
+  const S = useStyles();
+  const isView = !!wb?.id;
+
+  // FIX: New waybill shows ONLY items with remaining qty (not yet fully delivered)
+  const initItems = (() => {
+    const poItems = po?.items || [];
+    return poItems
+      .map(pi => {
+        // Sum up all previously delivered qty for this PO item across all waybills
+        const prevDelivered = allWaybills
+          .filter(w => w.poId === po?.id && w.id !== wb?.id)
+          .flatMap(w => w.items || [])
+          .filter(wi => wi.poItemId === pi.id)
+          .reduce((s, wi) => s + (Number(wi.deliveredQty) || 0), 0);
+        const remaining = Math.max(0, (Number(pi.qty) || 0) - prevDelivered);
+        return { id: uid(), poItemId: pi.id, description: pi.description, orderedQty: Number(pi.qty) || 0, previouslyDelivered: prevDelivered, remaining, deliveredQty: '', unit: pi.unit, unitPrice: Number(pi.unitPrice) || 0 };
+      })
+      .filter(item => item.remaining > 0); // Only show items still outstanding
+  })();
+
+  const [form, setForm] = useState(wb || {
+    waybillNo: '', poId: po?.id || '', poNo: po?.poNo || '',
+    supplier: po?.supplier || '',
+    date: new Date().toISOString().split('T')[0], receivedBy: '', vehicleNo: '', driverName: '',
+    deliveryAddress: po?.deliveryAddress || '',
+    items: initItems,
+    status: 'Pending Inspection', notes: '',
+  });
+
+  const set = k => e => setForm(p => ({ ...p, [k]: e.target.value }));
+  function setItem(i, k, v) { setForm(p => ({ ...p, items: p.items.map((x, j) => j === i ? { ...x, [k]: v } : x) })); }
+
+  const totalDelivered = form.items.reduce((s, i) => s + (Number(i.deliveredQty) || 0), 0);
+  const totalValue = form.items.reduce((s, i) => s + (Number(i.deliveredQty) || 0) * (Number(i.unitPrice) || 0), 0);
+
+  // Print waybill — the sheet itself is printWaybill(), defined at module scope
+  // just above this component so a row in the waybills list can print it too.
+  function handlePrintWaybill() { printWaybill(form); }
 
   return (
     <Overlay onClose={onClose}>
@@ -1206,6 +1214,7 @@ export default function Procurement({ onNav }) {
                           </>
                         )}
                         <td style={S.td} onClick={e => e.stopPropagation()}>
+                          <Btn variant="ghost" sm onClick={() => printPO(p)} title="Print this purchase order">🖨</Btn>
                           {perms.del && <Btn variant="danger" sm onClick={() => delRecord(pos, setPos, 'pos', p.id)}>Del</Btn>}
                         </td>
                       </tr>
@@ -1235,6 +1244,7 @@ export default function Procurement({ onNav }) {
                       <td style={{ ...S.td, fontWeight: 600 }}>{totalQty} units · {fmt(totalVal)}</td>
                       <td style={S.td}><Tag status={w.status} /></td>
                       <td style={S.td} onClick={e => e.stopPropagation()}>
+                        <Btn variant="ghost" sm onClick={() => printWaybill(w)} title="Print this waybill">🖨</Btn>
                         {perms.del && <Btn variant="danger" sm onClick={() => delRecord(waybills, setWaybills, 'waybills', w.id)}>Del</Btn>}
                       </td>
                     </tr>
@@ -1262,6 +1272,7 @@ export default function Procurement({ onNav }) {
                     <td style={{ ...S.td, color: new Date(inv.dueDate) < new Date() && inv.status !== 'Paid' ? C.danger : C.text }}>{formatDate(inv.dueDate)}</td>
                     <td style={S.td}><Tag status={inv.status} /></td>
                     <td style={S.td} onClick={e => e.stopPropagation()}>
+                      <Btn variant="ghost" sm onClick={() => printInvoice(inv)} title="Print this invoice">🖨</Btn>
                       {perms.del && <Btn variant="danger" sm onClick={() => delRecord(invoices, setInvoices, 'invoices', inv.id)}>Del</Btn>}
                     </td>
                   </tr>
