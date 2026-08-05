@@ -237,7 +237,6 @@ function NavContent({
             <div>
               <div style={{ fontSize:12, fontWeight:800, color:'#FFFFFF', lineHeight:1.3 }}>SLOT Engineering</div>
               <div style={{ fontSize:9, color:'rgba(255,255,255,0.5)', marginTop:2, letterSpacing:'0.5px' }}>NIGERIA LIMITED · ERP v3.0</div>
-              <div title="Build currently running in your browser — if this doesn't change after a deploy, you're on a cached bundle" style={{ fontSize:8, color:'rgba(255,255,255,0.32)', marginTop:1, fontFamily:'monospace' }}>{BUILD_ID}</div>
             </div>
           </div>
         )}
@@ -368,6 +367,32 @@ function NavContent({
               {currentUser.role}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ── Build footer ────────────────────────────────────────────────────
+          Product name and the build actually running in the browser. Moved
+          here from the sidebar header 2026-08-05: this is reference detail
+          that is needed occasionally, so it sits at the very bottom where it
+          is always reachable but never competes with the navigation.
+          The copyright / licensor line belongs here too once ownership of the
+          codebase is settled — see the IP assignment clause in the SLOT
+          contract before adding it. */}
+      {!collapsed && (
+        <div
+          title="Build currently running in your browser — if this doesn't change after a deploy, you're on a cached bundle"
+          style={{
+            padding:'8px 16px 10px',
+            borderTop:'1px solid rgba(255,255,255,0.08)',
+            flexShrink:0,
+            fontSize:9,
+            lineHeight:1.55,
+            letterSpacing:'0.3px',
+            color:'rgba(255,255,255,0.3)',
+          }}
+        >
+          <div>SLOT ERP v3.0</div>
+          <div style={{ fontFamily:'monospace' }}>build {BUILD_ID}</div>
         </div>
       )}
     </>
