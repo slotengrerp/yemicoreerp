@@ -22,7 +22,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { showToast, formatDate, generateId } from '../../utils/helpers';
 import { saveDBLocal } from '../../utils/db';
 import { logActivity }  from '../../utils/audit';
-import { printHeader, PRINT_CSS, printBootstrap } from '../../utils/logo';
+import { printHeader, PRINT_CSS, printBootstrap, openPrintWindow} from '../../utils/logo';
 import { getClients, getClientByCode } from '../../utils/clientMaster';
 import { BANK_ACCOUNTS } from '../../utils/financeConstants';
 import { diffAndPush, pushOne } from '../../hooks/usePerRecordSync';
@@ -1219,8 +1219,7 @@ function BudgetVsActualTab({ state, dispatch, inp }) {
           <td style="text-align:center">${pct}%</td>
         </tr>`;
     }).join('');
-    const w = window.open('', '_blank');
-    w.document.write(`<!DOCTYPE html><html><head><title>Budget vs Actual — ${budgetYear}</title>
+    openPrintWindow(`<!DOCTYPE html><html><head><title>Budget vs Actual — ${budgetYear}</title>
       <style>${PRINT_CSS}
       .bva-title{text-align:center;font-size:16px;font-weight:800;text-decoration:underline;margin:18px 0 6px}
       .bva-sub{text-align:center;font-size:11.5px;color:#3A5040;margin-bottom:14px}
@@ -1236,7 +1235,6 @@ function BudgetVsActualTab({ state, dispatch, inp }) {
       </table>
       ${printBootstrap({landscape:true})}
       </body></html>`);
-    w.document.close();
   }
 
   const grouped = useMemo(() => {
@@ -1507,8 +1505,7 @@ function StockTakeTab({ state, dispatch, inp }) {
         <td style="text-align:center;height:30px"></td>
         <td style="text-align:center;height:30px"></td>
       </tr>`).join('');
-    const w = window.open('', '_blank');
-    w.document.write(`<!DOCTYPE html><html><head><title>Stock Take Count Sheet — ${esc(countName)}</title>
+    openPrintWindow(`<!DOCTYPE html><html><head><title>Stock Take Count Sheet — ${esc(countName)}</title>
       <style>${PRINT_CSS}
       .st-title{text-align:center;font-size:16px;font-weight:800;text-decoration:underline;margin:18px 0 6px}
       .st-sub{text-align:center;font-size:11.5px;color:#3A5040;margin-bottom:14px}
@@ -1525,7 +1522,6 @@ function StockTakeTab({ state, dispatch, inp }) {
       <p style="margin-top:24px;font-size:11px;color:#6E8C74">Counted by: ____________________________ &nbsp;&nbsp; Date: ____________ &nbsp;&nbsp; Witnessed by: ____________________________</p>
       ${printBootstrap({landscape:true})}
       </body></html>`);
-    w.document.close();
   }
 
   const th = { padding:'8px 10px', textAlign:'left', fontSize:10.5, fontWeight:700, color:C.tableHeaderText, textTransform:'uppercase', letterSpacing:'0.4px', whiteSpace:'nowrap', background:C.tableHeaderBg };

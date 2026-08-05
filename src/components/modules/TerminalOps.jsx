@@ -12,7 +12,7 @@ import { canDo }    from '../../utils/auth';
 import { showToast, generateId, formatDate } from '../../utils/helpers';
 import { saveDBLocal } from '../../utils/db';
 import { logActivity }  from '../../utils/audit';
-import { printHeader }  from '../../utils/logo';
+import { printHeader, openPrintWindow}  from '../../utils/logo';
 import { diffAndPush } from '../../hooks/usePerRecordSync';
 import { printBootstrap } from '../../utils/logo';
 
@@ -118,8 +118,7 @@ function printSlotTerminalSheet(list, containers) {
       <td>${c.agentName||'—'}</td>
     </tr>`).join('');
   const grandTotal = list.reduce((s,c)=>s+(Number(c.totalAmount)||0),0);
-  const w=window.open('','_blank');
-  w.document.write(`<!DOCTYPE html><html><head><title>Slot Terminal Charges</title>
+  openPrintWindow(`<!DOCTYPE html><html><head><title>Slot Terminal Charges</title>
   <style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Segoe UI',Arial,sans-serif;font-size:11px;padding:24px}
   table{width:100%;border-collapse:collapse;margin-top:14px}
   th{background:#1A5C2A;color:#fff;padding:7px 8px;text-align:left;font-size:9px;text-transform:uppercase;letter-spacing:.4px}
@@ -147,7 +146,6 @@ function printSlotTerminalSheet(list, containers) {
     <div style="border-top:1px solid #ccc;padding-top:6px;font-size:10px;color:#6E8C74">Approved By / Date</div>
   </div>
   ${printBootstrap({landscape:true})}</body></html>`);
-  w.document.close();
 }
 
 // ── Print: Floping Logistics Sheet (matches Image 2) ───────────────────────
@@ -170,8 +168,7 @@ function printFlopingLogisticsSheet(list) {
       <td>${formatDate(l.releaseDate)||'—'}</td>
       <td>${l.status||'—'}${l.remarks?' — '+l.remarks:''}</td>
     </tr>`).join('');
-  const w=window.open('','_blank');
-  w.document.write(`<!DOCTYPE html><html><head><title>Floping Logistics Transaction Record</title>
+  openPrintWindow(`<!DOCTYPE html><html><head><title>Floping Logistics Transaction Record</title>
   <style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Segoe UI',Arial,sans-serif;font-size:9.5px;padding:20px}
   table{width:100%;border-collapse:collapse;margin-top:12px}
   th{background:#1A5C2A;color:#fff;padding:6px 6px;text-align:left;font-size:8px;text-transform:uppercase;letter-spacing:.3px}
@@ -190,7 +187,6 @@ function printFlopingLogisticsSheet(list) {
     <tbody>${rows}</tbody>
   </table>
   ${printBootstrap({landscape:true})}</body></html>`);
-  w.document.close();
 }
 
 // ── Print: ONE Bill of Lading and its containers ──────────────────────────────
@@ -222,8 +218,7 @@ function printSingleBoL(bol, childContainers, charges = []) {
 
   const consignees = Array.from(new Set(childContainers.map(c => c.consigneeName).filter(Boolean)));
 
-  const w = window.open('', '_blank', 'width=1000,height=700');
-  w.document.write(`<!DOCTYPE html><html><head><title>BoL ${bol.billOfLadingNo || ''}</title>
+  openPrintWindow(`<!DOCTYPE html><html><head><title>BoL ${bol.billOfLadingNo || ''}</title>
   <style>
     *{margin:0;padding:0;box-sizing:border-box}
     body{font-family:'Segoe UI',Arial,sans-serif;font-size:11px;padding:22px;color:#182A1C}
@@ -266,7 +261,6 @@ function printSingleBoL(bol, childContainers, charges = []) {
     <div>Received by — name, signature &amp; date</div>
   </div>
   ${printBootstrap({landscape:true})}</body></html>`);
-  w.document.close();
 }
 
 // ── Print: Container Registry ─────────────────────────────────────────────────
@@ -280,8 +274,7 @@ function printContainerRegistry(list) {
       <td>${c.shippingVessel||'—'}</td><td>${c.consigneeName||'—'}</td>
       <td>${c.materialDescription||'—'}</td><td>${c.status||'—'}</td>
     </tr>`).join('');
-  const w=window.open('','_blank');
-  w.document.write(`<!DOCTYPE html><html><head><title>Container Registry</title>
+  openPrintWindow(`<!DOCTYPE html><html><head><title>Container Registry</title>
   <style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Segoe UI',Arial,sans-serif;font-size:10px;padding:20px}
   table{width:100%;border-collapse:collapse;margin-top:12px}
   th{background:#1A5C2A;color:#fff;padding:7px 7px;text-align:left;font-size:8.5px;text-transform:uppercase}
@@ -298,7 +291,6 @@ function printContainerRegistry(list) {
     <tbody>${rows}</tbody>
   </table>
   ${printBootstrap({landscape:true})}</body></html>`);
-  w.document.close();
 }
 
 // ── Shared UI components ───────────────────────────────────────────────────────

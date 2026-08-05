@@ -18,7 +18,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { showToast, formatDate, generateId } from '../../utils/helpers';
 import { saveDBLocal } from '../../utils/db';
 import { logActivity }  from '../../utils/audit';
-import { printHeader, PRINT_CSS, printBootstrap } from '../../utils/logo';
+import { printHeader, PRINT_CSS, printBootstrap, openPrintWindow} from '../../utils/logo';
 import { DEFAULT_FX } from '../../utils/financeConstants';
 import { diffAndPush, pushOne } from '../../hooks/usePerRecordSync';
 
@@ -192,8 +192,7 @@ export function FXRevaluationTab({ state, dispatch, inp }) {
         <td style="text-align:right">${fmtN(l.revaluedNgn)}</td>
         <td style="text-align:right;color:${l.diff>=0?'#1A5C2A':'#C0392B'};font-weight:600">${l.diff>=0?'+':'−'}${fmtN(Math.abs(l.diff))}</td>
       </tr>`).join('');
-    const w = window.open('', '_blank');
-    w.document.write(`<!DOCTYPE html><html><head><title>FX Revaluation — ${formatDate(asOfDate)}</title>
+    openPrintWindow(`<!DOCTYPE html><html><head><title>FX Revaluation — ${formatDate(asOfDate)}</title>
       <style>${PRINT_CSS}
       .fx-title{text-align:center;font-size:16px;font-weight:800;text-decoration:underline;margin:18px 0 6px}
       .fx-sub{text-align:center;font-size:11.5px;color:#3A5040;margin-bottom:14px}
@@ -215,7 +214,6 @@ export function FXRevaluationTab({ state, dispatch, inp }) {
       </p>
       ${printBootstrap({landscape:true})}
       </body></html>`);
-    w.document.close();
   }
 
   const th = { padding:'8px 10px', textAlign:'left', fontSize:10.5, fontWeight:700, color:C.tableHeaderText, textTransform:'uppercase', letterSpacing:'0.4px', whiteSpace:'nowrap', background:C.tableHeaderBg };

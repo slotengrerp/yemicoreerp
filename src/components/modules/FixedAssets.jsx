@@ -10,7 +10,7 @@ import { showToast, formatDate, generateId } from '../../utils/helpers'; // auto
 import { getDeepLinkTab } from '../../utils/helpers';
 import { saveDBLocal } from '../../utils/db';
 import { logActivity }  from '../../utils/audit';
-import { printHeader, PRINT_CSS, printBootstrap } from '../../utils/logo';
+import { printHeader, PRINT_CSS, printBootstrap, openPrintWindow} from '../../utils/logo';
 import { diffAndPush } from '../../hooks/usePerRecordSync';
 
 const uid   = () => generateId();
@@ -108,15 +108,13 @@ function printRegister(assets) {
       <td>${a.location}</td><td>${a.condition}</td><td>${a.status}</td>
     </tr>`;
   }).join('');
-  const w = window.open('','_blank');
-  w.document.write(`<!DOCTYPE html><html><head><title>Fixed Asset Register</title><style>${PRINT_CSS}</style></head><body>
+  openPrintWindow(`<!DOCTYPE html><html><head><title>Fixed Asset Register</title><style>${PRINT_CSS}</style></head><body>
   ${printHeader('FIXED ASSET REGISTER', `As at ${new Date().toLocaleDateString('en-GB',{day:'2-digit',month:'long',year:'numeric'})}`)}
   <table><thead><tr><th>Tag</th><th>Description</th><th>Category</th><th>Purchase Date</th><th style="text-align:right">Cost</th><th style="text-align:right">Acc. Dep.</th><th style="text-align:right">NBV</th><th>Location</th><th>Condition</th><th>Status</th></tr></thead>
   <tbody>${rows}</tbody>
   <tfoot><tr class="total-row"><td colspan="4" style="text-align:right;font-size:10px;text-transform:uppercase">Totals</td><td style="text-align:right">₦${totalCost.toLocaleString('en-NG')}</td><td></td><td style="text-align:right">₦${totalNBV.toLocaleString('en-NG',{maximumFractionDigits:0})}</td><td colspan="3"></td></tr></tfoot>
   </table>
   ${printBootstrap({landscape:false})}</body></html>`);
-  w.document.close();
 }
 
 export default function FixedAssets() {

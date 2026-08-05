@@ -79,6 +79,45 @@ export const PRINT_CSS = `
 `;
 
 // ══════════════════════════════════════════════════════════════════════════════
+// openPrintWindow — the correct way to open a generated print popup
+// ══════════════════════════════════════════════════════════════════════════════
+//
+// WHY BLOB URL INSTEAD OF document.write ON about:blank
+//
+// Every print in this app used:
+//   const w = window.open('', '_blank');
+//   w.document.write(html);
+//   w.document.close();
+//
+// Chrome treats the resulting about:blank document as a "null origin" in
+// certain execution contexts. That silently blocks:
+//   • inline onclick="window.print()" handlers — buttons render but do nothing
+//   • window.print() called from script — no dialog, no error
+//
+// A blob: URL is loaded as a real same-origin document. Scripts, inline event
+// handlers, and window.print() all execute without restriction.
+//
+// Usage (replaces the 3-line pattern everywhere):
+//   openPrintWindow(`<!DOCTYPE html><html>...${ printBootstrap() }...</html>`);
+//
+// ══════════════════════════════════════════════════════════════════════════════
+export function openPrintWindow(html) {
+  // Inject <meta charset="utf-8"> if not already present — without it, browsers
+  // may default to ISO-8859-1 and display ₦ as â,¬, — as â€", · as Â·, etc.
+  const withMeta = /<meta\s[^>]*charset/i.test(html)
+    ? html
+    : html.replace(/(<head[^>]*>)/i, '$1<meta charset="utf-8">');
+  // The charset in the Blob MIME type is the authoritative declaration;
+  // the meta tag above is a belt-and-suspenders fallback.
+  const blob = new Blob([withMeta], { type: 'text/html;charset=utf-8' });
+  const url  = URL.createObjectURL(blob);
+  const w    = window.open(url, '_blank');
+  // Revoke after 60 s — long enough for the window to fully load and print
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  return w;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // printBootstrap — make a generated print window actually print
 // ══════════════════════════════════════════════════════════════════════════════
 //

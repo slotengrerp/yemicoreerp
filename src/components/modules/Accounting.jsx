@@ -11,6 +11,7 @@ import { periodOf, isPeriodClosed, isYearClosed } from "../../utils/periods";
 import { mergeCOA } from "../../utils/chartOfAccounts";
 import { FG } from "../ui";
 import { diffAndPush } from "../../hooks/usePerRecordSync";
+import { printBootstrap, openPrintWindow } from '../../utils/logo';
 
 // ════════════════════════════════════════════════════════════════════
 // SLOT ENGINEERING — ACCOUNTING MODULE v3.0
@@ -35,8 +36,7 @@ const today  = () => new Date().toISOString().split("T")[0];
 
 // ── Print any DOM section ─────────────────────────────────────────
 const printSection = (title, contentHtml) => {
-  const win = window.open('','_blank','width=900,height=700');
-  win.document.write(`
+  openPrintWindow(`
     <!DOCTYPE html><html><head>
     <title>${title} — SLOT Engineering Nigeria Limited</title>
     <style>
@@ -71,10 +71,9 @@ const printSection = (title, contentHtml) => {
       <span>Generated: ${new Date().toLocaleString('en-GB')}</span>
       <span>SLOT Engineering Nigeria Limited — Confidential</span>
     </div>
-    <script>window.onload=()=>{window.print();}<\/script>
+    ${printBootstrap({landscape:false})}
     </body></html>
   `);
-  win.document.close();
 };
 
 // ── Export data array to Excel (.xlsx via CSV) ────────────────────

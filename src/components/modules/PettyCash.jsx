@@ -9,7 +9,7 @@ import { canDo }    from '../../utils/auth';
 import { showToast, formatDate, generateId } from '../../utils/helpers';
 import { saveDBLocal } from '../../utils/db';
 import { logActivity }  from '../../utils/audit';
-import { printHeader, PRINT_CSS, printBootstrap } from '../../utils/logo';
+import { printHeader, PRINT_CSS, printBootstrap, openPrintWindow} from '../../utils/logo';
 import { initApproval, applyDecision, canApproveAtCurrentLevel, approvalSummary } from '../../utils/approvalEngine';
 import { diffAndPush } from '../../hooks/usePerRecordSync';
 
@@ -99,8 +99,7 @@ function Card({ children, style }) {
 }
 
 function printVoucher(v) {
-  const w = window.open('','_blank');
-  w.document.write(`<!DOCTYPE html><html><head><title>Petty Cash Voucher ${v.voucherNo}</title>
+  openPrintWindow(`<!DOCTYPE html><html><head><title>Petty Cash Voucher ${v.voucherNo}</title>
   <style>${PRINT_CSS}
   .voucher-box{border:2px solid #1A5C2A;border-radius:8px;padding:20px 24px;max-width:620px;margin:0 auto}
   .row{display:grid;grid-template-columns:160px 1fr;gap:8px;padding:6px 0;border-bottom:1px solid #EAF0EB;font-size:12px}
@@ -130,7 +129,6 @@ function printVoucher(v) {
     </div>
   </div>
   ${printBootstrap({landscape:false})}</body></html>`);
-  w.document.close();
 }
 
 function printRegister(list, fund) {
@@ -142,15 +140,13 @@ function printRegister(list, fund) {
     <td style="text-align:center"><span style="padding:2px 8px;border-radius:20px;font-size:10px;background:${v.status==='Approved'?'#d4edda':'#fff3cd'};color:${v.status==='Approved'?'#155724':'#856404'}">${v.status}</span></td>
   </tr>`).join('');
   const total = list.reduce((a,v)=>a+(Number(v.amount)||0),0);
-  const w = window.open('','_blank');
-  w.document.write(`<!DOCTYPE html><html><head><title>Petty Cash Register</title><style>${PRINT_CSS}</style></head><body>
+  openPrintWindow(`<!DOCTYPE html><html><head><title>Petty Cash Register</title><style>${PRINT_CSS}</style></head><body>
   ${printHeader('PETTY CASH DISBURSEMENT REGISTER', `Fund Balance: ₦${(Number(fund.balance)||0).toLocaleString('en-NG')}`)}
   <table><thead><tr><th>Voucher No</th><th>Date</th><th>Payee</th><th>Description</th><th>Category</th><th>Requested By</th><th style="text-align:right">Amount</th><th>Receipt</th><th>Status</th></tr></thead>
   <tbody>${rows}</tbody>
   <tfoot><tr class="total-row"><td colspan="6" style="text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:.5px">Total Disbursed</td><td style="text-align:right;font-size:14px">₦${total.toLocaleString('en-NG')}</td><td colspan="2"></td></tr></tfoot>
   </table>
   ${printBootstrap({landscape:false})}</body></html>`);
-  w.document.close();
 }
 
 export default function PettyCash({ onNav }) {

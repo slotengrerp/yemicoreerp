@@ -11,7 +11,7 @@ import { saveDBLocal } from '../../utils/db';
 import { logActivity }  from '../../utils/audit';
 import { pushOne, pushDelete } from '../../hooks/usePerRecordSync';
 import { Users, DollarSign, UserCheck, UserX } from 'lucide-react';
-import { SLOT_LOGO_B64, SLOT_BRAND, printHeader, PRINT_CSS } from '../../utils/logo';
+import { SLOT_LOGO_B64, SLOT_BRAND, printHeader, PRINT_CSS, openPrintWindow, printBootstrap} from '../../utils/logo';
 import { calcPAYE_Nigeria } from '../../utils/financeConstants';
 import { getProjects } from '../../utils/projectMaster';
 
@@ -55,8 +55,7 @@ function printPayroll(staff, period, filtered) {
   const totalHousing = filtered.reduce((a,s)=>a+(Number(s.housing)||0),0);
   const totalTransport = filtered.reduce((a,s)=>a+(Number(s.transport)||0),0);
 
-  const w = window.open('','_blank');
-  w.document.write(`<!DOCTYPE html><html><head><title>NLNG Contract Staff Payroll — ${period}</title>
+  openPrintWindow(`<!DOCTYPE html><html><head><title>NLNG Contract Staff Payroll — ${period}</title>
   <style>${PRINT_CSS}</style></head><body>
 ${printHeader('NLNG CONTRACT STAFF — MONTHLY PAYROLL REGISTER', period)}
   <table>
@@ -81,9 +80,8 @@ ${printHeader('NLNG CONTRACT STAFF — MONTHLY PAYROLL REGISTER', period)}
     <div><div class="sig">Reviewed By / Date</div></div>
     <div><div class="sig">Approved By / Date</div></div>
   </div>
-  <script>window.onload=()=>{window.print()}</script>
+  ${printBootstrap({landscape:false})}
   </body></html>`);
-  w.document.close();
 }
 
 function printPayslip(s, period, company) {
@@ -129,8 +127,7 @@ function printPayslip(s, period, company) {
     : '—';
   const today = new Date().toLocaleDateString('en-GB', { day:'2-digit', month:'long', year:'numeric' }).toUpperCase();
 
-  const w = window.open('','_blank');
-  w.document.write(`<!DOCTYPE html><html><head><title>Pay Slip — ${s.fullName} — ${period}</title>
+  openPrintWindow(`<!DOCTYPE html><html><head><title>Pay Slip — ${s.fullName} — ${period}</title>
   <style>
     *{margin:0;padding:0;box-sizing:border-box}
     body{font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#000;background:#fff;padding:28px;max-width:680px;margin:0 auto}
@@ -207,9 +204,8 @@ function printPayslip(s, period, company) {
     </div>
 
   </div>
-  <script>window.onload=()=>{window.print()}</script>
+  ${printBootstrap({landscape:false})}
   </body></html>`);
-  w.document.close();
 }
 // ── Shared UI ─────────────────────────────────────────────────────────────────
 function Tag({ status }) {

@@ -10,7 +10,7 @@ import { formatCurrency, formatDate, generateId, showToast } from '../../utils/h
 import { saveDBLocal } from '../../utils/db';
 import { logActivity }  from '../../utils/audit';
 import { pushOne, pushDelete } from '../../hooks/usePerRecordSync';
-import { SLOT_LOGO_B64, SLOT_BRAND, printHeader, PRINT_CSS } from '../../utils/logo';
+import { SLOT_LOGO_B64, SLOT_BRAND, printHeader, PRINT_CSS, openPrintWindow, printBootstrap} from '../../utils/logo';
 import { getProjects } from '../../utils/projectMaster';
 import { calcPAYE_Nigeria } from '../../utils/financeConstants';
 
@@ -46,8 +46,7 @@ function printPayroll(filtered, period) {
   const totalB    = filtered.reduce((a,s)=>a+(Number(s.basicSalary)||0),0);
   const totalH    = filtered.reduce((a,s)=>a+(Number(s.housing)||0),0);
   const totalT    = filtered.reduce((a,s)=>a+(Number(s.transport)||0),0);
-  const w = window.open('','_blank');
-  w.document.write(`<!DOCTYPE html><html><head><title>SLOT Staff Payroll — ${period}</title>
+  openPrintWindow(`<!DOCTYPE html><html><head><title>SLOT Staff Payroll — ${period}</title>
   <style>
     *{margin:0;padding:0;box-sizing:border-box}
     body{font-family:'Segoe UI',Arial,sans-serif;font-size:12px;color:#182A1C;padding:24px}
@@ -86,9 +85,8 @@ ${printHeader('COMPANY STAFF — MONTHLY PAYROLL REGISTER', period)}
     <div><div class="sig">Reviewed By / Date</div></div>
     <div><div class="sig">Approved By / Date</div></div>
   </div>
-  <script>window.onload=()=>{window.print()}</script>
+  ${printBootstrap({landscape:false})}
   </body></html>`);
-  w.document.close();
 }
 
 function printPayslip(s, period) {
@@ -115,8 +113,7 @@ function printPayslip(s, period) {
   const netPay      = gross - totalDeduct;
   const fmtN = n => '₦'+Math.round(n).toLocaleString('en-NG');
 
-  const w = window.open('','_blank');
-  w.document.write(`<!DOCTYPE html><html><head><title>Payslip — ${s.fullName} — ${period}</title>
+  openPrintWindow(`<!DOCTYPE html><html><head><title>Payslip — ${s.fullName} — ${period}</title>
   <style>
     *{margin:0;padding:0;box-sizing:border-box}
     body{font-family:'Segoe UI',Arial,sans-serif;font-size:12px;color:#182A1C;padding:32px;max-width:700px;margin:0 auto}
@@ -217,9 +214,8 @@ function printPayslip(s, period) {
     </div>
     <div class="conf">This payslip is confidential — issued to named employee only</div>
   </div>
-  <script>window.onload=()=>{window.print()}</script>
+  ${printBootstrap({landscape:false})}
   </body></html>`);
-  w.document.close();
 }
 
 // ── Shared UI ─────────────────────────────────────────────────────────────────

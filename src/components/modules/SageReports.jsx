@@ -27,7 +27,7 @@ import { canDo }    from '../../utils/auth';
 import { showToast, formatDate, generateId } from '../../utils/helpers';
 import { saveDBLocal } from '../../utils/db';
 import { logActivity }  from '../../utils/audit';
-import { printHeader, PRINT_CSS, SLOT_LOGO_SRC, printBootstrap } from '../../utils/logo';
+import { printHeader, PRINT_CSS, SLOT_LOGO_SRC, printBootstrap, openPrintWindow} from '../../utils/logo';
 import { getClients, getClientByCode } from '../../utils/clientMaster';
 import { getVendors, getVendorByCode } from '../../utils/vendorMaster';
 import { BANK_ACCOUNTS } from '../../utils/financeConstants';
@@ -326,8 +326,7 @@ function CustomerStatementTab({ state, dispatch, inp }) {
         <td style="text-align:right">${fmtN(aging[b])}</td>
       </tr>`).join('');
 
-    const w = window.open('', '_blank');
-    w.document.write(`<!DOCTYPE html><html><head><title>Customer Statement — ${esc(client.name)}</title>
+    openPrintWindow(`<!DOCTYPE html><html><head><title>Customer Statement — ${esc(client.name)}</title>
     <style>${PRINT_CSS}
     .stmt-title{text-align:center;font-size:16px;font-weight:800;text-decoration:underline;margin:18px 0 14px}
     .cust-block{margin:8px 0 16px;font-size:12px;line-height:1.7}
@@ -378,7 +377,6 @@ function CustomerStatementTab({ state, dispatch, inp }) {
     </p>
     ${printBootstrap({landscape:true})}
     </body></html>`);
-    w.document.close();
   }
 
   const th = { padding:'8px 10px', textAlign:'left', fontSize:10.5, fontWeight:700, color:C.tableHeaderText, textTransform:'uppercase', letterSpacing:'0.4px', whiteSpace:'nowrap', background:C.tableHeaderBg };
@@ -556,8 +554,7 @@ function SupplierStatementTab({ state, dispatch, inp }) {
       </tr>`).join('');
     const agingRows = BUCKET_ORDER.map(b => `
       <tr><td>${BUCKET_LABELS[b]}</td><td style="text-align:right">${fmtN(aging[b])}</td></tr>`).join('');
-    const w = window.open('', '_blank');
-    w.document.write(`<!DOCTYPE html><html><head><title>Supplier Statement — ${esc(vendor.name)}</title>
+    openPrintWindow(`<!DOCTYPE html><html><head><title>Supplier Statement — ${esc(vendor.name)}</title>
     <style>${PRINT_CSS}
     .stmt-title{text-align:center;font-size:16px;font-weight:800;text-decoration:underline;margin:18px 0 14px}
     .cust-block{margin:8px 0 16px;font-size:12px;line-height:1.7}
@@ -596,7 +593,6 @@ function SupplierStatementTab({ state, dispatch, inp }) {
     </div>
     ${printBootstrap({landscape:true})}
     </body></html>`);
-    w.document.close();
   }
 
   function printRemittance() {
@@ -617,8 +613,7 @@ function SupplierStatementTab({ state, dispatch, inp }) {
         <td>${esc(t.memo)}</td>
         <td style="text-align:right">${fmtN(t.debit)}</td>
       </tr>`).join('');
-    const w = window.open('', '_blank');
-    w.document.write(`<!DOCTYPE html><html><head><title>Remittance Advice — ${esc(vendor.name)}</title>
+    openPrintWindow(`<!DOCTYPE html><html><head><title>Remittance Advice — ${esc(vendor.name)}</title>
     <style>${PRINT_CSS}
     .rem-title{text-align:center;font-size:16px;font-weight:800;text-decoration:underline;margin:18px 0 14px}
     .cust-block{margin:8px 0 16px;font-size:12px;line-height:1.7}
@@ -646,7 +641,6 @@ function SupplierStatementTab({ state, dispatch, inp }) {
     <p style="margin-top:24px;font-size:10px;color:#6E8C74">Please confirm receipt and reconcile with your records.</p>
     ${printBootstrap({landscape:true})}
     </body></html>`);
-    w.document.close();
   }
 
   const th = { padding:'8px 10px', textAlign:'left', fontSize:10.5, fontWeight:700, color:C.tableHeaderText, textTransform:'uppercase', letterSpacing:'0.4px', whiteSpace:'nowrap', background:C.tableHeaderBg };
@@ -796,8 +790,7 @@ function CreditNotesTab({ state, dispatch, inp }) {
 
   function printCreditNote(cn) {
     const inv = invoices.find(i => i.id === cn.invoiceId);
-    const w = window.open('', '_blank');
-    w.document.write(`<!DOCTYPE html><html><head><title>Credit Note ${cn.cnNo}</title>
+    openPrintWindow(`<!DOCTYPE html><html><head><title>Credit Note ${cn.cnNo}</title>
     <style>${PRINT_CSS}
     .cn-title{text-align:center;font-size:16px;font-weight:800;text-decoration:underline;margin:18px 0 14px;color:#C0392B}
     .cust-block{margin:8px 0 16px;font-size:12px;line-height:1.7}
@@ -836,7 +829,6 @@ function CreditNotesTab({ state, dispatch, inp }) {
     </div>
     ${printBootstrap({landscape:true})}
     </body></html>`);
-    w.document.close();
   }
 
   const th = { padding:'8px 10px', textAlign:'left', fontSize:10.5, fontWeight:700, color:C.tableHeaderText, textTransform:'uppercase', letterSpacing:'0.4px', whiteSpace:'nowrap', background:C.tableHeaderBg };
@@ -966,8 +958,7 @@ function VAT201Tab({ state, dispatch, inp }) {
       <tr><td>${formatDate(l.date)}</td><td>${esc(l.ref||'—')}</td><td>${esc(l.desc)}</td><td style="text-align:right">${fmtN(l.amount)}</td></tr>`).join('');
     const inRows = calc.inputLines.map(l => `
       <tr><td>${formatDate(l.date)}</td><td>${esc(l.ref||'—')}</td><td>${esc(l.desc)}</td><td style="text-align:right">${fmtN(l.amount)}</td></tr>`).join('');
-    const w = window.open('', '_blank');
-    w.document.write(`<!DOCTYPE html><html><head><title>VAT201 Report — ${formatDate(fromDate)} to ${formatDate(toDate)}</title>
+    openPrintWindow(`<!DOCTYPE html><html><head><title>VAT201 Report — ${formatDate(fromDate)} to ${formatDate(toDate)}</title>
     <style>${PRINT_CSS}
     .vat-title{text-align:center;font-size:16px;font-weight:800;text-decoration:underline;margin:18px 0 6px}
     .vat-sub{text-align:center;font-size:11.5px;color:#3A5040;margin-bottom:14px}
@@ -997,7 +988,6 @@ function VAT201Tab({ state, dispatch, inp }) {
     </p>
     ${printBootstrap({landscape:true})}
     </body></html>`);
-    w.document.close();
   }
 
   const th = { padding:'8px 10px', textAlign:'left', fontSize:10.5, fontWeight:700, color:C.tableHeaderText, textTransform:'uppercase', letterSpacing:'0.4px', whiteSpace:'nowrap', background:C.tableHeaderBg };
@@ -1159,7 +1149,6 @@ function ComparativeTab({ state, dispatch, inp }) {
 
   function printReport() {
     const isPnL = reportType === 'pnl';
-    const w = window.open('', '_blank');
     let body = '';
     if (isPnL) {
       const revRows = [...pnlThis.revenue].map(r => {
@@ -1209,7 +1198,7 @@ function ComparativeTab({ state, dispatch, inp }) {
         </table>
       `;
     }
-    w.document.write(`<!DOCTYPE html><html><head><title>Comparative ${isPnL?'P&L':'Balance Sheet'} — ${thisYear} vs ${lastYear}</title>
+    openPrintWindow(`<!DOCTYPE html><html><head><title>Comparative ${isPnL?'P&L':'Balance Sheet'} — ${thisYear} vs ${lastYear}</title>
       <style>${PRINT_CSS}
       .comp-title{text-align:center;font-size:16px;font-weight:800;text-decoration:underline;margin:18px 0 6px}
       .comp-sub{text-align:center;font-size:11.5px;color:#3A5040;margin-bottom:14px}
@@ -1226,7 +1215,6 @@ function ComparativeTab({ state, dispatch, inp }) {
       ${body}
       ${printBootstrap({landscape:true})}
       </body></html>`);
-    w.document.close();
   }
 
   const th = { padding:'8px 10px', textAlign:'left', fontSize:10.5, fontWeight:700, color:C.tableHeaderText, textTransform:'uppercase', letterSpacing:'0.4px', whiteSpace:'nowrap', background:C.tableHeaderBg };
@@ -1403,8 +1391,7 @@ function GLDetailTab({ state, dispatch, inp }) {
         <td style="text-align:right">${l.credit ? fmtN(l.credit) : '—'}</td>
         <td style="text-align:right;font-weight:600">${fmtN(fmtNatural(l.running))}</td>
       </tr>`).join('');
-    const w = window.open('', '_blank');
-    w.document.write(`<!DOCTYPE html><html><head><title>GL Detail — ${esc(account?.name)} — ${formatDate(fromDate)} to ${formatDate(toDate)}</title>
+    openPrintWindow(`<!DOCTYPE html><html><head><title>GL Detail — ${esc(account?.name)} — ${formatDate(fromDate)} to ${formatDate(toDate)}</title>
       <style>${PRINT_CSS}
       .gl-title{text-align:center;font-size:16px;font-weight:800;text-decoration:underline;margin:18px 0 6px}
       .gl-sub{text-align:center;font-size:11.5px;color:#3A5040;margin-bottom:8px}
@@ -1437,7 +1424,6 @@ function GLDetailTab({ state, dispatch, inp }) {
       </div>
       ${printBootstrap({landscape:true})}
       </body></html>`);
-    w.document.close();
   }
 
   const th = { padding:'8px 10px', textAlign:'left', fontSize:10.5, fontWeight:700, color:C.tableHeaderText, textTransform:'uppercase', letterSpacing:'0.4px', whiteSpace:'nowrap', background:C.tableHeaderBg };
@@ -1576,8 +1562,7 @@ function AgingTab({ state, dispatch, inp }) {
         <td style="text-align:right">${fmtN(r.b120)}</td>
         <td style="text-align:right;font-weight:700">${fmtN(r.total)}</td>
       </tr>`).join('');
-    const w = window.open('', '_blank');
-    w.document.write(`<!DOCTYPE html><html><head><title>${sideLabel} — as at ${formatDate(asOf)}</title>
+    openPrintWindow(`<!DOCTYPE html><html><head><title>${sideLabel} — as at ${formatDate(asOf)}</title>
       <style>${PRINT_CSS}
       .ag-title{text-align:center;font-size:16px;font-weight:800;text-decoration:underline;margin:18px 0 6px}
       .ag-sub{text-align:center;font-size:11.5px;color:#3A5040;margin-bottom:14px}
@@ -1612,7 +1597,6 @@ function AgingTab({ state, dispatch, inp }) {
       </table>
       ${printBootstrap({landscape:true})}
       </body></html>`);
-    w.document.close();
   }
 
   const th = { padding:'8px 10px', textAlign:'left', fontSize:10.5, fontWeight:700, color:C.tableHeaderText, textTransform:'uppercase', letterSpacing:'0.4px', whiteSpace:'nowrap', background:C.tableHeaderBg };
@@ -1776,8 +1760,7 @@ function BatchPaymentTab({ state, dispatch, inp }) {
         <td style="text-align:right">${fmtN(it.whtAmount)}</td>
         <td style="text-align:right;font-weight:600">${fmtN(it.amount)}</td>
       </tr>`).join('');
-    const w = window.open('', '_blank');
-    w.document.write(`<!DOCTYPE html><html><head><title>EFT Payment List — ${esc(batch.batchNo)}</title>
+    openPrintWindow(`<!DOCTYPE html><html><head><title>EFT Payment List — ${esc(batch.batchNo)}</title>
       <style>${PRINT_CSS}
       .eft-title{text-align:center;font-size:16px;font-weight:800;text-decoration:underline;margin:18px 0 6px}
       .eft-sub{text-align:center;font-size:11.5px;color:#3A5040;margin-bottom:14px}
@@ -1815,7 +1798,6 @@ function BatchPaymentTab({ state, dispatch, inp }) {
       </div>
       ${printBootstrap({landscape:true})}
       </body></html>`);
-    w.document.close();
   }
 
   const th = { padding:'8px 10px', textAlign:'left', fontSize:10.5, fontWeight:700, color:C.tableHeaderText, textTransform:'uppercase', letterSpacing:'0.4px', whiteSpace:'nowrap', background:C.tableHeaderBg };
@@ -1958,8 +1940,7 @@ function WHTTab({ state, dispatch, inp }) {
         <td style="text-align:center">${b.whtRate||5}%</td>
         <td style="text-align:right;font-weight:600">${fmtN(b.whtAmount)}</td>
       </tr>`).join('');
-    const w = window.open('', '_blank');
-    w.document.write(`<!DOCTYPE html><html><head><title>WHT Certificate — ${esc(v.vendorName)}</title>
+    openPrintWindow(`<!DOCTYPE html><html><head><title>WHT Certificate — ${esc(v.vendorName)}</title>
       <style>${PRINT_CSS}
       .wht-title{text-align:center;font-size:17px;font-weight:800;text-decoration:underline;margin:18px 0 6px}
       .wht-sub{text-align:center;font-size:11.5px;color:#3A5040;margin-bottom:14px}
@@ -2009,7 +1990,6 @@ function WHTTab({ state, dispatch, inp }) {
       </div>
       ${printBootstrap({landscape:true})}
       </body></html>`);
-    w.document.close();
   }
 
   const th = { padding:'8px 10px', textAlign:'left', fontSize:10.5, fontWeight:700, color:C.tableHeaderText, textTransform:'uppercase', letterSpacing:'0.4px', whiteSpace:'nowrap', background:C.tableHeaderBg };

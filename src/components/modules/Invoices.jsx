@@ -9,7 +9,7 @@ import { canDo }    from '../../utils/auth';
 import { showToast, formatDate, generateId } from '../../utils/helpers';
 import { saveDBLocal } from '../../utils/db';
 import { logActivity }  from '../../utils/audit';
-import { printHeader, PRINT_CSS, SLOT_BRAND, SLOT_LOGO_SRC, printBootstrap } from '../../utils/logo';
+import { printHeader, PRINT_CSS, SLOT_BRAND, SLOT_LOGO_SRC, printBootstrap, openPrintWindow} from '../../utils/logo';
 import { getClients, getClientByCode } from '../../utils/clientMaster';
 import { getProjects, getProjectByCode } from '../../utils/projectMaster';
 import { diffAndPush } from '../../hooks/usePerRecordSync';
@@ -102,8 +102,7 @@ function printInvoice(inv) {
       <td style="text-align:right;font-weight:600">₦${(Number(it.total)||0).toLocaleString('en-NG')}</td>
     </tr>`).join('');
 
-  const w = window.open('','_blank');
-  w.document.write(`<!DOCTYPE html><html><head><title>Invoice ${inv.invoiceNo}</title>
+  openPrintWindow(`<!DOCTYPE html><html><head><title>Invoice ${inv.invoiceNo}</title>
   <style>
     *{margin:0;padding:0;box-sizing:border-box}
     body{font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#000;background:#fff;padding:30px;max-width:720px;margin:0 auto}
@@ -193,7 +192,6 @@ function printInvoice(inv) {
   </div>
   <div class="confidential">SLOT Engineering Nigeria Limited · This document is system-generated</div>
   ${printBootstrap({landscape:false})}</body></html>`);
-  w.document.close();
 }
 // ── Main Component ────────────────────────────────────────────────────────────
 export default function Invoices({ onNav }) {

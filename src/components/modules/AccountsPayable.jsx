@@ -14,7 +14,7 @@ import { getProjects }  from '../../utils/projectMaster';
 import { BANK_ACCOUNTS, DEFAULT_FX } from '../../utils/financeConstants';
 import { matchBill, decideOnVariance } from '../../utils/threeWayMatch';
 import { diffAndPush } from '../../hooks/usePerRecordSync';
-import { printBootstrap } from '../../utils/logo';
+import { printBootstrap, openPrintWindow} from '../../utils/logo';
 
 const uid   = () => generateId();
 const today = () => new Date().toISOString().split('T')[0];
@@ -776,8 +776,7 @@ export default function AccountsPayable() {
               <div style={{ display:'flex', justifyContent:'flex-end', gap:10, marginTop:16 }}>
                 <Btn variant="ghost" icon="🖨" onClick={()=>{
                   const rowsHtml = withBalance.map(r=>`<tr><td>${r.date}</td><td>${r.type}</td><td>${r.ref}</td><td>${r.desc}</td><td style="text-align:right">${fmt(r.amount,supp.currency)}</td><td style="text-align:right">${fmt(r.balance,supp.currency)}</td></tr>`).join('');
-                  const w = window.open('', '_blank');
-                  w.document.write(`<html><head><title>Supplier Ledger — ${supp.name}</title><style>
+                  openPrintWindow(`<html><head><title>Supplier Ledger — ${supp.name}</title><style>
                     body{font-family:Arial,sans-serif;padding:24px;color:#222}
                     h2{margin:0 0 4px}
                     table{width:100%;border-collapse:collapse;margin-top:16px;font-size:13px}
@@ -789,7 +788,6 @@ export default function AccountsPayable() {
                     <table><thead><tr><th>Date</th><th>Type</th><th>Ref</th><th>Description</th><th>Amount</th><th>Balance</th></tr></thead><tbody>${rowsHtml}</tbody></table>
                     ${printBootstrap({landscape:false})}
                   </body></html>`);
-                  w.document.close();
                 }}>Print</Btn>
                 <Btn onClick={()=>setModal(null)}>Close</Btn>
               </div>

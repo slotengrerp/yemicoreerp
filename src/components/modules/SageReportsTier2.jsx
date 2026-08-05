@@ -18,7 +18,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { showToast, formatDate, generateId } from '../../utils/helpers';
 import { saveDBLocal } from '../../utils/db';
 import { logActivity }  from '../../utils/audit';
-import { printHeader, PRINT_CSS, SLOT_LOGO_SRC, printBootstrap } from '../../utils/logo';
+import { printHeader, PRINT_CSS, SLOT_LOGO_SRC, printBootstrap, openPrintWindow} from '../../utils/logo';
 import { getClients, getClientByCode } from '../../utils/clientMaster';
 import { BANK_ACCOUNTS } from '../../utils/financeConstants';
 import { diffAndPush, pushOne } from '../../hooks/usePerRecordSync';
@@ -861,8 +861,7 @@ export function AssetDisposalTab({ state, dispatch, inp }) {
   }
 
   function printDisposal(d) {
-    const w = window.open('', '_blank');
-    w.document.write(`<!DOCTYPE html><html><head><title>Asset Disposal — ${esc(d.asset.assetTag)}</title>
+    openPrintWindow(`<!DOCTYPE html><html><head><title>Asset Disposal — ${esc(d.asset.assetTag)}</title>
       <style>${PRINT_CSS}
       .disp-title{text-align:center;font-size:16px;font-weight:800;text-decoration:underline;margin:18px 0 14px}
       .parties{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin:14px 0;font-size:12px;line-height:1.7}
@@ -913,7 +912,6 @@ export function AssetDisposalTab({ state, dispatch, inp }) {
       </div>
       ${printBootstrap({landscape:true})}
       </body></html>`);
-    w.document.close();
   }
 
   const th = { padding:'8px 10px', textAlign:'left', fontSize:10.5, fontWeight:700, color:C.tableHeaderText, textTransform:'uppercase', letterSpacing:'0.4px', whiteSpace:'nowrap', background:C.tableHeaderBg };
@@ -1155,8 +1153,7 @@ export function BudgetVsActualTab({ state, dispatch, inp }) {
         <td style="text-align:right">${pctUsed}%</td>
       </tr>`;
     }).join('');
-    const w = window.open('', '_blank');
-    w.document.write(`<!DOCTYPE html><html><head><title>Budget vs Actual — ${budgetYear}</title>
+    openPrintWindow(`<!DOCTYPE html><html><head><title>Budget vs Actual — ${budgetYear}</title>
       <style>${PRINT_CSS}
       .bva-title{text-align:center;font-size:16px;font-weight:800;text-decoration:underline;margin:18px 0 6px}
       .bva-sub{text-align:center;font-size:11.5px;color:#3A5040;margin-bottom:14px}
@@ -1177,7 +1174,6 @@ export function BudgetVsActualTab({ state, dispatch, inp }) {
       </p>
       ${printBootstrap({landscape:true})}
       </body></html>`);
-    w.document.close();
   }
 
   const th = { padding:'8px 10px', textAlign:'left', fontSize:10.5, fontWeight:700, color:C.tableHeaderText, textTransform:'uppercase', letterSpacing:'0.4px', whiteSpace:'nowrap', background:C.tableHeaderBg };
@@ -1401,8 +1397,7 @@ export function StockTakeTab({ state, dispatch, inp }) {
         <td style="text-align:center;font-size:14px;height:28px"></td>
         <td style="text-align:center;font-size:14px;height:28px"></td>
       </tr>`).join('');
-    const w = window.open('', '_blank');
-    w.document.write(`<!DOCTYPE html><html><head><title>Stock Take Count Sheet</title>
+    openPrintWindow(`<!DOCTYPE html><html><head><title>Stock Take Count Sheet</title>
       <style>${PRINT_CSS}
       .st-title{text-align:center;font-size:16px;font-weight:800;text-decoration:underline;margin:18px 0 6px}
       .st-sub{text-align:center;font-size:11.5px;color:#3A5040;margin-bottom:14px}
@@ -1432,7 +1427,6 @@ export function StockTakeTab({ state, dispatch, inp }) {
       </p>
       ${printBootstrap({landscape:true})}
       </body></html>`);
-    w.document.close();
   }
 
   const th = { padding:'8px 10px', textAlign:'left', fontSize:10.5, fontWeight:700, color:C.tableHeaderText, textTransform:'uppercase', letterSpacing:'0.4px', whiteSpace:'nowrap', background:C.tableHeaderBg };

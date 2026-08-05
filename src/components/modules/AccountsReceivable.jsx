@@ -15,7 +15,7 @@ import { canDo }    from '../../utils/auth';
 import { showToast, formatDate, generateId } from '../../utils/helpers';
 import { saveDBLocal } from '../../utils/db';
 import { logActivity }  from '../../utils/audit';
-import { SLOT_LOGO_SRC, printBootstrap } from '../../utils/logo';
+import { SLOT_LOGO_SRC, printBootstrap, openPrintWindow} from '../../utils/logo';
 import { diffAndPush } from '../../hooks/usePerRecordSync';
 import { getClients, getClientByCode, addClient } from '../../utils/clientMaster';
 import { getProjects } from '../../utils/projectMaster';
@@ -112,8 +112,7 @@ function printInvoice(inv) {
       <td style="text-align:right;font-weight:600">${sym}${(Number(it.total)||0).toLocaleString('en-NG')}</td>
     </tr>`).join('');
 
-  const w = window.open('','_blank');
-  w.document.write(`<!DOCTYPE html><html><head><title>Invoice ${inv.invoiceNo}</title>
+  openPrintWindow(`<!DOCTYPE html><html><head><title>Invoice ${inv.invoiceNo}</title>
   <style>
     *{margin:0;padding:0;box-sizing:border-box}
     body{font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#000;background:#fff;padding:30px;max-width:720px;margin:0 auto}
@@ -205,7 +204,6 @@ function printInvoice(inv) {
   </div>
   <div class="confidential">SLOT Engineering Nigeria Limited · This document is system-generated</div>
   ${printBootstrap({landscape:false})}</body></html>`);
-  w.document.close();
 }
 
 // Backfills fields that didn't exist on invoices created before this AR
@@ -1122,8 +1120,7 @@ export default function AccountsReceivable() {
               <div style={{ display:'flex', justifyContent:'flex-end', gap:10, marginTop:16 }}>
                 <Btn variant="ghost" icon="🖨" onClick={()=>{
                   const rowsHtml = withBalance.map(r=>`<tr><td>${r.date}</td><td>${r.type}</td><td>${r.ref}</td><td>${r.desc}</td><td style="text-align:right">${fmt(r.amount,'NGN')}</td><td style="text-align:right">${fmt(r.balance,'NGN')}</td></tr>`).join('');
-                  const w = window.open('', '_blank');
-                  w.document.write(`<html><head><title>Customer Ledger — ${cust.name}</title><style>
+                  openPrintWindow(`<html><head><title>Customer Ledger — ${cust.name}</title><style>
                     body{font-family:Arial,sans-serif;padding:24px;color:#222}
                     h2{margin:0 0 4px}
                     table{width:100%;border-collapse:collapse;margin-top:16px;font-size:13px}
@@ -1135,7 +1132,6 @@ export default function AccountsReceivable() {
                     <table><thead><tr><th>Date</th><th>Type</th><th>Ref</th><th>Description</th><th>Amount</th><th>Balance</th></tr></thead><tbody>${rowsHtml}</tbody></table>
                     ${printBootstrap({landscape:false})}
                   </body></html>`);
-                  w.document.close();
                 }}>Print</Btn>
                 <Btn onClick={()=>setLedgerModal(false)}>Close</Btn>
               </div>

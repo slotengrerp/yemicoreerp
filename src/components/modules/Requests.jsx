@@ -11,7 +11,7 @@ import { showToast, formatDate, generateId } from '../../utils/helpers'; // auto
 import { getDeepLinkTab } from '../../utils/helpers';
 import { saveDBLocal } from '../../utils/db';
 import { logActivity }  from '../../utils/audit';
-import { printHeader, PRINT_CSS, printBootstrap } from '../../utils/logo';
+import { printHeader, PRINT_CSS, printBootstrap, openPrintWindow} from '../../utils/logo';
 import { initApproval, applyDecision, canApproveAtCurrentLevel, approvalSummary } from '../../utils/approvalEngine';
 import { diffAndPush, pushOne } from '../../hooks/usePerRecordSync';
 
@@ -106,8 +106,7 @@ function printRequest(r) {
       <thead><tr style="background:#EAF4EC"><th style="padding:6px 10px;text-align:left;font-size:11px;text-transform:uppercase">Description</th><th style="padding:6px 10px;text-align:center;font-size:11px">Qty</th><th style="padding:6px 10px;text-align:left;font-size:11px">Unit</th></tr></thead>
       <tbody>${r.items.map((it,i)=>`<tr style="background:${i%2===1?'#f3faf5':'#fff'}"><td style="padding:6px 10px;font-size:12px">${it.description}</td><td style="padding:6px 10px;text-align:center;font-size:12px">${it.qty}</td><td style="padding:6px 10px;font-size:12px">${it.unit||''}</td></tr>`).join('')}</tbody>
     </table>` : '';
-  const w = window.open('','_blank');
-  w.document.write(`<!DOCTYPE html><html><head><title>Request ${r.requestNo}</title>
+  openPrintWindow(`<!DOCTYPE html><html><head><title>Request ${r.requestNo}</title>
   <style>${PRINT_CSS}
   .info-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px}
   .info-item .lbl{font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:#6E8C74;font-weight:600;margin-bottom:2px}
@@ -133,7 +132,6 @@ function printRequest(r) {
     <div><div class="sig">HOD / Date</div></div>
   </div>
   ${printBootstrap({landscape:false})}</body></html>`);
-  w.document.close();
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
