@@ -1231,7 +1231,7 @@ function BudgetVsActualTab({ state, dispatch, inp }) {
       <div class="bva-title">BUDGET VS ACTUAL REPORT</div>
       <div class="bva-sub">For the year ${budgetYear}</div>
       <table class="bva"><thead><tr><th>Code</th><th>Account</th><th style="text-align:right">Budget</th><th style="text-align:right">Actual</th><th style="text-align:right">Variance</th><th style="text-align:center">Used %</th></tr></thead>
-        <tbody>${rows || '<tr><td colspan="6" style="text-align:center;color:#6E8C74;padding:14px">No budgets set</td></tr>'}</tbody>
+        <tbody>${rows || '<tr><td colspan="6" style="text-align:center;color:#182A1C;padding:14px">No budgets set</td></tr>'}</tbody>
       </table>
       ${printBootstrap({landscape:true})}
       </body></html>`);
@@ -1519,7 +1519,7 @@ function StockTakeTab({ state, dispatch, inp }) {
       <table class="st"><thead><tr><th>S/N</th><th>Item Code</th><th>Item Name</th><th style="text-align:center">System Qty</th><th style="text-align:center">Counted Qty</th><th style="text-align:center">Variance</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
-      <p style="margin-top:24px;font-size:11px;color:#6E8C74">Counted by: ____________________________ &nbsp;&nbsp; Date: ____________ &nbsp;&nbsp; Witnessed by: ____________________________</p>
+      <p style="margin-top:24px;font-size:11px;color:#182A1C">Counted by: ____________________________ &nbsp;&nbsp; Date: ____________ &nbsp;&nbsp; Witnessed by: ____________________________</p>
       ${printBootstrap({landscape:true})}
       </body></html>`);
   }

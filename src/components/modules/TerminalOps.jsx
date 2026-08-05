@@ -141,9 +141,9 @@ function printSlotTerminalSheet(list, containers) {
     </tbody>
   </table>
   <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:40px;margin-top:40px">
-    <div style="border-top:1px solid #ccc;padding-top:6px;font-size:10px;color:#6E8C74">Prepared By / Date</div>
-    <div style="border-top:1px solid #ccc;padding-top:6px;font-size:10px;color:#6E8C74">Reviewed By / Date</div>
-    <div style="border-top:1px solid #ccc;padding-top:6px;font-size:10px;color:#6E8C74">Approved By / Date</div>
+    <div style="border-top:1px solid #ccc;padding-top:6px;font-size:10px;color:#182A1C">Prepared By / Date</div>
+    <div style="border-top:1px solid #ccc;padding-top:6px;font-size:10px;color:#182A1C">Reviewed By / Date</div>
+    <div style="border-top:1px solid #ccc;padding-top:6px;font-size:10px;color:#182A1C">Approved By / Date</div>
   </div>
   ${printBootstrap({landscape:true})}</body></html>`);
 }
@@ -227,10 +227,10 @@ function printSingleBoL(bol, childContainers, charges = []) {
     td{padding:6px 8px;border-bottom:1px solid #EAF0EB;font-size:10px}
     .meta{display:grid;grid-template-columns:repeat(4,1fr);gap:8px 18px;margin-top:6px;
           padding:12px 14px;background:#F3FAF5;border:1px solid #D4E0D6;border-radius:6px}
-    .meta div span{display:block;font-size:8.5px;color:#6E8C74;text-transform:uppercase;letter-spacing:.4px}
+    .meta div span{display:block;font-size:9px;font-weight:700;color:#182A1C;text-transform:uppercase;letter-spacing:.4px}
     .meta div strong{font-size:11.5px;color:#182A1C}
     .sign{margin-top:34px;display:flex;justify-content:space-between;gap:40px}
-    .sign div{flex:1;border-top:1px solid #7A8C7E;padding-top:5px;font-size:9px;color:#4A5C4E}
+    .sign div{flex:1;border-top:1px solid #7A8C7E;padding-top:5px;font-size:9.5px;font-weight:600;color:#182A1C}
     @media print{body{padding:10px}@page{margin:12mm}}
   </style></head><body>
   ${printHeader('BILL OF LADING — CONTAINER SHEET', 'BoL ' + (bol.billOfLadingNo || '—'))}
@@ -253,7 +253,7 @@ function printSingleBoL(bol, childContainers, charges = []) {
       <th>S/N</th><th>Container No</th><th>Type</th><th>Consignee</th><th>Material</th>
       <th>Transire</th><th>Into Warehouse</th><th>Examination</th><th>Release</th><th>Status</th>
     </tr></thead>
-    <tbody>${rows || '<tr><td colspan="10" style="text-align:center;padding:18px;color:#6E8C74">No containers linked to this Bill of Lading.</td></tr>'}</tbody>
+    <tbody>${rows || '<tr><td colspan="10" style="text-align:center;padding:18px;color:#182A1C">No containers linked to this Bill of Lading.</td></tr>'}</tbody>
   </table>
   <div class="sign">
     <div>Prepared by — name, signature &amp; date</div>

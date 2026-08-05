@@ -907,8 +907,8 @@ export function AssetDisposalTab({ state, dispatch, inp }) {
         ${d.isGain ? `Cr Gain on Disposal — ${fmtN(d.gainLoss)}` : `Dr Loss on Disposal — ${fmtN(Math.abs(d.gainLoss))}`}
       </p>
       <div style="margin-top:32px;display:grid;grid-template-columns:1fr 1fr;gap:30px">
-        <div><div style="border-top:1px solid #ccc;padding-top:6px;font-size:10px;color:#6E8C74">Prepared By</div></div>
-        <div><div style="border-top:1px solid #ccc;padding-top:6px;font-size:10px;color:#6E8C74">Authorised By</div></div>
+        <div><div style="border-top:1px solid #ccc;padding-top:6px;font-size:10px;color:#182A1C">Prepared By</div></div>
+        <div><div style="border-top:1px solid #ccc;padding-top:6px;font-size:10px;color:#182A1C">Authorised By</div></div>
       </div>
       ${printBootstrap({landscape:true})}
       </body></html>`);
@@ -1169,7 +1169,7 @@ export function BudgetVsActualTab({ state, dispatch, inp }) {
         <thead><tr><th>Code</th><th>Account</th><th style="text-align:right">Annual Budget</th><th style="text-align:right">YTD Actual</th><th style="text-align:right">Variance</th><th style="text-align:right">% Used</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
-      <p style="margin-top:18px;font-size:10px;color:#6E8C74">
+      <p style="margin-top:18px;font-size:10px;color:#182A1C">
         Variance colour: red = over budget (unfavourable), green = under budget (favourable). For revenue accounts, red means actual revenue is below budget.
       </p>
       ${printBootstrap({landscape:true})}
@@ -1422,7 +1422,7 @@ export function StockTakeTab({ state, dispatch, inp }) {
         </tr></thead>
         <tbody>${rows}</tbody>
       </table>
-      <p style="margin-top:18px;font-size:10px;color:#6E8C74">
+      <p style="margin-top:18px;font-size:10px;color:#182A1C">
         Counted Qty = physical count. Variance = Counted − System. Positive variance = stock found extra (Dr Inventory / Cr Stock Adjustment). Negative variance = stock short (Dr Stock Adjustment / Cr Inventory).
       </p>
       ${printBootstrap({landscape:true})}

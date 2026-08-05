@@ -209,7 +209,7 @@ export function FXRevaluationTab({ state, dispatch, inp }) {
         <tbody>${rows}</tbody>
       </table>
       <div class="grand"><span>NET ${result.net>=0?'GAIN':'LOSS'} ON REVALUATION</span><span>${fmtN(Math.abs(result.net))}</span></div>
-      <p style="margin-top:14px;font-size:11px;color:#6E8C74">
+      <p style="margin-top:14px;font-size:11px;color:#182A1C">
         Rates used: USD=${fmtN(newRates.USD)}, EUR=${fmtN(newRates.EUR)}, GBP=${fmtN(newRates.GBP)}. Post this revaluation to record the gain/loss in the GL (Dr/Cr FX accounts, offset to 4501 Profit on Exchange or 9100 Loss on Exchange).
       </p>
       ${printBootstrap({landscape:true})}

@@ -50,9 +50,9 @@ const printSection = (title, contentHtml) => {
       tr:nth-child(even){background:#F3FAF5}
       .header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #1A5C2A;padding-bottom:12px;margin-bottom:16px}
       .company{font-weight:800;font-size:16px;color:#1A5C2A}
-      .meta{font-size:11px;color:#6E8C74;margin-top:3px}
+      .meta{font-size:11px;color:#182A1C;margin-top:3px}
       .report-title{font-size:20px;font-weight:700;color:#1A5C2A;text-align:right}
-      .footer{margin-top:24px;padding-top:10px;border-top:1px solid #D4E0D6;font-size:10px;color:#6E8C74;display:flex;justify-content:space-between}
+      .footer{margin-top:24px;padding-top:10px;border-top:1px solid #D4E0D6;font-size:10px;font-weight:600;color:#182A1C;display:flex;justify-content:space-between}
       .amount{text-align:right;font-weight:600}
       .total-row td{background:#EAF4EC;font-weight:700}
       @media print{@page{margin:15mm}button{display:none}}
@@ -1167,7 +1167,7 @@ function LedgerTab({journals,coa,isAdmin=true}){
                       <td class="amount" style="font-weight:700;color:${l.balance>=0?"#182A1C":"#C0392B"}">${fmt(l.balance)}</td>
                     </tr>`).join('');
                   printSection(`General Ledger — ${acct?.code} ${acct?.name}`,`
-                    <p style="margin-bottom:10px;color:#6E8C74">Opening Balance: <b>${fmt(openingBal)}</b> · Closing Balance: <b>${fmt(closingBal)}</b> · ${lines.length} transaction(s)${monthFilter?` · Period: ${monthFilter}`:''}</p>
+                    <p style="margin-bottom:10px;color:#182A1C">Opening Balance: <b>${fmt(openingBal)}</b> · Closing Balance: <b>${fmt(closingBal)}</b> · ${lines.length} transaction(s)${monthFilter?` · Period: ${monthFilter}`:''}</p>
                     <table><thead><tr><th>Date</th><th>Ref</th><th>Description</th><th>Memo</th><th>Debit (₦)</th><th>Credit (₦)</th><th>Balance (₦)</th></tr></thead>
                     <tbody>
                       <tr style="font-style:italic"><td colspan="6">Opening Balance</td><td class="amount">${fmt(openingBal)}</td></tr>
@@ -1256,7 +1256,7 @@ function TrialBalanceTab({journals,coa,isAdmin=true}){
             const rowsHtml = tb.map((r,i)=>`<tr class="${i%2===1?'alt':''}"><td><b style="color:#1A5C2A">${r.code}</b></td><td>${r.name}</td><td>${r.type}</td><td>${r.category}</td><td class="amount">${r.dr>0?fmt(r.dr):'—'}</td><td class="amount">${r.cr>0?fmt(r.cr):'—'}</td></tr>`).join('');
             const totRow = `<tr class="total-row"><td colspan="4"><b>TOTALS</b></td><td class="amount"><b>${fmt(totalDR)}</b></td><td class="amount"><b>${fmt(totalCR)}</b></td></tr>`;
             const bal = `<p style="margin-top:12px;font-weight:700;color:${balanced?'#1A7A4A':'#C0392B'}">${balanced?'✓ Trial Balance is BALANCED':'⚠ Trial Balance is OUT OF BALANCE by '+fmt(Math.abs(totalDR-totalCR))}</p>`;
-            printSection('Trial Balance'+(period?' — '+period:''),`<p style="margin-bottom:8px;color:#6E8C74">Period: ${period||'All periods'} · ${tb.length} accounts</p><table><thead><tr>${hdrs.map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>${rowsHtml}${totRow}</tbody></table>${bal}`);
+            printSection('Trial Balance'+(period?' — '+period:''),`<p style="margin-bottom:8px;color:#182A1C">Period: ${period||'All periods'} · ${tb.length} accounts</p><table><thead><tr>${hdrs.map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>${rowsHtml}${totRow}</tbody></table>${bal}`);
           }}>Print Trial Balance</Btn>
         </div>
       </div>
@@ -2100,7 +2100,7 @@ function VATTab({journals,coa,vatAdj,setVatAdj}){
                     <tr class="alt"><td>Input VAT (Deductible)</td><td class="amount" style="color:#1A7A4A">${fmt(finalInput)}</td></tr>
                     <tr class="total-row"><td><b>Net VAT Payable to FIRS</b></td><td class="amount"><b style="color:${finalNet>0?'#C0392B':'#1A7A4A'}">${finalNet>0?fmt(finalNet):'('+fmt(Math.abs(finalNet))+')'}</b></td></tr>
                   </table>
-                  <p style="margin-top:16px;font-size:11px;color:#6E8C74">VAT Registration: VAT-234-000-001 · TIN: TIN-234-567-890 · RC: 0000001</p>
+                  <p style="margin-top:16px;font-size:11px;color:#182A1C">VAT Registration: VAT-234-000-001 · TIN: TIN-234-567-890 · RC: 0000001</p>
                 `);
               }}>🖨 Print VAT Return</Btn>
               <Btn sm>Mark as Filed</Btn>

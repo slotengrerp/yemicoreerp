@@ -126,8 +126,8 @@ function printInvoice(inv) {
     .grand-total{display:flex;justify-content:space-between;padding:8px 0;font-size:15px;font-weight:800;color:#1A5C2A;border-top:2px solid #1A5C2A;margin-top:4px}
     .status-badge{display:inline-block;padding:3px 12px;border-radius:20px;font-size:11px;font-weight:600;background:${inv.status==='Paid'?'#d4edda':inv.status==='Overdue'?'#f8d7da':'#fff3cd'};color:${inv.status==='Paid'?'#155724':inv.status==='Overdue'?'#721c24':'#856404'}}
     .footer{margin-top:44px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:30px}
-    .sig{border-top:1px solid #ccc;padding-top:6px;font-size:10px;color:#6E8C74}
-    .confidential{text-align:center;font-size:9px;color:#A4BAA8;margin-top:24px;text-transform:uppercase;letter-spacing:1.5px}
+    .sig{border-top:1px solid #ccc;padding-top:6px;font-size:10px;font-weight:600;color:#182A1C}
+    .confidential{text-align:center;font-size:9px;color:#4A5C4E;margin-top:24px;text-transform:uppercase;letter-spacing:1.5px}
     @media print{ body{padding:14px} }
   </style></head><body>
 
@@ -183,7 +183,7 @@ function printInvoice(inv) {
     <div class="grand-total"><span>Net Payable</span><span>₦${(Number(inv.netPayable)||0).toLocaleString('en-NG')}</span></div>
   </div>
 
-  ${inv.notes ? `<p style="margin-top:16px;font-size:12px;color:#6E8C74"><strong>Notes:</strong> ${inv.notes}</p>` : ''}
+  ${inv.notes ? `<p style="margin-top:16px;font-size:12px;color:#182A1C"><strong>Notes:</strong> ${inv.notes}</p>` : ''}
 
   <div class="footer">
     <div><div class="sig">Prepared By / Date</div></div>

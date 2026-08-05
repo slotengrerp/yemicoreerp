@@ -109,7 +109,7 @@ function printRequest(r) {
   openPrintWindow(`<!DOCTYPE html><html><head><title>Request ${r.requestNo}</title>
   <style>${PRINT_CSS}
   .info-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px}
-  .info-item .lbl{font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:#6E8C74;font-weight:600;margin-bottom:2px}
+  .info-item .lbl{font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:#182A1C;font-weight:600;margin-bottom:2px}
   .info-item .val{font-size:12px;color:#182A1C}
   .desc-box{background:#f8fbf8;border:1px solid #D4E0D6;border-radius:8px;padding:12px 14px;margin-bottom:16px;font-size:12px;line-height:1.7;color:#182A1C}
   .approval-box{background:${r.status==='Approved'?'#EAF7EF':r.status==='Rejected'?'#FDEDED':'#FFF8E7'};border:1px solid ${r.status==='Approved'?'#A8D5B5':r.status==='Rejected'?'#F5C6C6':'#FFE082'};border-radius:8px;padding:12px 14px;margin-top:16px}

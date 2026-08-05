@@ -107,7 +107,7 @@ function printVoucher(v) {
   .amount-box{background:#EAF4EC;border:2px solid #1A5C2A;border-radius:8px;padding:14px 18px;text-align:center;margin:14px 0}
   .amount-box .amt{font-size:22px;font-weight:800;color:#1A5C2A}
   .sig-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-top:28px}
-  .sig{border-top:1px solid #1A5C2A;padding-top:6px;font-size:10px;color:#6E8C74;text-align:center}
+  .sig{border-top:1px solid #1A5C2A;padding-top:6px;font-size:10px;font-weight:600;color:#182A1C;text-align:center}
   </style></head><body>
   ${printHeader('PETTY CASH VOUCHER', formatDate(v.date))}
   <div class="voucher-box">
@@ -119,7 +119,7 @@ function printVoucher(v) {
     <div class="row"><div class="label">Requested By</div><div>${v.requestedBy}</div></div>
     <div class="row"><div class="label">Receipt Attached</div><div>${v.receipt ? '✓ Yes' : '✗ No'}</div></div>
     <div class="amount-box">
-      <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#6E8C74;margin-bottom:6px">Amount</div>
+      <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#182A1C;margin-bottom:6px">Amount</div>
       <div class="amt">₦${(Number(v.amount)||0).toLocaleString('en-NG', {minimumFractionDigits:2})}</div>
     </div>
     <div class="sig-row">

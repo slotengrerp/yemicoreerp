@@ -53,14 +53,14 @@ function printPayroll(filtered, period) {
     .header{border-bottom:3px solid #1A5C2A;padding-bottom:14px;margin-bottom:20px;display:flex;justify-content:space-between;align-items:flex-end}
     .co{font-size:18px;font-weight:800;color:#1A5C2A}
     .sub{font-size:13px;color:#3A5040;font-weight:600;margin-top:4px}
-    .meta{font-size:11px;color:#6E8C74;margin-top:3px}
+    .meta{font-size:11px;color:#182A1C;margin-top:3px}
     .badge{background:#1A5C2A;color:#fff;padding:6px 16px;border-radius:8px;font-weight:700;font-size:13px}
     table{width:100%;border-collapse:collapse;margin-bottom:16px}
     th{background:#1A5C2A;color:#fff;padding:8px 7px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.4px;white-space:nowrap}
     td{padding:7px;border-bottom:1px solid #EAF0EB;font-size:11px}
     .tot td{background:#EAF4EC;font-weight:700;color:#1A5C2A;border-top:2px solid #1A5C2A}
     .footer{margin-top:40px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:40px}
-    .sig{border-top:1px solid #ccc;padding-top:6px;font-size:10px;color:#6E8C74}
+    .sig{border-top:1px solid #ccc;padding-top:6px;font-size:10px;font-weight:600;color:#182A1C}
     @media print{body{padding:12px}}
   </style></head><body>
 ${printHeader('COMPANY STAFF — MONTHLY PAYROLL REGISTER', period)}
@@ -120,7 +120,7 @@ function printPayslip(s, period) {
     .green-bar{background:#1A5C2A;color:#fff;padding:8px 24px;font-size:13px;font-weight:700;display:flex;justify-content:space-between}
     .body{border:1px solid #D4E0D6;border-top:none;padding:20px 24px;border-radius:0 0 10px 10px}
     .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px}
-    .field label{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#6E8C74;margin-bottom:3px;display:block}
+    .field label{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#182A1C;margin-bottom:3px;display:block}
     .field span{font-size:13px;font-weight:600;color:#182A1C}
     hr{border:none;border-top:1px solid #EAF0EB;margin:16px 0}
     table{width:100%;border-collapse:collapse}
@@ -137,8 +137,8 @@ function printPayslip(s, period) {
     .net-val{font-size:24px;font-weight:800}
     .bank{background:#EAF4EC;border:1px solid #4CAF64;border-left:4px solid #1A5C2A;border-radius:8px;padding:10px 14px;margin:14px 0}
     .footer{margin-top:36px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:30px}
-    .sig{border-top:1px solid #ccc;padding-top:6px;font-size:10px;color:#6E8C74;margin-top:30px}
-    .conf{text-align:center;font-size:9px;color:#A4BAA8;margin-top:20px;text-transform:uppercase;letter-spacing:1px}
+    .sig{border-top:1px solid #ccc;padding-top:6px;font-size:10px;font-weight:600;color:#182A1C;margin-top:30px}
+    .conf{text-align:center;font-size:9px;color:#4A5C4E;margin-top:20px;text-transform:uppercase;letter-spacing:1px}
     @media print{body{padding:16px}}
   </style></head><body>
   <div style="background:linear-gradient(135deg,#0F3A1A,#1A5C2A);padding:18px 24px;border-radius:10px 10px 0 0">
@@ -202,9 +202,9 @@ function printPayslip(s, period) {
     <div class="bank">
       <div style="font-size:10px;font-weight:700;color:#1A5C2A;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Payment Details</div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
-        <div><div style="font-size:9px;color:#6E8C74;text-transform:uppercase">Bank</div><div style="font-weight:600">${s.bank||'—'}</div></div>
-        <div><div style="font-size:9px;color:#6E8C74;text-transform:uppercase">Account Number</div><div style="font-weight:600;font-family:monospace">${s.accountNo||'—'}</div></div>
-        <div><div style="font-size:9px;color:#6E8C74;text-transform:uppercase">Pension PIN</div><div style="font-weight:600;font-family:monospace">${s.pensionPin||'—'}</div></div>
+        <div><div style="font-size:9px;color:#182A1C;text-transform:uppercase">Bank</div><div style="font-weight:600">${s.bank||'—'}</div></div>
+        <div><div style="font-size:9px;color:#182A1C;text-transform:uppercase">Account Number</div><div style="font-weight:600;font-family:monospace">${s.accountNo||'—'}</div></div>
+        <div><div style="font-size:9px;color:#182A1C;text-transform:uppercase">Pension PIN</div><div style="font-weight:600;font-family:monospace">${s.pensionPin||'—'}</div></div>
       </div>
     </div>
     <div class="footer">
