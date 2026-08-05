@@ -139,10 +139,21 @@ export function openPrintWindow(html) {
   styleEl.textContent = `
 ${styles}
 @media screen {
+  /* ── Overlay: covers the full viewport ──────────────────────────────────── */
   #__slot_print {
-    position: fixed; inset: 0; z-index: 2147483647;
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    z-index: 2147483647;
     background: #fff; overflow: auto;
     font-family: 'Segoe UI', Arial, sans-serif;
+  }
+  /* ── Toolbar: the printBootstrap toolbar uses position:fixed;z-index:9999,
+        which puts it in the ROOT stacking context at level 9999 — behind the
+        overlay at level 2147483647. Override to sticky so it lives inside the
+        overlay's own stacking context and sticks at the top as the user scrolls. */
+  #__slot_print .print-toolbar {
+    position: sticky !important;
+    top: 0 !important;
+    z-index: 10 !important;  /* only needs to beat siblings inside the overlay */
   }
 }
 @media print {
