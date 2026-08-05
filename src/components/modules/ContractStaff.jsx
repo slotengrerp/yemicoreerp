@@ -12,7 +12,8 @@ import { logActivity }  from '../../utils/audit';
 import { pushOne, pushDelete } from '../../hooks/usePerRecordSync';
 import { Users, DollarSign, UserCheck, UserX } from 'lucide-react';
 import { SLOT_LOGO_B64, SLOT_BRAND, printHeader, PRINT_CSS, openPrintWindow, printBootstrap} from '../../utils/logo';
-import { calcPAYE_Nigeria } from '../../utils/financeConstants';
+// calcPAYE_Nigeria import removed 2026-08-05 — PAYE is now entered per staff
+// member on the staff form rather than calculated.
 import { getProjects } from '../../utils/projectMaster';
 
 const DEPARTMENTS = ['Engineering','HSE','Operations','Admin','Procurement','Finance','Mechanical','Electrical','Civil','IT','Legal','Logistics'];
@@ -25,6 +26,7 @@ const EMPTY = {
   employmentDate:'', refIndicator:'', projectCode:'',
   basicSalary:'', housing:'', transport:'',
   bonnyAllowance:'', leaveAllowance:'', eoyBonus:'', overtimeAllowance:'', otherAddition:'',
+  paye:'',
   voluntaryPension:'', salaryAdvance:'', loan:'',
   status:'Active',
 };
@@ -95,16 +97,11 @@ function printPayslip(s, period, company) {
   const otherAdd  = Number(s.otherAddition)||0;
   const gross     = basic + housing + transport + bonny + leaveAll + eoyBonus + overtime + otherAdd;
 
-  // PAYE (simplified progressive — Nigerian tax table, applied monthly on annualised gross)
-  function calcPAYE(annual) {
-    // CRITICAL FIX: now uses shared PITA-compliant calc with CRA deduction.
-    return calcPAYE_Nigeria(annual / 12);
-  }
-
   // Employee Pension — 8% statutory contribution on (Basic + Housing + Transport)
   const pensionBase     = basic + housing + transport;
   const employeePension = Math.round(pensionBase * 0.08);
-  const paye             = calcPAYE(gross * 12);
+  // 2026-08-05: PAYE is entered per staff member on the staff form, not computed.
+  const paye             = Number(s.paye)||0;
   const voluntaryPension = Number(s.voluntaryPension)||0;
   const salaryAdvance    = Number(s.salaryAdvance)||0;
   const loan             = Number(s.loan)||0;
@@ -309,12 +306,13 @@ function StaffModal({ modal, onSave, onClose, projects }) {
 
           <SecLabel label="Deductions" />
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+            <FG label="PAYE (₦)"><input style={inp} type="number" value={f.paye} onChange={set('paye')} placeholder="Leave blank if not applicable" /></FG>
             <FG label="Voluntary Pension (₦)"><input style={inp} type="number" value={f.voluntaryPension} onChange={set('voluntaryPension')} placeholder="0" /></FG>
             <FG label="Salary Advance (₦)"><input style={inp} type="number" value={f.salaryAdvance} onChange={set('salaryAdvance')} placeholder="0" /></FG>
             <FG label="Loan (₦)"><input style={inp} type="number" value={f.loan} onChange={set('loan')} placeholder="0" /></FG>
           </div>
           <div style={{ fontSize:10.5, color:C.textMuted, marginTop:6, lineHeight:1.5 }}>
-            PAYE and Employee Pension (8%) are calculated automatically on the payslip — no manual entry needed.
+            Employee Pension (8%) is calculated automatically on the payslip. PAYE is entered above per staff member — leave it blank if it does not apply.
           </div>
         </div>
         <div style={{ display:'flex', gap:8, justifyContent:'flex-end', padding:'14px 24px', borderTop:'1px solid '+C.borderLight }}>
@@ -400,7 +398,7 @@ export default function ContractStaff() {
       const otherAdd=(Number(s.otherAddition)||0);
       const gross=basic+housing+transport+extraEarnings+otherAdd;
       const pension=Math.round((basic+housing+transport)*0.08);
-      const paye=calcPAYE_Nigeria(gross);
+      const paye=Number(s.paye)||0;   // entered per staff member, not calculated
       const otherDeductions=(Number(s.voluntaryPension)||0)+(Number(s.salaryAdvance)||0)+(Number(s.loan)||0);
       const netPay = gross - pension - paye - otherDeductions;
       return { staffId:s.id, refId:s.refId, fullName:s.fullName, department:s.department, projectCode:s.projectCode||'', employmentDate:s.employmentDate||'',
@@ -577,7 +575,7 @@ export default function ContractStaff() {
                     const otherAdd=(Number(s.otherAddition)||0);
                     const gross=basic+housing+transport+extraEarnings+otherAdd;
                     const pension=Math.round((basic+housing+transport)*0.08);
-                    const paye=calcPAYE_Nigeria(gross);
+                    const paye=Number(s.paye)||0;   // entered per staff member, not calculated
                     const otherDeductions=(Number(s.voluntaryPension)||0)+(Number(s.salaryAdvance)||0)+(Number(s.loan)||0);
                     const totalDeduct=pension+paye+otherDeductions;
                     const netPay=gross-totalDeduct;

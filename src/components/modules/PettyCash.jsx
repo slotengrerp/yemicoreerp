@@ -296,7 +296,8 @@ export default function PettyCash({ onNav }) {
         <KPI label="Total Disbursed" value={fmt(stats.approved)} sub="approved & paid out" />
         <KPI label="Pending Approval" value={fmt(stats.pending)} accent={C.amber} sub={`${entries.filter(e=>!e.voided&&e.status==='Pending').length} vouchers`} onClick={() => onNav?.("approvals")} />
         <KPI label="Vouchers This Month" value={entries.filter(e=>!e.voided&&e.date?.startsWith(new Date().toISOString().slice(0,7))).length} sub="current month" accent={C.info} />
-        <KPI label="Available Balance" value={fmt(fund.balance)} accent={barColor} alert={fund.balance < fund.limit * 0.2} sub={pct < 20 ? 'Low — replenish soon' : 'sufficient'} />
+        {/* 2026-08-05: "Available Balance" KPI removed — the cash position is
+            between the accountant and the MD, not shown on the module header. */}
       </div>
 
       <Card style={{ padding:0, overflow:'hidden' }}>

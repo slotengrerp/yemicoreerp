@@ -17,7 +17,22 @@ const PROC_TABLE_BY_LIST = { rfqs: 'procurementRfqs', pos: 'procurementPos', way
 
 const fmt = n => '₦' + (Number(n) || 0).toLocaleString('en-NG', { minimumFractionDigits: 0 });
 
+// ── Currency selection ───────────────────────────────────────────────────────
+// Every procurement document (RFQ, PO, Waybill, Invoice) carries its own
+// `currency`. '' means "no symbol" — amounts print as bare numbers so the
+// figure can be written in by hand.
+const CURRENCIES = ['NGN', 'USD', 'GBP', 'EUR', ''];
+const CUR_SYM = { NGN: '₦', USD: '$', GBP: '£', EUR: '€', '': '' };
+const curSym = c => CUR_SYM[c] ?? '';
+// Same formatting as fmt(), but with the document's own currency symbol.
+const fmtC = (n, c) => curSym(c) + (Number(n) || 0).toLocaleString('en-NG', { minimumFractionDigits: 0 });
+// Column-header suffix: "Unit Price (₦)" / "Unit Price (USD)" / "Unit Price"
+const curSuffix = c => (c ? ` (${curSym(c) || c})` : '');
+
 function printPO(po) {
+  const partyLbl = po.poType === 'SLOT' ? 'Supplier' : 'Client';
+  // Amounts print in the PO's own currency, not a hardcoded naira sign.
+  const fmt = n => fmtC(n, po.currency ?? 'NGN');
   const itemRows = (po.items||[]).map((item,i) => `
     <tr style="background:${i%2?'#f3faf5':'#fff'}">
       <td style="padding:7px 10px;border-bottom:1px solid #EAF0EB">${i+1}</td>
@@ -27,7 +42,64 @@ function printPO(po) {
       <td style="padding:7px 10px;border-bottom:1px solid #EAF0EB;text-align:right">${fmt(item.unitPrice)}</td>
       <td style="padding:7px 10px;border-bottom:1px solid #EAF0EB;text-align:right;font-weight:700;color:#1A5C2A">${fmt((Number(item.qty)||0)*(Number(item.unitPrice)||0))}</td>
     </tr>`).join('');
-  openPrintWindow(`<!DOCTYPE html><html><head><title>PO ${po.poNo||''}</title><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Segoe UI',Arial,sans-serif;font-size:12px;color:#182A1C;padding:24px}table{width:100%;border-collapse:collapse}th{background:#1A5C2A;color:#fff;padding:8px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.4px}.info-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:16px 0}.field{margin-bottom:8px}.lbl{font-size:9px;font-weight:700;text-transform:uppercase;color:#182A1C;letter-spacing:.5px;margin-bottom:2px}.val{font-size:12px;font-weight:600;border-bottom:1px solid #DDE9DE;padding-bottom:3px}.total-row{background:#F0F8F2;font-weight:700}.sig{display:grid;grid-template-columns:1fr 1fr 1fr;gap:40px;margin-top:40px}.sig-line{border-top:1px solid #ccc;padding-top:6px;font-size:10px;font-weight:600;color:#182A1C}@media print{body{padding:12px}}</style></head><body>${printHeader('PURCHASE ORDER · ' + (po.poNo||''), formatDate(po.date))}<div class="info-grid"><div><div class="field"><div class="lbl">Supplier</div><div class="val">${po.supplier||'—'}</div></div><div class="field"><div class="lbl">Supplier Address</div><div class="val">${po.supplierAddress||'—'}</div></div><div class="field"><div class="lbl">Payment Terms</div><div class="val">${po.paymentTerms||'—'}</div></div></div><div><div class="field"><div class="lbl">Delivery Address</div><div class="val">${po.deliveryAddress||'—'}</div></div><div class="field"><div class="lbl">Delivery Date</div><div class="val">${formatDate(po.deliveryDate)||'—'}</div></div><div class="field"><div class="lbl">Status</div><div class="val">${po.status||'—'}</div></div></div></div><table style="margin-bottom:16px"><thead><tr><th>#</th><th>Description</th><th style="text-align:center">Qty</th><th style="text-align:center">Unit</th><th style="text-align:right">Unit Price</th><th style="text-align:right">Total</th></tr></thead><tbody>${itemRows}</tbody><tfoot><tr class="total-row"><td colspan="5" style="padding:8px 10px;text-align:right">Subtotal</td><td style="padding:8px 10px;text-align:right">${fmt(po.subtotal)}</td></tr><tr class="total-row"><td colspan="5" style="padding:8px 10px;text-align:right">VAT (${po.vatRate||0}%)</td><td style="padding:8px 10px;text-align:right">${fmt(po.vatAmount)}</td></tr><tr style="background:#1A5C2A;color:#fff"><td colspan="5" style="padding:10px;text-align:right;font-weight:800;font-size:13px">TOTAL</td><td style="padding:10px;text-align:right;font-weight:800;font-size:15px">${fmt(po.total)}</td></tr></tfoot></table>${po.notes?`<div style="margin-bottom:16px;padding:10px;background:#f3faf5;border-left:3px solid #1A5C2A;border-radius:4px"><div style="font-size:10px;font-weight:700;color:#182A1C;text-transform:uppercase;margin-bottom:4px">Notes</div><div style="font-size:12px">${po.notes}</div></div>`:''}<div class="sig"><div><div class="sig-line">Prepared By / Date</div></div><div><div class="sig-line">Authorised By / Date</div></div><div><div class="sig-line">Supplier Acknowledgement / Date</div></div></div>${printBootstrap({landscape:false})}</body></html>`);
+  openPrintWindow(`<!DOCTYPE html><html><head><title>PO ${po.poNo||''}</title><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Segoe UI',Arial,sans-serif;font-size:12px;color:#182A1C;padding:24px}table{width:100%;border-collapse:collapse}th{background:#1A5C2A;color:#fff;padding:8px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.4px}.info-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:16px 0}.field{margin-bottom:8px}.lbl{font-size:9px;font-weight:700;text-transform:uppercase;color:#182A1C;letter-spacing:.5px;margin-bottom:2px}.val{font-size:12px;font-weight:600;border-bottom:1px solid #DDE9DE;padding-bottom:3px}.total-row{background:#F0F8F2;font-weight:700}.sig{display:grid;grid-template-columns:1fr 1fr 1fr;gap:40px;margin-top:40px}.sig-line{border-top:1px solid #ccc;padding-top:6px;font-size:10px;font-weight:600;color:#182A1C}@media print{body{padding:12px}}</style></head><body>${printHeader('PURCHASE ORDER · ' + (po.poNo||''), formatDate(po.date))}<div class="info-grid"><div><div class="field"><div class="lbl">${partyLbl}</div><div class="val">${po.supplier||'—'}</div></div><div class="field"><div class="lbl">${partyLbl} Address</div><div class="val">${po.supplierAddress||'—'}</div></div><div class="field"><div class="lbl">Payment Terms</div><div class="val">${po.paymentTerms||'—'}</div></div></div><div><div class="field"><div class="lbl">Delivery Address</div><div class="val">${po.deliveryAddress||'—'}</div></div><div class="field"><div class="lbl">Delivery Date</div><div class="val">${formatDate(po.deliveryDate)||'—'}</div></div><div class="field"><div class="lbl">Status</div><div class="val">${po.status||'—'}</div></div></div></div><table style="margin-bottom:16px"><thead><tr><th>#</th><th>Description</th><th style="text-align:center">Qty</th><th style="text-align:center">Unit</th><th style="text-align:right">Unit Price</th><th style="text-align:right">Total</th></tr></thead><tbody>${itemRows}</tbody><tfoot><tr class="total-row"><td colspan="5" style="padding:8px 10px;text-align:right">Subtotal</td><td style="padding:8px 10px;text-align:right">${fmt(po.subtotal)}</td></tr><tr class="total-row"><td colspan="5" style="padding:8px 10px;text-align:right">VAT (${po.vatRate||0}%)</td><td style="padding:8px 10px;text-align:right">${fmt(po.vatAmount)}</td></tr><tr style="background:#1A5C2A;color:#fff"><td colspan="5" style="padding:10px;text-align:right;font-weight:800;font-size:13px">TOTAL</td><td style="padding:10px;text-align:right;font-weight:800;font-size:15px">${fmt(po.total)}</td></tr></tfoot></table>${po.notes?`<div style="margin-bottom:16px;padding:10px;background:#f3faf5;border-left:3px solid #1A5C2A;border-radius:4px"><div style="font-size:10px;font-weight:700;color:#182A1C;text-transform:uppercase;margin-bottom:4px">Notes</div><div style="font-size:12px">${po.notes}</div></div>`:''}<div class="sig"><div><div class="sig-line">Prepared By / Date</div></div><div><div class="sig-line">Authorised By / Date</div></div><div><div class="sig-line">${partyLbl} Acknowledgement / Date</div></div></div>${printBootstrap({landscape:false})}</body></html>`);
+}
+
+// ── Print: Supplier Invoice ──────────────────────────────────────────────────
+// Modelled on the SLOT invoice summary sheet. printHeader() puts the SLOT
+// Engineering letterhead at the very top of the page (requirement 2e), and all
+// amounts follow the invoice's own currency rather than a hardcoded naira sign.
+function printInvoice(inv) {
+  const cur  = inv.currency ?? 'NGN';
+  const m    = n => fmtC(n, cur);
+  const rows = (inv.items || []).map((it, i) => `
+    <tr style="background:${i % 2 ? '#f3faf5' : '#fff'}">
+      <td>${i + 1}</td>
+      <td style="text-align:center">${it.qty || 0}</td>
+      <td style="text-align:center">${it.unit || '—'}</td>
+      <td>${it.description || '—'}</td>
+      <td style="text-align:right">${m(it.unitPrice)}</td>
+      <td style="text-align:right;font-weight:700;color:#1A5C2A">${m(it.totalPrice)}</td>
+    </tr>`).join('');
+  openPrintWindow(`<!DOCTYPE html><html><head><title>Invoice ${inv.invoiceNo || ''}</title><style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{font-family:'Segoe UI',Arial,sans-serif;font-size:12px;color:#182A1C;padding:24px}
+    table{width:100%;border-collapse:collapse}
+    th{background:#1A5C2A;color:#fff;padding:8px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.4px}
+    td{padding:7px 10px;border-bottom:1px solid #EAF0EB}
+    .sum{width:100%;border-collapse:collapse;margin:16px 0}
+    .sum td{border:1px solid #D4E0D6;padding:8px 10px}
+    .sum .k{font-weight:700;text-transform:uppercase;font-size:10px;width:34%;background:#F3FAF5}
+    .total-row{background:#F0F8F2;font-weight:700}
+    .sig{display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:44px}
+    .sig-line{border-top:1px solid #ccc;padding-top:6px;font-size:10px;font-weight:600;color:#182A1C}
+    @media print{body{padding:12px}}
+  </style></head><body>
+  ${printHeader('INVOICE SUMMARY · ' + (inv.invoiceNo || ''), formatDate(inv.date))}
+  <table class="sum">
+    <tr><td class="k">Currency</td><td>${cur || '—'}</td></tr>
+    <tr><td class="k">Invoice Value</td><td style="font-weight:700">${m(inv.netPayable)}</td></tr>
+    <tr><td class="k">Supplier</td><td>${inv.supplier || '—'}</td></tr>
+    <tr><td class="k">PO Number</td><td>${inv.poNo || '—'}</td></tr>
+    <tr><td class="k">Supplier Invoice Ref</td><td>${inv.supplierInvoiceNo || '—'}</td></tr>
+    <tr><td class="k">Due Date</td><td>${formatDate(inv.dueDate) || '—'}</td></tr>
+  </table>
+  <div style="font-size:11px;font-weight:700;text-transform:uppercase;margin:14px 0 6px">Purchase Order Details</div>
+  <table>
+    <thead><tr><th>Item</th><th style="text-align:center">Qty</th><th style="text-align:center">Unit</th><th>Material Description</th><th style="text-align:right">Unit Price</th><th style="text-align:right">Total Price</th></tr></thead>
+    <tbody>${rows}</tbody>
+    <tfoot>
+      <tr class="total-row"><td colspan="5" style="text-align:right">PO Value</td><td style="text-align:right">${m(inv.subtotal)}</td></tr>
+      <tr class="total-row"><td colspan="5" style="text-align:right">VAT (7.5%)</td><td style="text-align:right">${m(inv.vatAmount)}</td></tr>
+      <tr style="background:#1A5C2A;color:#fff"><td colspan="5" style="padding:10px;text-align:right;font-weight:800;font-size:13px">TOTAL</td><td style="padding:10px;text-align:right;font-weight:800;font-size:15px">${m(inv.netPayable)}</td></tr>
+    </tfoot>
+  </table>
+  ${inv.notes ? `<div style="margin-top:14px;padding:10px;background:#f3faf5;border-left:3px solid #1A5C2A;border-radius:4px"><div style="font-size:10px;font-weight:700;text-transform:uppercase;margin-bottom:4px">Notes</div><div>${inv.notes}</div></div>` : ''}
+  <div class="sig">
+    <div><div class="sig-line">Signed / Date</div></div>
+    <div><div class="sig-line">Designation</div></div>
+  </div>
+  ${printBootstrap({landscape:false})}</body></html>`);
 }
 
 // ── Legacy local key (read-only now, used once for migration in loadInitial) ──
@@ -221,7 +293,7 @@ function RFQModal({ rfq, onSave, onClose, onCreatePO }) {
   const S = useStyles();
   const isView = !!rfq?.id;
   const RFQ_STATUSES = ['Sourcing', 'Bids Submitted', 'PO Received', 'PO Issued', 'Delivered', 'Cancelled'];
-  const [form, setForm] = useState(rfq || { rfqNo: '', date: new Date().toISOString().split('T')[0], requiredBy: '', requestedBy: '', department: '', description: '', items: [{ id: uid(), description: '', qty: '', unit: 'units', estimatedPrice: '' }], status: 'Sourcing' });
+  const [form, setForm] = useState(rfq || { rfqNo: '', date: new Date().toISOString().split('T')[0], requiredBy: '', requestedBy: '', department: '', description: '', currency: 'NGN', items: [{ id: uid(), description: '', qty: '', unit: 'units', estimatedPrice: '' }], status: 'Sourcing' });
   const set = k => e => setForm(p => ({ ...p, [k]: e.target.value }));
 
   function addItem() { setForm(p => ({ ...p, items: [...p.items, { id: uid(), description: '', qty: '', unit: 'units', estimatedPrice: '' }] })); }
@@ -255,13 +327,14 @@ function RFQModal({ rfq, onSave, onClose, onCreatePO }) {
           <FG label="Department"><input style={S.inp} value={form.department} onChange={set('department')} placeholder="Enter department" readOnly={isView} /></FG>
           <FG label="Status"><select style={S.sel} value={form.status} onChange={set('status')} disabled={isView}>
             {RFQ_STATUSES.map(s => <option key={s}>{s}</option>)}</select></FG>
+          <FG label="Currency"><select style={S.sel} value={form.currency ?? 'NGN'} onChange={set('currency')} disabled={isView}>{CURRENCIES.map(c => <option key={c} value={c}>{c || '— none —'}</option>)}</select></FG>
           <FG label="Description" full><input style={S.inp} value={form.description} onChange={set('description')} placeholder="Brief description of requirements" readOnly={isView} /></FG>
         </div>
 
         <SectionLabel label="Requested Items" />
         <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 12, fontSize: 12 }}>
           <thead><tr style={{ background: C.greenPale }}>
-            {['#', 'Description', 'Qty', 'Unit', 'Est. Unit Price (₦)', 'Est. Total (₦)', isView ? '' : 'Del'].map(h => <th key={h} style={S.th}>{h}</th>)}
+            {['#', 'Description', 'Qty', 'Unit', 'Est. Unit Price' + curSuffix(form.currency), 'Est. Total' + curSuffix(form.currency), isView ? '' : 'Del'].map(h => <th key={h} style={S.th}>{h}</th>)}
           </tr></thead>
           <tbody>
             {form.items.map((item, i) => (
@@ -270,15 +343,15 @@ function RFQModal({ rfq, onSave, onClose, onCreatePO }) {
                 <td style={S.td}>{isView ? item.description : <input style={{ ...S.inp, minWidth: 180 }} value={item.description} onChange={e => setItem(i, 'description', e.target.value)} placeholder="Item description" />}</td>
                 <td style={S.td}>{isView ? item.qty : <input style={{ ...S.inp, width: 70 }} type="number" value={item.qty} onChange={e => setItem(i, 'qty', e.target.value)} />}</td>
                 <td style={S.td}>{isView ? item.unit : <input style={{ ...S.inp, width: 80 }} value={item.unit} onChange={e => setItem(i, 'unit', e.target.value)} />}</td>
-                <td style={S.td}>{isView ? fmt(item.estimatedPrice) : <input style={{ ...S.inp, width: 120 }} type="number" value={item.estimatedPrice} onChange={e => setItem(i, 'estimatedPrice', e.target.value)} />}</td>
-                <td style={{ ...S.td, fontWeight: 600, color: C.green }}>{fmt((Number(item.qty) || 0) * (Number(item.estimatedPrice) || 0))}</td>
+                <td style={S.td}>{isView ? fmtC(item.estimatedPrice, form.currency) : <input style={{ ...S.inp, width: 120 }} type="number" value={item.estimatedPrice} onChange={e => setItem(i, 'estimatedPrice', e.target.value)} />}</td>
+                <td style={{ ...S.td, fontWeight: 600, color: C.green }}>{fmtC((Number(item.qty) || 0) * (Number(item.estimatedPrice) || 0), form.currency)}</td>
                 {!isView && <td style={S.td}><button onClick={() => removeItem(i)} style={{ background: C.danger, color: '#fff', border: 'none', borderRadius: 5, padding: '2px 8px', cursor: 'pointer', fontSize: 12 }}>✕</button></td>}
               </tr>
             ))}
           </tbody>
           <tfoot><tr style={{ background: C.greenPale, fontWeight: 700 }}>
             <td colSpan={5} style={{ ...S.td, textAlign: 'right' }}>Total Estimated Value</td>
-            <td style={{ ...S.td, color: C.green, fontSize: 13 }}>{fmt(totalEstimated)}</td>
+            <td style={{ ...S.td, color: C.green, fontSize: 13 }}>{fmtC(totalEstimated, form.currency)}</td>
             {!isView && <td style={S.td} />}
           </tr></tfoot>
         </table>
@@ -431,16 +504,17 @@ function POModal({ po, rfq, poType, onSave, onClose, onCreateWaybill, onViewWayb
             {isView && form.deliveryDate && <DeliveryCountdown expected={form.deliveryDate} actual={form.actualDeliveryDate} />}
           </FG>
           <FG label="Actual Delivery Date"><input style={S.inp} type="date" value={form.actualDeliveryDate||''} onChange={set('actualDeliveryDate')} /></FG>
-          <FG label="Supplier Name" full>
+          <FG label={form.poType === 'SLOT' ? 'Supplier Name' : 'Client Name'} full>
             <select style={S.sel} value={form.supplier} onChange={e=>handleVendorSelect(e.target.value)} disabled={isView}>
-              <option value="">— Select Supplier —</option>
+              <option value="">— Select {form.poType === 'SLOT' ? 'Supplier' : 'Client'} —</option>
               {vendors.map(v=><option key={v.id} value={v.code}>{v.name} — {v.code} ({v.currency})</option>)}
             </select>
           </FG>
-          <FG label="Supplier Address" full><input style={S.inp} value={form.supplierAddress} onChange={set('supplierAddress')} placeholder="Supplier address" readOnly={isView} /></FG>
+          <FG label={form.poType === 'SLOT' ? 'Supplier Address' : 'Client Address'} full><input style={S.inp} value={form.supplierAddress} onChange={set('supplierAddress')} placeholder={form.poType === 'SLOT' ? 'Supplier address' : 'Client address'} readOnly={isView} /></FG>
           <FG label="Delivery Address" full><input style={S.inp} value={form.deliveryAddress} onChange={set('deliveryAddress')} placeholder="Where to deliver" readOnly={isView} /></FG>
           <FG label="Payment Terms"><select style={S.sel} value={form.paymentTerms} onChange={set('paymentTerms')} disabled={isView}>{TERMS.map(t => <option key={t}>{t}</option>)}</select></FG>
           <FG label="VAT Rate (%)"><input style={S.inp} type="number" value={form.vatRate} onChange={e => setVAT(e.target.value)} readOnly={isView} /></FG>
+          <FG label="Currency"><select style={S.sel} value={form.currency ?? 'NGN'} onChange={set('currency')} disabled={isView}>{CURRENCIES.map(c => <option key={c} value={c}>{c || '— none —'}</option>)}</select></FG>
           <FG label="Status">
             {(!isView || form.status === 'Draft') ? (
               <select style={S.sel} value={form.status} onChange={set('status')} disabled={isView && form.status !== 'Draft'}>
@@ -465,7 +539,7 @@ function POModal({ po, rfq, poType, onSave, onClose, onCreateWaybill, onViewWayb
         <div style={{ overflowX: 'auto', marginBottom: 12 }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
             <thead><tr style={{ background: C.greenPale }}>
-              {['#', 'Description', 'Qty', 'Unit', 'Unit Price (₦)', 'Total (₦)', isView ? 'Delivered' : '', isView ? 'Remaining' : '', !isView ? 'Del' : ''].filter(Boolean).map(h => <th key={h} style={S.th}>{h}</th>)}
+              {['#', 'Description', 'Qty', 'Unit', 'Unit Price' + curSuffix(form.currency), 'Total' + curSuffix(form.currency), isView ? 'Delivered' : '', isView ? 'Remaining' : '', !isView ? 'Del' : ''].filter(Boolean).map(h => <th key={h} style={S.th}>{h}</th>)}
             </tr></thead>
             <tbody>
               {form.items.map((item, i) => {
@@ -478,8 +552,8 @@ function POModal({ po, rfq, poType, onSave, onClose, onCreateWaybill, onViewWayb
                     <td style={S.td}>{isView ? item.description : <input style={{ ...S.inp, minWidth: 200 }} value={item.description} onChange={e => setItem(i, 'description', e.target.value)} placeholder="Item description" />}</td>
                     <td style={S.td}>{isView ? item.qty : <input style={{ ...S.inp, width: 70 }} type="number" value={item.qty} onChange={e => setItem(i, 'qty', e.target.value)} />}</td>
                     <td style={S.td}>{isView ? item.unit : <input style={{ ...S.inp, width: 80 }} value={item.unit} onChange={e => setItem(i, 'unit', e.target.value)} />}</td>
-                    <td style={S.td}>{isView ? fmt(item.unitPrice) : <input style={{ ...S.inp, width: 120 }} type="number" value={item.unitPrice} onChange={e => setItem(i, 'unitPrice', e.target.value)} />}</td>
-                    <td style={{ ...S.td, fontWeight: 600, color: C.green }}>{fmt((Number(item.qty) || 0) * (Number(item.unitPrice) || 0))}</td>
+                    <td style={S.td}>{isView ? fmtC(item.unitPrice, form.currency) : <input style={{ ...S.inp, width: 120 }} type="number" value={item.unitPrice} onChange={e => setItem(i, 'unitPrice', e.target.value)} />}</td>
+                    <td style={{ ...S.td, fontWeight: 600, color: C.green }}>{fmtC((Number(item.qty) || 0) * (Number(item.unitPrice) || 0), form.currency)}</td>
                     {isView && <td style={{ ...S.td, color: delivered >= (Number(item.qty) || 0) ? C.success : C.warning, fontWeight: 600 }}>{delivered}</td>}
                     {isView && <td style={{ ...S.td, color: remaining > 0 ? C.danger : C.success, fontWeight: 600 }}>{remaining}</td>}
                     {!isView && <td style={S.td}><button onClick={() => removeItem(i)} style={{ background: C.danger, color: '#fff', border: 'none', borderRadius: 5, padding: '2px 8px', cursor: 'pointer', fontSize: 12 }}>✕</button></td>}
@@ -488,9 +562,9 @@ function POModal({ po, rfq, poType, onSave, onClose, onCreateWaybill, onViewWayb
               })}
             </tbody>
             <tfoot>
-              <tr style={{ background: C.bgAlt }}><td colSpan={isView ? 5 : 4} style={{ ...S.td, textAlign: 'right', color: C.textMid }}>Subtotal</td><td colSpan={isView ? 4 : 2} style={{ ...S.td, fontWeight: 600 }}>{fmt(form.subtotal)}</td></tr>
-              <tr style={{ background: C.bgAlt }}><td colSpan={isView ? 5 : 4} style={{ ...S.td, textAlign: 'right', color: C.textMid }}>VAT ({form.vatRate}%)</td><td colSpan={isView ? 4 : 2} style={{ ...S.td, fontWeight: 600 }}>{fmt(form.vatAmount)}</td></tr>
-              <tr style={{ background: C.greenPale }}><td colSpan={isView ? 5 : 4} style={{ ...S.td, textAlign: 'right', fontWeight: 700 }}>TOTAL</td><td colSpan={isView ? 4 : 2} style={{ ...S.td, fontWeight: 700, color: C.green, fontSize: 14 }}>{fmt(form.total)}</td></tr>
+              <tr style={{ background: C.bgAlt }}><td colSpan={isView ? 5 : 4} style={{ ...S.td, textAlign: 'right', color: C.textMid }}>Subtotal</td><td colSpan={isView ? 4 : 2} style={{ ...S.td, fontWeight: 600 }}>{fmtC(form.subtotal, form.currency)}</td></tr>
+              <tr style={{ background: C.bgAlt }}><td colSpan={isView ? 5 : 4} style={{ ...S.td, textAlign: 'right', color: C.textMid }}>VAT ({form.vatRate}%)</td><td colSpan={isView ? 4 : 2} style={{ ...S.td, fontWeight: 600 }}>{fmtC(form.vatAmount, form.currency)}</td></tr>
+              <tr style={{ background: C.greenPale }}><td colSpan={isView ? 5 : 4} style={{ ...S.td, textAlign: 'right', fontWeight: 700 }}>TOTAL</td><td colSpan={isView ? 4 : 2} style={{ ...S.td, fontWeight: 700, color: C.green, fontSize: 14 }}>{fmtC(form.total, form.currency)}</td></tr>
             </tfoot>
           </table>
         </div>
@@ -636,13 +710,13 @@ function WaybillModal({ wb, po, onSave, onClose, onCreateInvoice, allWaybills = 
         ${form.deliveryAddress?`<div class="f" style="grid-column:1/-1"><label>Delivery Address</label><span>${form.deliveryAddress}</span></div>`:''}
       </div>
       <table>
-        <thead><tr><th>#</th><th>Description</th><th>Ordered Qty</th><th>Prev. Delivered</th><th>This Delivery</th><th>Unit</th></tr></thead>
+        <thead><tr><th>#</th><th>Description</th><th>Qty</th><th>Unit</th></tr></thead>
         <tbody>
           ${(form.items||[]).map((item,i)=>
-            `<tr><td>${i+1}</td><td>${item.description}</td><td>${item.orderedQty}</td><td>${item.previouslyDelivered||0}</td><td style="font-weight:700;color:#1A5C2A">${item.deliveredQty||0}</td><td>${item.unit}</td></tr>`
+            `<tr><td>${i+1}</td><td>${item.description}</td><td style="font-weight:700;color:#1A5C2A">${item.deliveredQty||0}</td><td>${item.unit}</td></tr>`
           ).join('')}
         </tbody>
-        <tfoot><tr class="tfoot-row"><td colspan="4">Total This Delivery</td><td colspan="2" style="font-weight:800">${totalDelivered} units</td></tr></tfoot>
+        <tfoot><tr class="tfoot-row"><td colspan="2">Total This Delivery</td><td colspan="2" style="font-weight:800">${totalDelivered} units</td></tr></tfoot>
       </table>
       ${form.notes?`<div style="margin-top:12px;padding:10px;background:#f9fafb;border-radius:6px;font-size:11px"><strong>Notes:</strong> ${form.notes}</div>`:''}
       <div class="sigs">
@@ -740,7 +814,6 @@ function InvoiceModal({ inv, po, wb, onSave, onClose }) {
 
   const initSubtotal = initItems.reduce((s, i) => s + i.totalPrice, 0);
   const initVAT = Math.round(initSubtotal * 0.075);
-  const initWHT = Math.round(initSubtotal * 0.02); // FIX: WHT default 2%
 
   const [form, setForm] = useState(inv || {
     invoiceNo: '', supplierInvoiceNo: '',
@@ -752,9 +825,9 @@ function InvoiceModal({ inv, po, wb, onSave, onClose }) {
     dueDate: '',
     items: initItems,
     subtotal: initSubtotal, vatAmount: initVAT,
-    whtRate: 2, whtAmount: initWHT, // FIX: default WHT 2%
+    currency: po?.currency || wb?.currency || 'NGN',
     total: initSubtotal + initVAT,
-    netPayable: initSubtotal + initVAT - initWHT,
+    netPayable: initSubtotal + initVAT,
     status: 'Pending', paymentDate: '', paymentRef: '', notes: '',
   });
 
@@ -763,10 +836,9 @@ function InvoiceModal({ inv, po, wb, onSave, onClose }) {
   function recalc(items) {
     const subtotal = items.reduce((s, i) => s + i.totalPrice, 0);
     const vatAmount = Math.round(subtotal * 0.075);
-    const whtAmount = Math.round(subtotal * (Number(form.whtRate) || 0) / 100);
     const total = subtotal + vatAmount;
-    const netPayable = total - whtAmount;
-    return { subtotal, vatAmount, whtAmount, total, netPayable };
+    const netPayable = total;
+    return { subtotal, vatAmount, total, netPayable };
   }
 
   function setItem(i, k, v) {
@@ -791,6 +863,7 @@ function InvoiceModal({ inv, po, wb, onSave, onClose }) {
             </div>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            {isView && <Btn variant="ghost" sm onClick={() => printInvoice(form)}>🖨 Print Invoice</Btn>}
             {isView && <Tag status={form.status} />}
             <button onClick={onClose} aria-label="Close dialog" style={{ background: 'none', border: 'none', fontSize: 22, color: C.textMuted, cursor: 'pointer' }}>×</button>
           </div>
@@ -803,7 +876,7 @@ function InvoiceModal({ inv, po, wb, onSave, onClose }) {
           <FG label="Supplier"><input style={S.inp} value={form.supplier} onChange={set('supplier')} readOnly={isView} /></FG>
           <FG label="Invoice Date"><input style={S.inp} type="date" value={form.date} onChange={set('date')} readOnly={isView} /></FG>
           <FG label="Due Date"><input style={S.inp} type="date" value={form.dueDate} onChange={set('dueDate')} readOnly={isView} /></FG>
-          <FG label="WHT Rate (%)"><input style={S.inp} type="number" value={form.whtRate} onChange={set('whtRate')} readOnly={isView} /></FG>
+          <FG label="Currency"><select style={S.sel} value={form.currency ?? 'NGN'} onChange={set('currency')} disabled={isView}>{CURRENCIES.map(c => <option key={c} value={c}>{c || '— none —'}</option>)}</select></FG>
           <FG label="Status"><select style={S.sel} value={form.status} onChange={set('status')} disabled={isView}>{['Pending', 'Approved', 'Paid', 'Overdue', 'Disputed'].map(s => <option key={s}>{s}</option>)}</select></FG>
           {(isView && form.status === 'Paid') && <FG label="Payment Date"><input style={S.inp} value={form.paymentDate} readOnly /></FG>}
           {(isView && form.status === 'Paid') && <FG label="Payment Ref"><input style={S.inp} value={form.paymentRef} readOnly /></FG>}
@@ -813,7 +886,7 @@ function InvoiceModal({ inv, po, wb, onSave, onClose }) {
         <div style={{ overflowX: 'auto', marginBottom: 12 }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
             <thead><tr style={{ background: C.amber }}>
-              {['#', 'Description', 'Delivered Qty', 'Unit', 'Unit Price (₦)', 'Line Total (₦)'].map(h => (
+              {['#', 'Description', 'Delivered Qty', 'Unit', 'Unit Price' + curSuffix(form.currency), 'Line Total' + curSuffix(form.currency)].map(h => (
                 <th key={h} style={{ ...S.th, background: C.amber, color: '#fff' }}>{h}</th>
               ))}
             </tr></thead>
@@ -824,16 +897,16 @@ function InvoiceModal({ inv, po, wb, onSave, onClose }) {
                   <td style={S.td}>{item.description}</td>
                   <td style={S.td}>{isView ? <strong>{item.qty}</strong> : <input style={{ ...S.inp, width: 80 }} type="number" value={item.qty} onChange={e => setItem(i, 'qty', e.target.value)} />}</td>
                   <td style={S.td}>{item.unit}</td>
-                  <td style={S.td}>{isView ? fmt(item.unitPrice) : <input style={{ ...S.inp, width: 120 }} type="number" value={item.unitPrice} onChange={e => setItem(i, 'unitPrice', e.target.value)} />}</td>
-                  <td style={{ ...S.td, fontWeight: 600, color: C.green }}>{fmt(item.totalPrice)}</td>
+                  <td style={S.td}>{isView ? fmtC(item.unitPrice, form.currency) : <input style={{ ...S.inp, width: 120 }} type="number" value={item.unitPrice} onChange={e => setItem(i, 'unitPrice', e.target.value)} />}</td>
+                  <td style={{ ...S.td, fontWeight: 600, color: C.green }}>{fmtC(item.totalPrice, form.currency)}</td>
                 </tr>
               ))}
             </tbody>
             <tfoot>
-              {[['Subtotal', form.subtotal, C.text], ['VAT (7.5%)', form.vatAmount, C.text], ['WHT Deduction (' + form.whtRate + '%)', -form.whtAmount, C.danger], ['NET PAYABLE', form.netPayable, C.green]].map(([label, val, color]) => (
+              {[['Subtotal', form.subtotal, C.text], ['VAT (7.5%)', form.vatAmount, C.text], ['NET PAYABLE', form.netPayable, C.green]].map(([label, val, color]) => (
                 <tr key={label} style={{ background: label === 'NET PAYABLE' ? C.greenPale : C.bgAlt }}>
                   <td colSpan={5} style={{ ...S.td, textAlign: 'right', fontWeight: label === 'NET PAYABLE' ? 700 : 500 }}>{label}</td>
-                  <td style={{ ...S.td, fontWeight: 700, color, fontSize: label === 'NET PAYABLE' ? 15 : 12 }}>{val < 0 ? '(' + fmt(Math.abs(val)) + ')' : fmt(val)}</td>
+                  <td style={{ ...S.td, fontWeight: 700, color, fontSize: label === 'NET PAYABLE' ? 15 : 12 }}>{val < 0 ? '(' + fmtC(Math.abs(val), form.currency) + ')' : fmtC(val, form.currency)}</td>
                 </tr>
               ))}
             </tfoot>
@@ -1102,7 +1175,7 @@ export default function Procurement({ onNav }) {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 750 }}>
                 <THead cols={poTypeFilter === 'SLOT'
                   ? ['PO No', 'Supplier', 'PO Date', 'Expected Delivery', 'Actual Delivery', 'Total (₦)', 'Status', 'Waybill Ref', 'Invoice Ref', '']
-                  : ['PO No', 'RFQ Ref', 'Supplier', 'PO Date', 'Expected Delivery', 'Actual Delivery', 'Total (₦)', 'Status', 'Waybills', 'Invoices', '']
+                  : ['PO No', 'RFQ Ref', 'Client', 'PO Date', 'Expected Delivery', 'Actual Delivery', 'Total (₦)', 'Status', 'Waybills', 'Invoices', '']
                 } />
                 <tbody>
                   {filteredPOs.length === 0 && <tr><td colSpan={poTypeFilter === 'SLOT' ? 10 : 11} style={{ textAlign: 'center', padding: 32, color: C.textMuted }}>No {poTypeFilter.toLowerCase()} purchase orders found</td></tr>}
@@ -1174,7 +1247,7 @@ export default function Procurement({ onNav }) {
           {/* ── Invoice Table ──────────────────────────────────────────────── */}
           {tab === 'invoice' && (
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 750 }}>
-              <THead cols={['Invoice No', 'Supplier Ref', 'PO Number', 'Waybill', 'Supplier', 'Subtotal (₦)', 'WHT (₦)', 'Net Payable (₦)', 'Due Date', 'Status', '']} />
+              <THead cols={['Invoice No', 'Supplier Ref', 'PO Number', 'Waybill', 'Supplier', 'Subtotal', 'Net Payable', 'Due Date', 'Status', '']} />
               <tbody>
                 {filteredInvoices.length === 0 && <tr><td colSpan={11} style={{ textAlign: 'center', padding: 32, color: C.textMuted }}>No invoices found</td></tr>}
                 {filteredInvoices.map((inv, i) => (
@@ -1185,7 +1258,6 @@ export default function Procurement({ onNav }) {
                     <td style={S.td}>{inv.waybillNo ? <LinkedBadge label={inv.waybillNo} color={C.info} onClick={e => { e.stopPropagation(); const w = waybills.find(x => x.id === inv.waybillId); if (w) openWB(w); }} /> : '—'}</td>
                     <td style={S.td}>{inv.supplier}</td>
                     <td style={{ ...S.td, fontWeight: 500 }}>{fmt(inv.subtotal)}</td>
-                    <td style={{ ...S.td, color: C.danger }}>{fmt(inv.whtAmount)}</td>
                     <td style={{ ...S.td, fontWeight: 700, color: C.green }}>{fmt(inv.netPayable)}</td>
                     <td style={{ ...S.td, color: new Date(inv.dueDate) < new Date() && inv.status !== 'Paid' ? C.danger : C.text }}>{formatDate(inv.dueDate)}</td>
                     <td style={S.td}><Tag status={inv.status} /></td>

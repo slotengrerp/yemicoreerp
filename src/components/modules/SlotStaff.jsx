@@ -12,7 +12,8 @@ import { logActivity }  from '../../utils/audit';
 import { pushOne, pushDelete } from '../../hooks/usePerRecordSync';
 import { SLOT_LOGO_B64, SLOT_BRAND, printHeader, PRINT_CSS, openPrintWindow, printBootstrap} from '../../utils/logo';
 import { getProjects } from '../../utils/projectMaster';
-import { calcPAYE_Nigeria } from '../../utils/financeConstants';
+// calcPAYE_Nigeria import removed 2026-08-05 — PAYE is now entered per staff
+// member on the staff form rather than calculated.
 
 const DEPARTMENTS = ['Administration','Procurement','Finance','Engineering','HSE','Operations','Mechanical','Electrical','Civil','IT','Logistics','Legal','HR','Business Development'];
 const WORK_LOCATIONS = ['Port Harcourt HQ','Lagos Office','Abuja Office','Bonny Island','Onne Port','Warri Office','Kaduna Office','Site Rotation'];
@@ -20,7 +21,7 @@ const BANKS = ['Access Bank','Citibank','Ecobank','Fidelity Bank','First Bank','
 const STATUSES = ['Active','Inactive','Suspended','On Leave'];
 const SERVICE_TITLES = ['Managing Director','Director','General Manager','Deputy General Manager','Assistant General Manager','Senior Manager','Manager','Assistant Manager','Senior Officer','Officer','Assistant Officer','Coordinator','Executive','Analyst','Supervisor','Technician','Assistant'];
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-const EMPTY = { fullName:'', refId:'', department:'', serviceTitle:'', workLocation:'Port Harcourt HQ', employmentDate:'', projectCode:'', phone:'', email:'', bank:'', accountNo:'', basicSalary:'', housing:'', transport:'', otherAddition:'', status:'Active' };
+const EMPTY = { fullName:'', refId:'', department:'', serviceTitle:'', workLocation:'Port Harcourt HQ', employmentDate:'', projectCode:'', phone:'', email:'', bank:'', accountNo:'', basicSalary:'', housing:'', transport:'', otherAddition:'', paye:'', status:'Active' };
 
 // ── Print helpers ──────────────────────────────────────────────────────────
 function printPayroll(filtered, period) {
@@ -98,16 +99,10 @@ function printPayslip(s, period) {
   const otherAdd = Number(s.otherAddition)||0;
   const gross    = basic + housing + transport + medical + other + otherAdd;
 
-  function calcPAYE(annual) {
-    // CRITICAL FIX: previously applied the bands directly to annual gross,
-    // omitting the Consolidated Relief Allowance (CRA). Nigerian law requires
-    // CRA = max(₦200,000, 1% of gross) + 20% of gross to be deducted first.
-    // Now delegates to the shared PITA-compliant utility.
-    return calcPAYE_Nigeria(annual / 12);
-  }
-
+  // 2026-08-05: PAYE is no longer computed. It is entered per staff member on
+  // the staff form and simply reproduced here — blank stays blank on the slip.
   const pension     = Math.round((basic+housing+transport)*0.08);
-  const paye        = calcPAYE(gross*12);
+  const paye        = Number(s.paye)||0;
   const nhf         = Math.round(basic*0.025); // NHF 2.5% of basic
   const totalDeduct = pension + paye + nhf;
   const netPay      = gross - totalDeduct;
@@ -176,9 +171,9 @@ function printPayslip(s, period) {
             <tr><td>Basic Salary</td><td class="earn-amt">${fmtN(basic)}</td></tr>
             <tr><td>Housing Allowance</td><td class="earn-amt">${fmtN(housing)}</td></tr>
             <tr><td>Transport Allowance</td><td class="earn-amt">${fmtN(transport)}</td></tr>
-            ${medical>0?`<tr><td>Medical Allowance</td><td class="earn-amt">${fmtN(medical)}</td></tr>`:''}
-            ${other>0?`<tr><td>Other Allowances</td><td class="earn-amt">${fmtN(other)}</td></tr>`:''}
-            ${otherAdd>0?`<tr><td>Other Addition</td><td class="earn-amt">${fmtN(otherAdd)}</td></tr>`:''}
+            <tr><td>Medical Allowance</td><td class="earn-amt">${fmtN(medical)}</td></tr>
+            <tr><td>Other Allowances</td><td class="earn-amt">${fmtN(other)}</td></tr>
+            <tr><td>Other Addition</td><td class="earn-amt">${fmtN(otherAdd)}</td></tr>
           </tbody>
           <tfoot><tr class="tot"><td>GROSS SALARY</td><td style="text-align:right">${fmtN(gross)}</td></tr></tfoot>
         </table>
@@ -297,6 +292,7 @@ function StaffModal({ modal, onSave, onClose, projects }) {
             <FG label="Housing Allowance (₦)"><input style={inp} type="number" value={f.housing} onChange={set('housing')} placeholder="0" /></FG>
             <FG label="Transport Allowance (₦)"><input style={inp} type="number" value={f.transport} onChange={set('transport')} placeholder="0" /></FG>
             <FG label="Other Addition (₦)"><input style={inp} type="number" value={f.otherAddition} onChange={set('otherAddition')} placeholder="0" /></FG>
+            <FG label="PAYE (₦)"><input style={inp} type="number" value={f.paye} onChange={set('paye')} placeholder="Leave blank if not applicable" /></FG>
             <FG label="Gross Salary (Auto)">
               <div style={{ padding:'7px 10px', background:C.greenPale, border:'1px solid '+C.greenLight, borderRadius:7, color:C.green, fontWeight:700, fontSize:15 }}>{formatCurrency(gross)}</div>
             </FG>
@@ -386,7 +382,7 @@ export default function SlotStaff() {
       const medical=(Number(s.medicalAllowance)||0), other=(Number(s.otherAllowances)||0), otherAdd=(Number(s.otherAddition)||0);
       const gross=basic+housing+transport+medical+other+otherAdd;
       const pension=Math.round((basic+housing+transport)*0.08);
-      const paye=calcPAYE_Nigeria(gross);  // shared PITA-compliant calc (with CRA)
+      const paye=Number(s.paye)||0;        // entered per staff member, not calculated
       const nhf=Math.round(basic*0.025);
       const netPay = gross - pension - paye - nhf;
       return { staffId:s.id, refId:s.refId, fullName:s.fullName, department:s.department, projectCode:s.projectCode||'', employmentDate:s.employmentDate||'',
@@ -556,7 +552,7 @@ export default function SlotStaff() {
                     const otherAdd=(Number(s.otherAddition)||0);
                     const gross=basic+housing+transport+medical+other+otherAdd;
                     const pension=Math.round((basic+housing+transport)*0.08);
-                    const paye=calcPAYE_Nigeria(gross);  // shared PITA-compliant calc (with CRA)
+                    const paye=Number(s.paye)||0;        // entered per staff member, not calculated
                     const nhf=Math.round(basic*0.025);
                     const totalDeduct=pension+paye+nhf;
                     const netPay=gross-totalDeduct;
