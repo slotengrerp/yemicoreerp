@@ -141,9 +141,9 @@ function printSlotTerminalSheet(list, containers) {
     </tbody>
   </table>
   <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:40px;margin-top:40px">
-    <div style="border-top:1px solid #ccc;padding-top:6px;font-size:10px;color:#182A1C">Prepared By / Date</div>
-    <div style="border-top:1px solid #ccc;padding-top:6px;font-size:10px;color:#182A1C">Reviewed By / Date</div>
-    <div style="border-top:1px solid #ccc;padding-top:6px;font-size:10px;color:#182A1C">Approved By / Date</div>
+    <div style="border-top:1px solid #ccc;padding-top:6px;font-size:10px;font-weight:600;color:#182A1C">Prepared By / Date</div>
+    <div style="border-top:1px solid #ccc;padding-top:6px;font-size:10px;font-weight:600;color:#182A1C">Reviewed By / Date</div>
+    <div style="border-top:1px solid #ccc;padding-top:6px;font-size:10px;font-weight:600;color:#182A1C">Approved By / Date</div>
   </div>
   ${printBootstrap({landscape:true})}</body></html>`);
 }

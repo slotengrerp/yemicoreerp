@@ -50,7 +50,7 @@ const printSection = (title, contentHtml) => {
       tr:nth-child(even){background:#F3FAF5}
       .header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #1A5C2A;padding-bottom:12px;margin-bottom:16px}
       .company{font-weight:800;font-size:16px;color:#1A5C2A}
-      .meta{font-size:11px;color:#182A1C;margin-top:3px}
+      .meta{font-size:11px;font-weight:600;color:#182A1C;margin-top:3px}
       .report-title{font-size:20px;font-weight:700;color:#1A5C2A;text-align:right}
       .footer{margin-top:24px;padding-top:10px;border-top:1px solid #D4E0D6;font-size:10px;font-weight:600;color:#182A1C;display:flex;justify-content:space-between}
       .amount{text-align:right;font-weight:600}

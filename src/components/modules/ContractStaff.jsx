@@ -151,7 +151,7 @@ function printPayslip(s, period, company) {
     .sigblock{margin-top:34px;text-align:center}
     .sigblock img{height:46px;display:block;margin:0 auto 4px}
     .sigblock .for{font-weight:700;font-size:12px;margin-bottom:18px}
-    .sigblock .label{font-size:11px;margin-top:2px}
+    .sigblock .label{font-size:11px;font-weight:600;color:#182A1C;margin-top:2px}
     .sigblock .date{font-weight:700;font-size:11.5px;margin-top:2px}
     @media print{ body{padding:10px} }
   </style></head><body>

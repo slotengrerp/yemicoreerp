@@ -907,8 +907,8 @@ export function AssetDisposalTab({ state, dispatch, inp }) {
         ${d.isGain ? `Cr Gain on Disposal — ${fmtN(d.gainLoss)}` : `Dr Loss on Disposal — ${fmtN(Math.abs(d.gainLoss))}`}
       </p>
       <div style="margin-top:32px;display:grid;grid-template-columns:1fr 1fr;gap:30px">
-        <div><div style="border-top:1px solid #ccc;padding-top:6px;font-size:10px;color:#182A1C">Prepared By</div></div>
-        <div><div style="border-top:1px solid #ccc;padding-top:6px;font-size:10px;color:#182A1C">Authorised By</div></div>
+        <div><div style="border-top:1px solid #ccc;padding-top:6px;font-size:10px;font-weight:600;color:#182A1C">Prepared By</div></div>
+        <div><div style="border-top:1px solid #ccc;padding-top:6px;font-size:10px;font-weight:600;color:#182A1C">Authorised By</div></div>
       </div>
       ${printBootstrap({landscape:true})}
       </body></html>`);

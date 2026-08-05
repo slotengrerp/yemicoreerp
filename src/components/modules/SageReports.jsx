@@ -372,7 +372,7 @@ function CustomerStatementTab({ state, dispatch, inp }) {
         <tbody>${agingRows}</tbody>
       </table>
     </div>
-    <p style="margin-top:24px;font-size:10px;color:#182A1C;text-align:center">
+    <p style="margin-top:24px;font-size:10px;font-weight:500;color:#182A1C;text-align:center">
       This statement is system-generated. Please reconcile with your records and contact SLOT Engineering Finance within 7 days of any discrepancy.
     </p>
     ${printBootstrap({landscape:true})}
@@ -638,7 +638,7 @@ function SupplierStatementTab({ state, dispatch, inp }) {
       <tbody>${rows}</tbody>
     </table>
     <div class="grand"><span>Total Remitted</span><span>${fmtN(total)}</span></div>
-    <p style="margin-top:24px;font-size:10px;color:#182A1C">Please confirm receipt and reconcile with your records.</p>
+    <p style="margin-top:24px;font-size:10px;font-weight:500;color:#182A1C">Please confirm receipt and reconcile with your records.</p>
     ${printBootstrap({landscape:true})}
     </body></html>`);
   }
@@ -815,17 +815,17 @@ function CreditNotesTab({ state, dispatch, inp }) {
       <div class="row"><span class="lbl">Issued By:</span><span>${esc(cn.postedBy)}</span></div>
     </div>
     <div class="amount-box">
-      <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#182A1C;margin-bottom:6px">Credit Amount</div>
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#182A1C;margin-bottom:6px">Credit Amount</div>
       <div class="amt">${cn.currency === 'NGN' ? '₦' : cn.currency + ' '}${fmtN(cn.amount)}</div>
     </div>
     ${cn.notes ? `<p style="font-size:12px;color:#3A5040;margin-top:14px"><strong>Notes:</strong> ${esc(cn.notes)}</p>` : ''}
-    <p style="margin-top:18px;font-size:11px;color:#182A1C">
+    <p style="margin-top:18px;font-size:11px;font-weight:500;color:#182A1C">
       This credit note reverses the corresponding revenue and Trade Receivables recorded under invoice ${esc(cn.invoiceNo)}.
       ${inv ? `Original invoice total: ${inv.currency === 'NGN' ? '₦' : inv.currency + ' '}${fmtN(inv.netPayable)}.` : ''}
     </p>
     <div style="margin-top:44px;display:grid;grid-template-columns:1fr 1fr;gap:30px">
-      <div><div style="border-top:1px solid #ccc;padding-top:6px;font-size:10px;color:#182A1C">Prepared By / Date</div></div>
-      <div><div style="border-top:1px solid #ccc;padding-top:6px;font-size:10px;color:#182A1C">Authorised Signatory / Date</div></div>
+      <div><div style="border-top:1px solid #ccc;padding-top:6px;font-size:10px;font-weight:600;color:#182A1C">Prepared By / Date</div></div>
+      <div><div style="border-top:1px solid #ccc;padding-top:6px;font-size:10px;font-weight:600;color:#182A1C">Authorised Signatory / Date</div></div>
     </div>
     ${printBootstrap({landscape:true})}
     </body></html>`);
@@ -982,7 +982,7 @@ function VAT201Tab({ state, dispatch, inp }) {
       <tfoot><tr style="font-weight:700;background:#EAF4EC"><td colspan="3" style="text-align:right;padding:7px 9px">Total Input VAT</td><td style="text-align:right;padding:7px 9px">${fmtN(calc.inputVAT)}</td></tr></tfoot>
     </table>
     <div class="grand"><span>VAT Payable to FIRS</span><span>${fmtN(calc.vatPayable)}</span></div>
-    <p style="margin-top:18px;font-size:11px;color:#182A1C">
+    <p style="margin-top:18px;font-size:11px;font-weight:500;color:#182A1C">
       Filed by: SLOT Engineering Nigeria Limited · TIN: 00499389-0001 · VAT Reg No: PHVO500258586<br/>
       Due on or before the 21st of the following month. Negative balance = refund due from FIRS.
     </p>
@@ -1788,13 +1788,13 @@ function BatchPaymentTab({ state, dispatch, inp }) {
           <td style="text-align:right">${fmtN(batch.totalAmount)}</td>
         </tr></tfoot>
       </table>
-      <p style="margin-top:24px;font-size:10px;color:#182A1C">
+      <p style="margin-top:24px;font-size:10px;font-weight:500;color:#182A1C">
         Please effect payment of the above amounts to the respective suppliers. Retain this list as audit evidence of the batch payment run.
       </p>
       <div style="margin-top:32px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:30px">
-        <div><div style="border-top:1px solid #ccc;padding-top:6px;font-size:10px;color:#182A1C">Prepared By</div></div>
-        <div><div style="border-top:1px solid #ccc;padding-top:6px;font-size:10px;color:#182A1C">Approved By</div></div>
-        <div><div style="border-top:1px solid #ccc;padding-top:6px;font-size:10px;color:#182A1C">Bank Officer Stamp</div></div>
+        <div><div style="border-top:1px solid #ccc;padding-top:6px;font-size:10px;font-weight:600;color:#182A1C">Prepared By</div></div>
+        <div><div style="border-top:1px solid #ccc;padding-top:6px;font-size:10px;font-weight:600;color:#182A1C">Approved By</div></div>
+        <div><div style="border-top:1px solid #ccc;padding-top:6px;font-size:10px;font-weight:600;color:#182A1C">Bank Officer Stamp</div></div>
       </div>
       ${printBootstrap({landscape:true})}
       </body></html>`);
@@ -1980,13 +1980,13 @@ function WHTTab({ state, dispatch, inp }) {
         <tfoot><tr><td colspan="5" style="text-align:right">TOTAL WHT DEDUCTED</td><td style="text-align:right">${fmtN(v.totalWht)}</td></tr></tfoot>
       </table>
       <div class="grand"><span>TOTAL WHT DEDUCTED & REMITTED</span><span>${fmtN(v.totalWht)}</span></div>
-      <p style="margin-top:18px;font-size:11px;color:#182A1C">
+      <p style="margin-top:18px;font-size:11px;font-weight:500;color:#182A1C">
         This certificate is issued in accordance with Section 81 of PITA / Section 78 of CITA.
         The deducted amount has been remitted to the relevant tax authority.
       </p>
       <div style="margin-top:44px;display:grid;grid-template-columns:1fr 1fr;gap:30px">
-        <div><div style="border-top:1px solid #ccc;padding-top:6px;font-size:10px;color:#182A1C">Prepared By / Date</div></div>
-        <div><div style="border-top:1px solid #ccc;padding-top:6px;font-size:10px;color:#182A1C">Authorised Signatory / Date</div></div>
+        <div><div style="border-top:1px solid #ccc;padding-top:6px;font-size:10px;font-weight:600;color:#182A1C">Prepared By / Date</div></div>
+        <div><div style="border-top:1px solid #ccc;padding-top:6px;font-size:10px;font-weight:600;color:#182A1C">Authorised Signatory / Date</div></div>
       </div>
       ${printBootstrap({landscape:true})}
       </body></html>`);

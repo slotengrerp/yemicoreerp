@@ -146,6 +146,9 @@ ${styles}
   }
 }
 @media print {
+  /* Force background colours (th, status badges, totals row) to print even
+     when the user has "Background graphics" unchecked in Chrome's print UI. */
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   body > *:not(#__slot_print) { display: none !important; }
   #__slot_print {
     position: static !important; display: block !important;

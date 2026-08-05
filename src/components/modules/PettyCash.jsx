@@ -119,7 +119,7 @@ function printVoucher(v) {
     <div class="row"><div class="label">Requested By</div><div>${v.requestedBy}</div></div>
     <div class="row"><div class="label">Receipt Attached</div><div>${v.receipt ? '✓ Yes' : '✗ No'}</div></div>
     <div class="amount-box">
-      <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#182A1C;margin-bottom:6px">Amount</div>
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#182A1C;margin-bottom:6px">Amount</div>
       <div class="amt">₦${(Number(v.amount)||0).toLocaleString('en-NG', {minimumFractionDigits:2})}</div>
     </div>
     <div class="sig-row">

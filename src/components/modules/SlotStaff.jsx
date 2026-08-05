@@ -53,7 +53,7 @@ function printPayroll(filtered, period) {
     .header{border-bottom:3px solid #1A5C2A;padding-bottom:14px;margin-bottom:20px;display:flex;justify-content:space-between;align-items:flex-end}
     .co{font-size:18px;font-weight:800;color:#1A5C2A}
     .sub{font-size:13px;color:#3A5040;font-weight:600;margin-top:4px}
-    .meta{font-size:11px;color:#182A1C;margin-top:3px}
+    .meta{font-size:11px;font-weight:600;color:#182A1C;margin-top:3px}
     .badge{background:#1A5C2A;color:#fff;padding:6px 16px;border-radius:8px;font-weight:700;font-size:13px}
     table{width:100%;border-collapse:collapse;margin-bottom:16px}
     th{background:#1A5C2A;color:#fff;padding:8px 7px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.4px;white-space:nowrap}
