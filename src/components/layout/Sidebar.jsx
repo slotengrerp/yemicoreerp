@@ -375,9 +375,10 @@ function NavContent({
           here from the sidebar header 2026-08-05: this is reference detail
           that is needed occasionally, so it sits at the very bottom where it
           is always reachable but never competes with the navigation.
-          The copyright / licensor line belongs here too once ownership of the
-          codebase is settled — see the IP assignment clause in the SLOT
-          contract before adding it. */}
+          "Built by" is a credit line, NOT a copyright notice — it is accurate
+          whether or not the SLOT contract assigned IP in the codebase to the
+          client. Only upgrade it to "© Mollernik Global Services" once that
+          IP assignment clause has been checked and confirmed. */}
       {!collapsed && (
         <div
           title="Build currently running in your browser — if this doesn't change after a deploy, you're on a cached bundle"
@@ -393,6 +394,7 @@ function NavContent({
         >
           <div>SLOT ERP v3.0</div>
           <div style={{ fontFamily:'monospace' }}>build {BUILD_ID}</div>
+          <div style={{ marginTop:3, color:'rgba(255,255,255,0.38)' }}>Built by Mollernik Global Services</div>
         </div>
       )}
     </>
