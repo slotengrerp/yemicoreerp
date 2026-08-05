@@ -102,10 +102,15 @@ export const PRINT_CSS = `
 // THREE LAYERS, so a print always reaches the user:
 //   1. a visible toolbar with Print and Close buttons — .no-print keeps it off
 //      the paper. Even if every automatic trigger fails, there is a button.
-//   2. requestAnimationFrame + a short delay before printing, so images (the
-//      SLOT logo especially) have laid out — printing too early produces a
-//      sheet with a blank header.
-//   3. document.readyState is checked instead of trusting onload.
+//   2. plain timers — never requestAnimationFrame. rAF does not fire in a
+//      window that is not being painted (a popup opening behind the main
+//      window), which stalled the first version of this fix entirely. A short
+//      delay still runs first so images — the SLOT logo especially — have laid
+//      out; printing instantly yields a sheet with a blank header.
+//   3. document.readyState is checked instead of trusting onload, and an
+//      unconditional timer fires even if 'load' never arrives. Every trigger
+//      calls doPrint() directly, and the "already printed" guard sits on that
+//      function — so no trigger can consume the flag and leave the others dead.
 //
 // @param {object} opts
 //   landscape — wide tables (10+ columns) are unreadable on portrait A4
@@ -132,17 +137,29 @@ export function printBootstrap({ landscape = false } = {}) {
   </div>
   <script>
     (function () {
-      var fired = false;
-      function go() {
-        if (fired) return; fired = true;
-        // Two frames then a beat: lets the logo image and table layout settle.
-        requestAnimationFrame(function () {
-          requestAnimationFrame(function () { setTimeout(function () { window.print(); }, 250); });
-        });
+      // 2026-08-04, second pass. The first version waited on
+      // requestAnimationFrame before printing. rAF does not fire in a window
+      // that is not being painted — a popup that opens behind the main
+      // window, or on a minimised/background tab — so the chain stalled and
+      // no dialog ever appeared. Worse, the 1.2s fallback called the same
+      // entry point, which had already flipped its "started" flag and
+      // returned immediately: the safety net was attached to the wrong end.
+      //
+      // Now the guard sits on the PRINT ITSELF, every trigger calls it
+      // directly, and there is no rAF anywhere. A plain timer runs whether or
+      // not the window is painted.
+      var printed = false;
+      function doPrint() {
+        if (printed) return;
+        printed = true;
+        try { window.focus(); } catch (e) {}   // bring a background popup forward
+        window.print();
       }
-      if (document.readyState === 'complete') go();
-      else window.addEventListener('load', go);
-      setTimeout(go, 1200);   // last resort if load never arrives
+      // Small delay lets the logo and table lay out; printing instantly can
+      // produce a sheet with a blank header.
+      if (document.readyState === 'complete') setTimeout(doPrint, 300);
+      else window.addEventListener('load', function () { setTimeout(doPrint, 300); });
+      setTimeout(doPrint, 1500);   // fires even if 'load' never arrives
     })();
   <\/script>`;
 }

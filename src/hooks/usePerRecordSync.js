@@ -474,18 +474,79 @@ export async function pushAll(db) {
 // changed — added or edited records via pushOne, removed records via
 // pushDelete — never the whole list. Fire-and-forget, same contract as
 // pushOne/pushDelete (never throws/rejects; resolves quietly on failure).
-export function diffAndPush(table, prevList, nextList) {
-  if (!USE_PER_RECORD || !supabaseReady) return;
+// ── How this used to lose data ───────────────────────────────────────────────
+// 2026-08-04: this fired pushOne() inside a plain for-loop and never awaited
+// it. One edit means one request, so nobody noticed. A bulk import means
+// N requests launched in the same tick — importing 1,139 terminal containers
+// opened 1,139 simultaneous connections. The browser and PostgREST shed the
+// excess, and because every returned promise was dropped unread, each failure
+// was silent: no error, no toast, no console warning. 578 of 1,139 rows
+// arrived and the app reported complete success.
+//
+// Now: a bounded worker pool, one retry per record, and a tally the caller
+// can await. Awaiting is optional — the 40+ existing single-record callers
+// still work unchanged — but a failure can no longer pass unnoticed, because
+// anything still failing after its retry is reported loudly to the console
+// and returned in `failed`.
+const PUSH_CONCURRENCY = 5;
+
+async function runPool(items, worker, concurrency = PUSH_CONCURRENCY) {
+  const queue = [...items];
+  const failures = [];
+  const runners = Array.from({ length: Math.min(concurrency, queue.length) }, async () => {
+    while (queue.length) {
+      const item = queue.shift();
+      try {
+        const res = await worker(item);
+        // saveRecord resolves {ok:false} on a handled error rather than throwing.
+        if (res && res.ok === false) throw new Error(res.error || res.reason || 'push rejected');
+      } catch (first) {
+        try {
+          await new Promise(r => setTimeout(r, 400));   // brief backoff, then one retry
+          const res = await worker(item);
+          if (res && res.ok === false) throw new Error(res.error || res.reason || 'push rejected');
+        } catch (second) {
+          failures.push({ item, error: second?.message || String(second) });
+        }
+      }
+    }
+  });
+  await Promise.all(runners);
+  return failures;
+}
+
+export async function diffAndPush(table, prevList, nextList) {
+  if (!USE_PER_RECORD || !supabaseReady) return { ok: false, pushed: 0, failed: 0, reason: 'per-record-sync-disabled' };
+
   const prevById = new Map((prevList || []).filter(Boolean).map(r => [r.id, r]));
   const next = (nextList || []).filter(Boolean);
   const nextIds = new Set(next.map(r => r.id));
-  for (const rec of next) {
+
+  const changed = next.filter(rec => {
     const prev = prevById.get(rec.id);
-    if (!prev || JSON.stringify(prev) !== JSON.stringify(rec)) pushOne(table, rec);
+    return !prev || JSON.stringify(prev) !== JSON.stringify(rec);
+  });
+  const removed = [...prevById.keys()].filter(id => !nextIds.has(id));
+
+  const writeFails = await runPool(changed, rec => pushOne(table, rec));
+  const delFails   = await runPool(removed, id  => pushDelete(table, id));
+  const failed = writeFails.length + delFails.length;
+
+  if (failed) {
+    console.error(
+      `[SLOT ERP] ${failed} of ${changed.length + removed.length} "${table}" record(s) failed to save to the cloud after a retry.`,
+      writeFails.concat(delFails).slice(0, 10)
+    );
   }
-  for (const id of prevById.keys()) {
-    if (!nextIds.has(id)) pushDelete(table, id);
-  }
+
+  return {
+    ok: failed === 0,
+    table,
+    pushed: changed.length - writeFails.length,
+    deleted: removed.length - delFails.length,
+    failed,
+    failures: writeFails.concat(delFails),
+  };
 }
 
 export async function pushSettings(settings) {

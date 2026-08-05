@@ -315,8 +315,21 @@ export default function ExcelManager() {
       const existingContainers = db.terminal?.containers || [];
       const mergedContainers = [...existingContainers, ...normalised];
 
-      diffAndPush('terminalBols', existingBols, mergedBols);
-      diffAndPush('terminalContainers', existingContainers, mergedContainers);
+      // Await both pushes and REPORT any that failed. Previously these were
+      // fire-and-forget, so an import that only half-reached the database
+      // still showed a success toast — the user had no way to know. See
+      // diffAndPush for the concurrency bug that caused it.
+      Promise.all([
+        diffAndPush('terminalBols', existingBols, mergedBols),
+        diffAndPush('terminalContainers', existingContainers, mergedContainers),
+      ]).then(([b, c]) => {
+        const failed = (b?.failed || 0) + (c?.failed || 0);
+        if (failed > 0) {
+          showToast(`⚠ ${failed} record(s) could not be saved to the cloud and exist only on this device. Re-import the file to retry — duplicates will be skipped automatically.`, 'error');
+        } else {
+          showToast(`☁ All ${normalised.length} containers and ${newBols.length} bills of lading saved to the cloud`);
+        }
+      });
 
       const importData = { ...db.terminal, bols: mergedBols, containers: mergedContainers };
       dispatch({ type:'UPDATE_MODULE', mod:'terminal', data: importData });
