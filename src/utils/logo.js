@@ -151,23 +151,43 @@ export function openPrintWindow(html) {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
+  // ── Print/close logic lives HERE, in the parent app's bundled JS, not as
+  //    inline <script>/onclick inside the blob document. The blob inherits
+  //    this page's CSP (script-src 'self'), so inline handlers placed inside
+  //    the frame's own HTML would be silently blocked. Code running here is
+  //    part of the app bundle and is always allowed.
+  //
+  //    Same three-layer guarantee as before, just relocated:
+  //      1. the toolbar's Print/Close buttons, wired via addEventListener
+  //      2. a timer shortly after the frame loads (lets the logo/table lay
+  //         out — printing instantly can produce a sheet with a blank header)
+  //      3. an unconditional fallback timer that fires even if 'load' never
+  //         arrives on the iframe
+  let printed = false;
+  function doPrint() {
+    if (printed) return;
+    printed = true;
+    try { frame.contentWindow.focus(); } catch (e) {}
+    try { frame.contentWindow.print(); } catch (e) {}
+  }
+
   frame.onload = () => {
     try {
       const cdoc = frame.contentDocument;
-      // The printBootstrap toolbar's Close button calls window.close(), which a
-      // framed document cannot do. Re-point it at cleanup() so it dismisses the
-      // overlay. (The Print button's window.print() already works: inside the
-      // iframe, `window` is the frame, so it prints just this document.)
+      const goBtn = cdoc && cdoc.querySelector('.print-toolbar .go');
       const closeBtn = cdoc && cdoc.querySelector('.print-toolbar .close');
-      if (closeBtn) closeBtn.onclick = (e) => { e.preventDefault(); cleanup(); };
+      if (goBtn) goBtn.addEventListener('click', (e) => { e.preventDefault(); doPrint(); });
+      if (closeBtn) closeBtn.addEventListener('click', (e) => { e.preventDefault(); cleanup(); });
       // Bring keyboard/print focus into the frame so the auto-print dialog and
       // the buttons respond immediately.
       frame.contentWindow.focus();
     } catch (e) { /* same-origin blob: should never throw, but never block UI */ }
+    setTimeout(doPrint, 300);
   };
+  setTimeout(doPrint, 1500);   // fires even if the iframe's 'load' never arrives
 
   document.body.appendChild(frame);
-  return frame;
+  return { frame, close: cleanup };
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -224,34 +244,22 @@ export function printBootstrap({ landscape = false } = {}) {
   </style>
   <div class="print-toolbar no-print">
     <span>Use your browser's print dialog to change paper size, orientation or save as PDF.</span>
-    <button class="go" onclick="window.print()">🖨 Print</button>
-    <button class="close" onclick="window.close()">Close</button>
-  </div>
-  <script>
-    (function () {
-      // 2026-08-04, second pass. The first version waited on
-      // requestAnimationFrame before printing. rAF does not fire in a window
-      // that is not being painted — a popup that opens behind the main
-      // window, or on a minimised/background tab — so the chain stalled and
-      // no dialog ever appeared. Worse, the 1.2s fallback called the same
-      // entry point, which had already flipped its "started" flag and
-      // returned immediately: the safety net was attached to the wrong end.
-      //
-      // Now the guard sits on the PRINT ITSELF, every trigger calls it
-      // directly, and there is no rAF anywhere. A plain timer runs whether or
-      // not the window is painted.
-      var printed = false;
-      function doPrint() {
-        if (printed) return;
-        printed = true;
-        try { window.focus(); } catch (e) {}   // bring a background popup forward
-        window.print();
-      }
-      // Small delay lets the logo and table lay out; printing instantly can
-      // produce a sheet with a blank header.
-      if (document.readyState === 'complete') setTimeout(doPrint, 300);
-      else window.addEventListener('load', function () { setTimeout(doPrint, 300); });
-      setTimeout(doPrint, 1500);   // fires even if 'load' never arrives
-    })();
-  <\/script>`;
+    <button class="go" type="button">🖨 Print</button>
+    <button class="close" type="button">Close</button>
+  </div>`;
+  // 2026-08-05, third pass. Deliberately NO inline <script> and NO onclick=""
+  // attributes in this markup any more.
+  //
+  // openPrintWindow (below) now renders this into an iframe whose src is a
+  // blob: URL. Chrome has a blob: document inherit the CSP of the page that
+  // created it — so with `script-src 'self'` and no 'unsafe-inline' set in
+  // firebase.json, any inline script or inline event handler placed in THIS
+  // string is silently blocked. The frame itself still loads fine (that's a
+  // separate directive, frame-src) but the auto-print timer never runs and
+  // the toolbar buttons do nothing when clicked — a new, quieter version of
+  // the original "print does nothing" bug.
+  //
+  // All print/close behaviour now lives in openPrintWindow's frame.onload,
+  // which runs as part of the app's own bundled JS (script-src 'self') and
+  // is therefore never blocked, regardless of how strict the CSP gets.
 }

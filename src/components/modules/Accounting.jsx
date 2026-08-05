@@ -11,7 +11,7 @@ import { periodOf, isPeriodClosed, isYearClosed } from "../../utils/periods";
 import { mergeCOA } from "../../utils/chartOfAccounts";
 import { FG } from "../ui";
 import { diffAndPush } from "../../hooks/usePerRecordSync";
-import { printBootstrap, openPrintWindow } from '../../utils/logo';
+import { printHeader, PRINT_CSS, printBootstrap, openPrintWindow } from '../../utils/logo';
 
 // ════════════════════════════════════════════════════════════════════
 // SLOT ENGINEERING — ACCOUNTING MODULE v3.0
@@ -2862,6 +2862,7 @@ export default function Accounting({data,setData}){
 
   const saved = loadAcct();
   const [tab,setTab]=useState(() => getDeepLinkTab('accounting', 'overview'));
+  const printAreaRef = useRef(null);
   const [journals,setJournals]=useState(saved?.journals || []);
   // 2026-07-28: was `saved?.coa || DEFAULT_COA`, which froze the chart of
   // accounts into each browser on first run and never refreshed it — two users
@@ -3205,6 +3206,30 @@ export default function Accounting({data,setData}){
     {id:"import",     label:"📂 Import / Upload"},
   ];
 
+  // ── Print the currently visible tab ─────────────────────────────────────
+  // 2026-08-05: this used to be a bare window.print() on the live app
+  // window — printed the dark sidebar/theme along with whatever tab was
+  // open, with no SLOT letterhead and no clean table styling (the "black
+  // print" problem, same one openPrintWindow's iframe design exists to
+  // avoid). Every other print button in the app goes through
+  // openPrintWindow + printBootstrap; this one didn't. Fixed to match:
+  // snapshot the rendered tab content, drop it into the same branded
+  // PRINT_CSS/printHeader chrome as every other report, and print it via
+  // the CSP-safe iframe path instead of printing the live page.
+  function handlePrintCurrentTab() {
+    const node = printAreaRef.current;
+    if (!node) return;
+    // Clone rather than touch the live DOM, and drop action buttons (Edit/
+    // Delete/expand icons etc.) — those are on-screen controls with nothing
+    // to do on a printed page. Inputs/selects are deliberately left alone:
+    // some tabs render live figures through them, and removing the element
+    // would silently blank that figure out of the printout.
+    const clone = node.cloneNode(true);
+    clone.querySelectorAll('button').forEach(el => el.remove());
+    const tabLabel = (TABS.find(t => t.id === tab)?.label || 'Accounting').replace(/^\S+\s/, '');
+    openPrintWindow(`<!DOCTYPE html><html><head><title>${tabLabel}</title><style>${PRINT_CSS}</style></head><body>${printHeader(tabLabel.toUpperCase())}${clone.innerHTML}${printBootstrap({landscape:true})}</body></html>`);
+  }
+
   return(
     <div style={{display:"flex",flexDirection:"column",gap:0}}>
       {/* Header */}
@@ -3223,7 +3248,7 @@ export default function Accounting({data,setData}){
               showToast('📊 Sage Intelligence template downloaded — open in Excel and click Refresh All to re-pull live data');
             } catch (e) { showToast('Download failed: ' + e.message, 'error'); }
           }} style={{background:"#1A5C2A",color:"#FFFFFF",border:"none",borderRadius:8,padding:"5px 12px",fontSize:12,cursor:"pointer",fontWeight:600}}>📊 Sage Intelligence Template</button>
-          <button style={{background:"transparent",color:"#FFFFFF",border:"1px solid rgba(255,255,255,0.3)",borderRadius:8,padding:"5px 12px",fontSize:12,cursor:"pointer"}} onClick={()=>window.print()}>🖨️ Print</button>
+          <button style={{background:"transparent",color:"#FFFFFF",border:"1px solid rgba(255,255,255,0.3)",borderRadius:8,padding:"5px 12px",fontSize:12,cursor:"pointer"}} onClick={handlePrintCurrentTab}>🖨️ Print</button>
         </div>
       </div>
 
@@ -3231,6 +3256,7 @@ export default function Accounting({data,setData}){
       <Tabs tabs={TABS} active={tab} onChange={setTab} sm/>
 
       {/* Panels */}
+      <div ref={printAreaRef}>
       {tab==="overview"    && <OverviewTab journals={journals} coa={coa} bankStmt={bankStmt} setTab={setTab} isAdmin={isAdmin}/>}
       {tab==="coa"         && <COATab coa={coa} setCoa={setCoa} journals={journals} isAdmin={isAdmin}/>}
       {tab==="journal"     && <JournalTab journals={journals} setJournals={setJournals} coa={coa} filter={jFilter} setFilter={setJFilter} sourceFilter={jSource} setSourceFilter={setJSource}/>}
@@ -3245,6 +3271,7 @@ export default function Accounting({data,setData}){
       {tab==="fixedassets" && <FixedAssetsTab assets={assets} setAssets={setAssets}/>}
       {tab==="wht"         && <WHTTab whtEntries={whtEntries} setWhtEntries={setWhtEntries}/>}
       {tab==="import"      && <ImportTab setCoa={setCoa} setJournals={setJournals}/>}
+      </div>
     </div>
   );
 }

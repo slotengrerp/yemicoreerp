@@ -650,8 +650,8 @@ function WaybillModal({ wb, po, onSave, onClose, onCreateInvoice, allWaybills = 
         <div><div class="sig">Received By / Date</div></div>
         <div><div class="sig">Store / Warehouse Officer / Date</div></div>
       </div>
+      ${printBootstrap({ landscape: false })}
     </body></html>`);
-    setTimeout(() => w2.print(), 400);
   }
 
   return (
