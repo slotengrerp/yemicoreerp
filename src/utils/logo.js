@@ -79,117 +79,95 @@ export const PRINT_CSS = `
 `;
 
 // ══════════════════════════════════════════════════════════════════════════════
-// openPrintWindow — renders print content in an overlay on the current window
+// openPrintWindow — renders print content in a full-screen iframe (blob URL)
 // ══════════════════════════════════════════════════════════════════════════════
 //
-// WHY OVERLAY INSTEAD OF A POPUP WINDOW
-//
-// Three attempts at popup-based printing all hit the same wall:
+// FOUR attempts got us here. Each fixed the previous one's failure but exposed
+// the next. This is the combination that satisfies every constraint at once.
 //
 //   Attempt 1  document.write on about:blank
-//     Chrome treats dynamically written about:blank as a "null origin" in
-//     certain contexts; inline onclick handlers and window.print() are silently
-//     blocked — buttons render but do nothing.
+//     Chrome treats dynamically written about:blank as a "null origin"; inline
+//     onclick handlers and window.print() are silently blocked.
 //
-//   Attempt 2  blob: URL popup
-//     A blob: URL IS a real same-origin document so script runs fine, but
-//     Chrome's focus-stealing prevention means window.open() typically opens
-//     the popup *behind* the main window. The user cannot see it. Clicking
-//     what looks like the Print button actually clicks the main app. The popup's
-//     window.focus() call is blocked by the same policy, so the popup never
-//     comes to the front.
+//   Attempt 2  blob: URL popup (window.open)
+//     A blob: URL IS a real same-origin document, so buttons and print work AND
+//     charset=utf-8 renders ₦ / — / · / 🖨 correctly. BUT Chrome's focus-
+//     stealing prevention opens the popup *behind* the main window; the user
+//     cannot see it and clicks the app underneath instead.
 //
-//   Solution   full-screen overlay in the current window
-//     • No popup → no popup blocker, no focus issues, no null-origin sandboxing.
-//     • window.print() fires on the main window → always works from a click.
-//     • @media print CSS hides everything except the overlay so the correct
-//       content is printed; the overlay is then removed by afterprint or Close.
+//   Attempt 3  DOM overlay (DOMParser + innerHTML in the current document)
+//     No popup, buttons visible — but two regressions:
+//       • MOJIBAKE returned. The overlay reuses the in-page document's decoding
+//         instead of a blob's authoritative charset=utf-8, so ₦/—/·/🖨 broke.
+//       • BLACK PRINT. window.print() printed the whole page; the app's dark
+//         theme background bled onto the paper behind the (dark) text.
 //
-// Usage (same call sites as before — no module changes needed):
+//   Attempt 4 (this one)  full-screen IFRAME whose src is the blob: URL
+//     • blob: + charset=utf-8  → encoding is correct (Attempt 2's win, kept).
+//     • it's an <iframe> in the CURRENT window, not a popup → always visible,
+//       no popup blocker, no focus-stealing (Attempt 3's win, kept).
+//     • it's a real same-origin document → the toolbar's Print button and the
+//       printBootstrap auto-print script run normally (Attempt 1 fixed).
+//     • printing is scoped to the iframe's own white document → the app's dark
+//       background can never reach the paper (Attempt 3's black-print fixed).
+//
+// Usage (unchanged at all 40 call sites):
 //   openPrintWindow(`<!DOCTYPE html><html>...${ printBootstrap() }...</html>`);
 //
 // ══════════════════════════════════════════════════════════════════════════════
 export function openPrintWindow(html) {
-  // ── Parse via DOMParser so the browser handles charset, entities and nested
-  //    markup without the regex fragility of manual string manipulation.
-  const withMeta = /<meta\s[^>]*charset/i.test(html)
-    ? html
-    : html.replace(/(<head[^>]*>)/i, '$1<meta charset="utf-8">');
-  const parsed = new DOMParser().parseFromString(withMeta, 'text/html');
-
-  // ── Collect all <style> blocks from the document — includes printBootstrap
-  //    styles, PRINT_CSS, module-specific table/cell styles, @page declarations.
-  const styles = [...parsed.querySelectorAll('style')]
-    .map(s => s.textContent).join('\n');
-
-  // ── Build an overlay that fills the viewport over the app.
-  //    innerHTML is used deliberately: scripts injected via innerHTML are NOT
-  //    executed by the browser, so the printBootstrap auto-print timer does not
-  //    fire from here — we control the timing ourselves below.
-  const overlay = document.createElement('div');
-  overlay.id = '__slot_print';
-  overlay.innerHTML = parsed.body.innerHTML;
-
-  // ── Combined <style>:
-  //    • all styles from the document (scoped naturally by the overlay's DOM),
-  //    • on screen: overlay covers the viewport,
-  //    • on paper: only the overlay prints; everything else is hidden.
-  const styleEl = document.createElement('style');
-  styleEl.id = '__slot_print_css';
-  styleEl.textContent = `
-${styles}
-@media screen {
-  /* ── Overlay: covers the full viewport ──────────────────────────────────── */
-  #__slot_print {
-    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-    z-index: 2147483647;
-    background: #fff; overflow: auto;
-    font-family: 'Segoe UI', Arial, sans-serif;
+  // ── Inject <meta charset="utf-8"> (belt-and-suspenders; the blob MIME type
+  //    below is the authoritative declaration) and a print-color-adjust rule so
+  //    table-header / totals-row background colours print even when the user has
+  //    Chrome's "Background graphics" option unchecked.
+  let doc = html;
+  if (!/<meta\s[^>]*charset/i.test(doc)) {
+    doc = doc.replace(/(<head[^>]*>)/i, '$1<meta charset="utf-8">');
   }
-  /* ── Toolbar: the printBootstrap toolbar uses position:fixed;z-index:9999,
-        which puts it in the ROOT stacking context at level 9999 — behind the
-        overlay at level 2147483647. Override to sticky so it lives inside the
-        overlay's own stacking context and sticks at the top as the user scrolls. */
-  #__slot_print .print-toolbar {
-    position: sticky !important;
-    top: 0 !important;
-    z-index: 10 !important;  /* only needs to beat siblings inside the overlay */
-  }
-}
-@media print {
-  /* Force background colours (th, status badges, totals row) to print even
-     when the user has "Background graphics" unchecked in Chrome's print UI. */
-  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  body > *:not(#__slot_print) { display: none !important; }
-  #__slot_print {
-    position: static !important; display: block !important;
-    padding: 0 !important; overflow: visible !important;
-  }
-}`;
+  doc = doc.replace(
+    /(<head[^>]*>)/i,
+    '$1<style>*{-webkit-print-color-adjust:exact;print-color-adjust:exact}</style>'
+  );
 
-  // ── Cleanup: remove the overlay and its styles.
-  //    Called by: (a) afterprint event, (b) the Close button.
+  // ── The blob: URL is a real, same-origin document decoded as UTF-8. This is
+  //    the piece that renders ₦ — · 🖨 correctly (proven in production).
+  const blob = new Blob([doc], { type: 'text/html;charset=utf-8' });
+  const url  = URL.createObjectURL(blob);
+
+  // ── A full-screen iframe in the CURRENT window — not a popup. Always visible,
+  //    never blocked, never opens behind. background:#fff so nothing shows
+  //    through while it loads.
+  const frame = document.createElement('iframe');
+  frame.id = '__slot_print_frame';
+  frame.setAttribute('title', 'Print preview');
+  frame.style.cssText =
+    'position:fixed;top:0;left:0;width:100vw;height:100vh;border:0;margin:0;' +
+    'z-index:2147483647;background:#fff';
+  frame.src = url;
+
+  // ── Cleanup: remove the iframe and free the blob.
   function cleanup() {
-    document.getElementById('__slot_print')?.remove();
-    document.getElementById('__slot_print_css')?.remove();
-    window.removeEventListener('afterprint', cleanup);
+    document.getElementById('__slot_print_frame')?.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
-  // ── Re-wire toolbar buttons. The inline onclick attributes parsed from the
-  //    HTML string reference a popup's window.print() / window.close() — those
-  //    are overridden here to target the correct main-window context.
-  const goBtn    = overlay.querySelector('.print-toolbar .go');
-  const closeBtn = overlay.querySelector('.print-toolbar .close');
-  if (goBtn)    goBtn.onclick    = () => window.print();
-  if (closeBtn) closeBtn.onclick = cleanup;
+  frame.onload = () => {
+    try {
+      const cdoc = frame.contentDocument;
+      // The printBootstrap toolbar's Close button calls window.close(), which a
+      // framed document cannot do. Re-point it at cleanup() so it dismisses the
+      // overlay. (The Print button's window.print() already works: inside the
+      // iframe, `window` is the frame, so it prints just this document.)
+      const closeBtn = cdoc && cdoc.querySelector('.print-toolbar .close');
+      if (closeBtn) closeBtn.onclick = (e) => { e.preventDefault(); cleanup(); };
+      // Bring keyboard/print focus into the frame so the auto-print dialog and
+      // the buttons respond immediately.
+      frame.contentWindow.focus();
+    } catch (e) { /* same-origin blob: should never throw, but never block UI */ }
+  };
 
-  window.addEventListener('afterprint', cleanup);
-
-  // ── Mount, then trigger print after a short delay so images (SLOT logo
-  //    especially) finish laying out — printing instantly yields a blank header.
-  document.head.appendChild(styleEl);
-  document.body.appendChild(overlay);
-  setTimeout(() => window.print(), 300);
+  document.body.appendChild(frame);
+  return frame;
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
