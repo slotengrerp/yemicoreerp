@@ -79,42 +79,103 @@ export const PRINT_CSS = `
 `;
 
 // ══════════════════════════════════════════════════════════════════════════════
-// openPrintWindow — the correct way to open a generated print popup
+// openPrintWindow — renders print content in an overlay on the current window
 // ══════════════════════════════════════════════════════════════════════════════
 //
-// WHY BLOB URL INSTEAD OF document.write ON about:blank
+// WHY OVERLAY INSTEAD OF A POPUP WINDOW
 //
-// Every print in this app used:
-//   const w = window.open('', '_blank');
-//   w.document.write(html);
-//   w.document.close();
+// Three attempts at popup-based printing all hit the same wall:
 //
-// Chrome treats the resulting about:blank document as a "null origin" in
-// certain execution contexts. That silently blocks:
-//   • inline onclick="window.print()" handlers — buttons render but do nothing
-//   • window.print() called from script — no dialog, no error
+//   Attempt 1  document.write on about:blank
+//     Chrome treats dynamically written about:blank as a "null origin" in
+//     certain contexts; inline onclick handlers and window.print() are silently
+//     blocked — buttons render but do nothing.
 //
-// A blob: URL is loaded as a real same-origin document. Scripts, inline event
-// handlers, and window.print() all execute without restriction.
+//   Attempt 2  blob: URL popup
+//     A blob: URL IS a real same-origin document so script runs fine, but
+//     Chrome's focus-stealing prevention means window.open() typically opens
+//     the popup *behind* the main window. The user cannot see it. Clicking
+//     what looks like the Print button actually clicks the main app. The popup's
+//     window.focus() call is blocked by the same policy, so the popup never
+//     comes to the front.
 //
-// Usage (replaces the 3-line pattern everywhere):
+//   Solution   full-screen overlay in the current window
+//     • No popup → no popup blocker, no focus issues, no null-origin sandboxing.
+//     • window.print() fires on the main window → always works from a click.
+//     • @media print CSS hides everything except the overlay so the correct
+//       content is printed; the overlay is then removed by afterprint or Close.
+//
+// Usage (same call sites as before — no module changes needed):
 //   openPrintWindow(`<!DOCTYPE html><html>...${ printBootstrap() }...</html>`);
 //
 // ══════════════════════════════════════════════════════════════════════════════
 export function openPrintWindow(html) {
-  // Inject <meta charset="utf-8"> if not already present — without it, browsers
-  // may default to ISO-8859-1 and display ₦ as â,¬, — as â€", · as Â·, etc.
+  // ── Parse via DOMParser so the browser handles charset, entities and nested
+  //    markup without the regex fragility of manual string manipulation.
   const withMeta = /<meta\s[^>]*charset/i.test(html)
     ? html
     : html.replace(/(<head[^>]*>)/i, '$1<meta charset="utf-8">');
-  // The charset in the Blob MIME type is the authoritative declaration;
-  // the meta tag above is a belt-and-suspenders fallback.
-  const blob = new Blob([withMeta], { type: 'text/html;charset=utf-8' });
-  const url  = URL.createObjectURL(blob);
-  const w    = window.open(url, '_blank');
-  // Revoke after 60 s — long enough for the window to fully load and print
-  setTimeout(() => URL.revokeObjectURL(url), 60_000);
-  return w;
+  const parsed = new DOMParser().parseFromString(withMeta, 'text/html');
+
+  // ── Collect all <style> blocks from the document — includes printBootstrap
+  //    styles, PRINT_CSS, module-specific table/cell styles, @page declarations.
+  const styles = [...parsed.querySelectorAll('style')]
+    .map(s => s.textContent).join('\n');
+
+  // ── Build an overlay that fills the viewport over the app.
+  //    innerHTML is used deliberately: scripts injected via innerHTML are NOT
+  //    executed by the browser, so the printBootstrap auto-print timer does not
+  //    fire from here — we control the timing ourselves below.
+  const overlay = document.createElement('div');
+  overlay.id = '__slot_print';
+  overlay.innerHTML = parsed.body.innerHTML;
+
+  // ── Combined <style>:
+  //    • all styles from the document (scoped naturally by the overlay's DOM),
+  //    • on screen: overlay covers the viewport,
+  //    • on paper: only the overlay prints; everything else is hidden.
+  const styleEl = document.createElement('style');
+  styleEl.id = '__slot_print_css';
+  styleEl.textContent = `
+${styles}
+@media screen {
+  #__slot_print {
+    position: fixed; inset: 0; z-index: 2147483647;
+    background: #fff; overflow: auto;
+    font-family: 'Segoe UI', Arial, sans-serif;
+  }
+}
+@media print {
+  body > *:not(#__slot_print) { display: none !important; }
+  #__slot_print {
+    position: static !important; display: block !important;
+    padding: 0 !important; overflow: visible !important;
+  }
+}`;
+
+  // ── Cleanup: remove the overlay and its styles.
+  //    Called by: (a) afterprint event, (b) the Close button.
+  function cleanup() {
+    document.getElementById('__slot_print')?.remove();
+    document.getElementById('__slot_print_css')?.remove();
+    window.removeEventListener('afterprint', cleanup);
+  }
+
+  // ── Re-wire toolbar buttons. The inline onclick attributes parsed from the
+  //    HTML string reference a popup's window.print() / window.close() — those
+  //    are overridden here to target the correct main-window context.
+  const goBtn    = overlay.querySelector('.print-toolbar .go');
+  const closeBtn = overlay.querySelector('.print-toolbar .close');
+  if (goBtn)    goBtn.onclick    = () => window.print();
+  if (closeBtn) closeBtn.onclick = cleanup;
+
+  window.addEventListener('afterprint', cleanup);
+
+  // ── Mount, then trigger print after a short delay so images (SLOT logo
+  //    especially) finish laying out — printing instantly yields a blank header.
+  document.head.appendChild(styleEl);
+  document.body.appendChild(overlay);
+  setTimeout(() => window.print(), 300);
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
