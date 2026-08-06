@@ -112,10 +112,31 @@ function loadProc() {
 // ── ID / Number generators ─────────────────────────────────────────────────
 const uid  = () => Math.random().toString(36).slice(2, 9);
 const year = () => new Date().getFullYear();
+// 2026-08-05 — THE BUG THIS REPLACES
+//
+// The old version stripped every non-digit from the whole number before
+// parsing, so the year was swallowed into the sequence and each new document
+// grew by four digits:
+//
+//   "SINV-2026-0001"        → "20260001"         → next 20260002
+//   "SINV-2026-20260002"    → "202620260002"     → next 202620260003
+//   "SINV-2026-202620260003" → …                 → and so on, forever
+//
+// It hit every document type — RFQ, PO, Waybill and Invoice all call this.
+//
+// Now only the trailing sequence is read, and only from documents issued
+// under THIS prefix and THIS year. The 1–5 digit bound is what makes the
+// counter self-healing: the malformed legacy numbers are 8+ digits, so they
+// no longer match and can't drag the sequence up again. Numbers already
+// issued are left untouched — anything a customer has seen still stands.
 function nextNo(prefix, list, field) {
-  const nums = list.map(x => parseInt((x[field] || '0').replace(/\D/g, ''), 10)).filter(Boolean);
+  const y = year();
+  const re = new RegExp('^' + prefix + '-' + y + '-(\\d{1,5})$');
+  const nums = list
+    .map(x => { const m = re.exec(String(x[field] || '')); return m ? parseInt(m[1], 10) : 0; })
+    .filter(Boolean);
   const next = nums.length ? Math.max(...nums) + 1 : 1;
-  return `${prefix}-${year()}-${String(next).padStart(4, '0')}`;
+  return `${prefix}-${y}-${String(next).padStart(4, '0')}`;
 }
 
 // ── Quantity calculators ───────────────────────────────────────────────────
@@ -374,7 +395,7 @@ function RFQModal({ rfq, onSave, onClose, onCreatePO }) {
 }
 
 // ── PO Create/View Modal ───────────────────────────────────────────────────
-function POModal({ po, rfq, poType, onSave, onClose, onCreateWaybill, onViewWaybill, onCreateInvoice, waybills, invoices, currentUser, appSettings }) {
+function POModal({ po, rfq, poType, onSave, onClose, onCreateWaybill, onViewWaybill, onCreateInvoice, onViewInvoice, waybills, invoices, currentUser, appSettings }) {
   const { C } = useTheme();
   const S = useStyles();
   const isView = !!po?.id;
@@ -582,7 +603,7 @@ function POModal({ po, rfq, poType, onSave, onClose, onCreateWaybill, onViewWayb
                 <LinkedBadge key={wb.id} label={'🚚 ' + wb.waybillNo + ' (' + wb.status + ')'} color={C.info} onClick={() => onViewWaybill(wb)} />
               ))}
               {linkedInvoices.map(inv => (
-                <LinkedBadge key={inv.id} label={'🧾 ' + inv.invoiceNo + ' (' + inv.status + ')'} color={C.amber} />
+                <LinkedBadge key={inv.id} label={'🧾 ' + inv.invoiceNo + ' (' + inv.status + ')'} color={C.amber} onClick={() => onViewInvoice(inv)} />
               ))}
             </div>
           </>
@@ -922,9 +943,12 @@ function InvoiceModal({ inv, po, wb, onSave, onClose }) {
         </div>
 
         {!isView && (
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', paddingTop: 14, borderTop: '1px solid ' + C.borderLight }}>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', alignItems: 'center', paddingTop: 14, borderTop: '1px solid ' + C.borderLight }}>
+            <div style={{ fontSize: 11, color: C.textMuted, marginRight: 'auto' }}>
+              The invoice number is assigned on submit, so the printed copy for the customer is produced at the same time.
+            </div>
             <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
-            <Btn onClick={() => onSave(form)}>Save Invoice</Btn>
+            <Btn onClick={() => onSave(form, { print: true })}>🖨 Print &amp; Submit</Btn>
           </div>
         )}
 
@@ -1087,12 +1111,17 @@ export default function Procurement({ onNav }) {
     setModal(null);
   }
 
-  function saveInvoice(form) {
+  // opts.print — SLOT's rule is that an invoice is never submitted without a
+  // printed copy for the customer. The print has to happen HERE rather than in
+  // the modal, because the invoice number is only assigned on save: printing
+  // from the unsaved form would hand the customer a sheet with no number on it.
+  function saveInvoice(form, opts = {}) {
     const isEdit = !!form.id;
     const record = { ...form, id: form.id || uid(), invoiceNo: form.invoiceNo || nextNo('SINV', invoices, 'invoiceNo'), createdAt: form.createdAt || new Date().toISOString() };
     const next = isEdit ? invoices.map(i => i.id === record.id ? record : i) : [...invoices, record];
     save(setInvoices, 'invoices', next);
-    showToast(isEdit ? 'Invoice updated' : 'Invoice saved');
+    if (opts.print) printInvoice(record);
+    showToast(isEdit ? 'Invoice updated' : 'Invoice submitted');
     setModal(null);
   }
 
@@ -1105,6 +1134,7 @@ export default function Procurement({ onNav }) {
   // ── Row click handlers (drill-down) ───────────────────────────────────────
   function openPO(po) { setModal({ type: 'po_view', po }); }
   function openWB(wb) { setModal({ type: 'wb_view', wb }); }
+  function openINV(inv) { setModal({ type: 'inv_view', inv }); }
 
   // ── Tab styles ────────────────────────────────────────────────────────────
   const tabBtn = (key) => ({
@@ -1296,6 +1326,7 @@ export default function Procurement({ onNav }) {
           waybills={waybills} invoices={invoices} currentUser={currentUser} appSettings={state.appSettings}
           onCreateWaybill={po => setModal({ type: 'wb_create', po })}
           onViewWaybill={openWB}
+          onViewInvoice={openINV}
           onCreateInvoice={po => setModal({ type: 'inv_create', po })} />
       )}
       {modal?.type === 'po_view' && (
@@ -1303,6 +1334,7 @@ export default function Procurement({ onNav }) {
           waybills={waybills} invoices={invoices} currentUser={currentUser} appSettings={state.appSettings}
           onCreateWaybill={po => setModal({ type: 'wb_create', po })}
           onViewWaybill={openWB}
+          onViewInvoice={openINV}
           onCreateInvoice={po => setModal({ type: 'inv_create', po })} />
       )}
       {modal?.type === 'wb_create' && (
