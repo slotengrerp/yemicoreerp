@@ -54,7 +54,15 @@ function reducer(state, action) {
     case 'SET_DB':          return { ...state, db: action.payload };
     case 'UPDATE_MODULE':   return { ...state, db: { ...state.db, [action.mod]: action.data } };
     case 'SET_ACCT':        return { ...state, acctData: action.payload };
-    case 'ADD_ACTIVITY':    return { ...state, activity: [action.payload, ...state.activity].slice(0, 500) };
+    // Every logged event now arrives twice on the acting user's screen: once
+    // optimistically from logActivity(), once as the realtime echo of the row
+    // Supabase stored. Both carry the same eventId (client and server clocks
+    // differ, so timestamps can't be compared). Drop the second one.
+    case 'ADD_ACTIVITY': {
+      const e = action.payload;
+      if (e?.eventId && state.activity.some(a => a?.eventId === e.eventId)) return state;
+      return { ...state, activity: [e, ...state.activity].slice(0, 500) };
+    }
     case 'SET_SETTINGS':    return { ...state, appSettings: action.payload };
     case 'SET_CLOUD':       return { ...state, cloudReady: action.payload };
     case 'SET_OFFLINE':     return { ...state, offlineMode: action.payload };

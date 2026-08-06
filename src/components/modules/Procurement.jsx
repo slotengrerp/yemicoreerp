@@ -11,6 +11,10 @@ import { printHeader, PRINT_CSS, printBootstrap, openPrintWindow} from '../../ut
 import { getVendors } from '../../utils/vendorMaster';
 import { initApproval, applyDecision, canApproveAtCurrentLevel, approvalSummary } from '../../utils/approvalEngine';
 import { diffAndPush } from '../../hooks/usePerRecordSync';
+// 2026-08-05 — Procurement was the ONLY module of 24 that never logged
+// anything. Deleting an invoice left no trace anywhere, which is how a set of
+// deleted invoices became untraceable. See logActivity calls below.
+import { logActivity } from '../../utils/audit';
 
 // listName ('rfqs'|'pos'|'waybills'|'invoices') → RECORD_TABLES key, used by save() below.
 const PROC_TABLE_BY_LIST = { rfqs: 'procurementRfqs', pos: 'procurementPos', waybills: 'procurementWaybills', invoices: 'procurementInvoices' };
@@ -1084,6 +1088,9 @@ export default function Procurement({ onNav }) {
     const record = { ...form, id: form.id || uid(), rfqNo: form.rfqNo || nextNo('RFQ', rfqs, 'rfqNo'), createdAt: form.createdAt || new Date().toISOString() };
     const next = isEdit ? rfqs.map(r => r.id === record.id ? record : r) : [...rfqs, record];
     save(setRfqs, 'rfqs', next);
+    logActivity(dispatch, `${isEdit ? 'Updated' : 'Created'} RFQ ${record.rfqNo}`, currentUser,
+      { module: 'procurement', action: isEdit ? 'edit' : 'create', recordId: record.id,
+        before: isEdit ? rfqs.find(r => r.id === record.id) : null, after: record });
     showToast(isEdit ? 'RFQ updated' : 'RFQ created');
     setModal(null);
   }
@@ -1098,6 +1105,9 @@ export default function Procurement({ onNav }) {
     // Mark linked RFQ as PO Issued
     if (record.rfqId) setRfqs(r => r.map(x => x.id === record.rfqId ? { ...x, status: 'PO Issued' } : x));
     save(setPos, 'pos', next);
+    logActivity(dispatch, `${isEdit ? 'Updated' : 'Created'} ${record.poType === 'SLOT' ? 'SLOT' : 'Client'} PO ${record.poNo}${record.supplier ? ' — ' + record.supplier : ''}`, currentUser,
+      { module: 'procurement', action: isEdit ? 'edit' : 'create', recordId: record.id,
+        before: isEdit ? pos.find(p => p.id === record.id) : null, after: record });
     showToast(isEdit ? 'PO updated' : 'Purchase Order created');
     setModal(null);
   }
@@ -1107,6 +1117,9 @@ export default function Procurement({ onNav }) {
     const record = { ...form, id: form.id || uid(), waybillNo: form.waybillNo || nextNo('WB', waybills, 'waybillNo'), createdAt: form.createdAt || new Date().toISOString() };
     const next = isEdit ? waybills.map(w => w.id === record.id ? record : w) : [...waybills, record];
     save(setWaybills, 'waybills', next);
+    logActivity(dispatch, `${isEdit ? 'Updated' : 'Recorded'} waybill ${record.waybillNo}${record.poNo ? ' against PO ' + record.poNo : ''}`, currentUser,
+      { module: 'procurement', action: isEdit ? 'edit' : 'create', recordId: record.id,
+        before: isEdit ? waybills.find(w => w.id === record.id) : null, after: record });
     showToast(isEdit ? 'Waybill updated' : 'Waybill recorded');
     setModal(null);
   }
@@ -1120,15 +1133,31 @@ export default function Procurement({ onNav }) {
     const record = { ...form, id: form.id || uid(), invoiceNo: form.invoiceNo || nextNo('SINV', invoices, 'invoiceNo'), createdAt: form.createdAt || new Date().toISOString() };
     const next = isEdit ? invoices.map(i => i.id === record.id ? record : i) : [...invoices, record];
     save(setInvoices, 'invoices', next);
+    logActivity(dispatch, `${isEdit ? 'Updated' : 'Submitted'} invoice ${record.invoiceNo}${record.supplier ? ' — ' + record.supplier : ''}`, currentUser,
+      { module: 'procurement', action: isEdit ? 'edit' : 'create', recordId: record.id,
+        before: isEdit ? invoices.find(i => i.id === record.id) : null, after: record });
     if (opts.print) printInvoice(record);
     showToast(isEdit ? 'Invoice updated' : 'Invoice submitted');
     setModal(null);
   }
 
+  // A deletion is the single most important thing this module can record, and
+  // until 2026-08-05 it recorded nothing at all — no local entry, no server
+  // row. When invoices went missing there was simply no way to establish who
+  // had removed them. The log line now names the document, so the answer is
+  // "SINV-2026-0004 deleted by <name>", not "something changed".
+  const DOC_LABEL = { rfqs: 'RFQ', pos: 'purchase order', waybills: 'waybill', invoices: 'invoice' };
+  const DOC_REF   = { rfqs: 'rfqNo', pos: 'poNo', waybills: 'waybillNo', invoices: 'invoiceNo' };
+
   function delRecord(list, setList, listName, id) {
-    if (!window.confirm('Delete this record?')) return;
+    const rec = list.find(x => x.id === id);
+    const label = DOC_LABEL[listName] || 'record';
+    const ref   = rec?.[DOC_REF[listName]] || id;
+    if (!window.confirm(`Delete ${label} ${ref}?\n\nThis is recorded in the activity log against your name.`)) return;
     save(setList, listName, list.filter(x => x.id !== id));
-    showToast('Deleted', 'error');
+    logActivity(dispatch, `Deleted ${label} ${ref}`, currentUser,
+      { module: 'procurement', action: 'delete', recordId: id });
+    showToast(`Deleted ${label} ${ref}`, 'error');
   }
 
   // ── Row click handlers (drill-down) ───────────────────────────────────────

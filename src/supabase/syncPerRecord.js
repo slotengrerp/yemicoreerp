@@ -402,6 +402,44 @@ export async function logActivityServer({ userId, userName, userRole, module, ac
   }
 }
 
+// ── Live activity feed ───────────────────────────────────────────────────────
+// 2026-08-05. The `activity` table is deliberately NOT in RECORD_TABLES (it is
+// append-only and server-stamped, not a synced business collection), which
+// meant subscribePerRecord never covered it. Consequence: the log only ever
+// refreshed at sign-in, so two people working at the same time saw two
+// different histories and neither could see the other's actions arrive.
+//
+// Rows are mapped into exactly the shape loadActivity() returns, so a live
+// entry and a reloaded one are indistinguishable to the UI.
+export function subscribeActivity(onInsert) {
+  if (!supabase) return () => {};
+  const ch = supabase
+    .channel(`activity-${COMPANY_ID}`)
+    .on(
+      'postgres_changes',
+      { event: 'INSERT', schema: 'public', table: 'activity', filter: `company_id=eq.${COMPANY_ID}` },
+      (payload) => {
+        try {
+          const r = payload.new;
+          if (!r) return;
+          onInsert({
+            eventId: r.metadata?.eventId || null,  // lets the reducer drop the
+            who:    r.user_name,                   // actor's own optimistic copy
+            role:   r.user_role,
+            module: r.module,
+            action: r.action,
+            msg:    r.message,
+            time:   r.created_at,
+          });
+        } catch (e) {
+          console.warn('[SLOT] Activity realtime handler threw:', e?.message);
+        }
+      }
+    )
+    .subscribe();
+  return () => { try { supabase.removeChannel(ch); } catch {} };
+}
+
 export async function loadActivity({ sinceIso = null, limit = 200 } = {}) {
   if (!supabase) return [];
   try {
@@ -415,6 +453,7 @@ export async function loadActivity({ sinceIso = null, limit = 200 } = {}) {
     const { data, error } = await q;
     if (error) throw error;
     return (data || []).map(r => ({
+      eventId: r.metadata?.eventId || null,
       who:   r.user_name,
       role:  r.user_role,
       module: r.module,

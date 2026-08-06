@@ -20,6 +20,7 @@ import {
   loadAll, loadAppSettings, loadJournals, loadActivity,
   saveRecord, deleteRecord, saveAppSettings, postJournalEntry, logActivityServer,
   backfillFromBlob, backfillAccountingData, saveAttachment, subscribePerRecord,
+  subscribeActivity,
   RECORD_TABLES,
 } from '../supabase/syncPerRecord';
 import { supabase, supabaseReady } from '../supabase/client';
@@ -103,6 +104,7 @@ export function usePerRecordSync({ state, dispatch }) {
   const loadedRef     = useRef(false);
   const migratingRef  = useRef(false);
   const unsubRef      = useRef(null);
+  const unsubActivityRef = useRef(null);
 
   // ── CRITICAL: fresh-state refs ──────────────────────────────────────────────
   // The realtime subscription handler captures `state.db` from the closure of
@@ -166,10 +168,41 @@ export function usePerRecordSync({ state, dispatch }) {
           dispatch({ type: 'SET_ACTIVITY', payload: cloudActivity });
         }
 
-        // 5) One-time backfill from localStorage to Supabase
+        // 5) FIRST-MIGRATION-ONLY backfill from localStorage to Supabase
+        //
+        // ── 2026-08-05: THIS WAS SILENTLY UNDOING DELETIONS ──────────────────
+        //
+        // backfillFromBlob() upserts this browser's ENTIRE local db into
+        // Supabase using `ignoreDuplicates: true`. That flag protects records
+        // that still exist server-side — but a record another user has just
+        // DELETED is no longer there to conflict with, so it was re-INSERTED.
+        //
+        // Reported by SLOT: a staff member deleted 5 invoices and saw 2 left;
+        // the second user still saw 7, and a hard refresh did not fix it —
+        // because the refresh itself was what pushed the 5 back up.
+        //
+        // The old guard was `migratingRef`, a React ref. Refs reset on every
+        // page load, so "one-time migration" actually meant "every sign-in",
+        // and every sign-in was a chance to resurrect anything deleted since
+        // that browser last synced.
+        //
+        // THE GATE: only backfill when the cloud is genuinely EMPTY. A single
+        // record anywhere in Supabase means the migration has already been
+        // done and local state must never be bulk-pushed over the top of it.
+        // This is a SERVER-side condition, not a per-browser flag — a new
+        // laptop, a cleared cache or a fresh profile cannot defeat it.
+        const cloudIsEmpty = !cloudDb || !Object.values(cloudDb).some(v => {
+          if (Array.isArray(v)) return v.length > 0;
+          if (v && typeof v === 'object') return Object.values(v).some(inner => Array.isArray(inner) && inner.length > 0);
+          return false;
+        });
+        if (!cloudIsEmpty) {
+          migratingRef.current = true;   // nothing to migrate; never try again
+        }
         if (!migratingRef.current) {
           migratingRef.current = true;
           try {
+            console.info('[SLOT] Cloud is empty — running first-time migration from local storage.');
             const backfillResults = await backfillFromBlob(stateDbRef.current);
             const acctBackfill = await backfillAccountingData(state.acctData || {}, state.appSettings || {});
             const total = backfillResults?.results?.reduce((s, r) => s + (r.count || 0), 0) || 0;
@@ -183,6 +216,16 @@ export function usePerRecordSync({ state, dispatch }) {
             console.warn('[SLOT] Backfill failed:', e?.message);
           }
         }
+
+        // 6b) Subscribe to the activity feed so every signed-in user sees the
+        //     same log grow live. Without this the log only refreshed at
+        //     sign-in and two people had two different histories. The reducer
+        //     de-duplicates, so the actor's own optimistic local entry and the
+        //     server echo of it do not appear twice.
+        if (unsubActivityRef.current) unsubActivityRef.current();
+        unsubActivityRef.current = subscribeActivity((entry) => {
+          dispatch({ type: 'ADD_ACTIVITY', payload: entry });
+        });
 
         // 6) Subscribe to per-record change events
         if (unsubRef.current) unsubRef.current();
@@ -430,6 +473,7 @@ export function usePerRecordSync({ state, dispatch }) {
     return () => {
       cancelled = true;
       if (unsubRef.current) unsubRef.current();
+      if (unsubActivityRef.current) unsubActivityRef.current();
       if (typeof unsubAuth === 'function') unsubAuth();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
