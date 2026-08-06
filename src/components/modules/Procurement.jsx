@@ -9,6 +9,7 @@ import { canDo } from '../../utils/auth';
 import { showToast, formatDate } from '../../utils/helpers';
 import { printHeader, PRINT_CSS, printBootstrap, openPrintWindow} from '../../utils/logo';
 import { getVendors } from '../../utils/vendorMaster';
+import { getClients } from '../../utils/clientMaster';
 import { initApproval, applyDecision, canApproveAtCurrentLevel, approvalSummary } from '../../utils/approvalEngine';
 import { diffAndPush } from '../../hooks/usePerRecordSync';
 // 2026-08-05 — Procurement was the ONLY module of 24 that never logged
@@ -318,8 +319,13 @@ function RFQModal({ rfq, onSave, onClose, onCreatePO }) {
   const S = useStyles();
   const isView = !!rfq?.id;
   const RFQ_STATUSES = ['Sourcing', 'Bids Submitted', 'PO Received', 'PO Issued', 'Delivered', 'Cancelled'];
-  const [form, setForm] = useState(rfq || { rfqNo: '', date: new Date().toISOString().split('T')[0], requiredBy: '', requestedBy: '', department: '', description: '', currency: 'NGN', items: [{ id: uid(), description: '', qty: '', unit: 'units', estimatedPrice: '' }], status: 'Sourcing' });
+  const [form, setForm] = useState(rfq || { rfqNo: '', date: new Date().toISOString().split('T')[0], requiredBy: '', requestedBy: '', department: '', description: '', clientName: '', currency: 'NGN', items: [{ id: uid(), description: '', qty: '', unit: 'units', estimatedPrice: '' }], status: 'Sourcing' });
   const set = k => e => setForm(p => ({ ...p, [k]: e.target.value }));
+
+  // Type-or-pick client, added 2026-08-06. An RFQ is a client enquiry (its
+  // statuses run Sourcing → Bids Submitted → PO Received), but it never
+  // recorded WHO it was for. Free text with suggestions, same as the PO.
+  const [rfqClients] = useState(() => getClients().filter(c => c.status === 'Active'));
 
   function addItem() { setForm(p => ({ ...p, items: [...p.items, { id: uid(), description: '', qty: '', unit: 'units', estimatedPrice: '' }] })); }
   function setItem(i, k, v) { setForm(p => ({ ...p, items: p.items.map((x, j) => j === i ? { ...x, [k]: v } : x) })); }
@@ -350,6 +356,12 @@ function RFQModal({ rfq, onSave, onClose, onCreatePO }) {
           <FG label="Required By"><input style={S.inp} type="date" value={form.requiredBy} onChange={set('requiredBy')} readOnly={isView} /></FG>
           <FG label="Requested By"><input style={S.inp} value={form.requestedBy} onChange={set('requestedBy')} placeholder="Name" readOnly={isView} /></FG>
           <FG label="Department"><input style={S.inp} value={form.department} onChange={set('department')} placeholder="Enter department" readOnly={isView} /></FG>
+          <FG label="Client Name">
+            <input style={S.inp} list="rfq-party-suggestions" value={form.clientName || ''} onChange={set('clientName')} placeholder="Type a client name, or pick from the list" readOnly={isView} />
+            <datalist id="rfq-party-suggestions">
+              {rfqClients.map(c => <option key={c.id} value={c.code}>{c.name} ({c.currency})</option>)}
+            </datalist>
+          </FG>
           <FG label="Status"><select style={S.sel} value={form.status} onChange={set('status')} disabled={isView}>
             {RFQ_STATUSES.map(s => <option key={s}>{s}</option>)}</select></FG>
           <FG label="Currency"><select style={S.sel} value={form.currency ?? 'NGN'} onChange={set('currency')} disabled={isView}>{CURRENCIES.map(c => <option key={c} value={c}>{c || '— none —'}</option>)}</select></FG>
@@ -409,7 +421,9 @@ function POModal({ po, rfq, poType, onSave, onClose, onCreateWaybill, onViewWayb
 
   const [form, setForm] = useState(po || {
     poNo: '', poType: poType || 'Client', rfqId: rfq?.id || '', rfqNo: rfq?.rfqNo || '',
-    supplier: '', supplierAddress: '', date: new Date().toISOString().split('T')[0],
+    // Carry the client through from the RFQ this PO came from, so it isn't
+    // retyped (and respelled) at the next step of the same job.
+    supplier: rfq?.clientName || '', supplierAddress: '', date: new Date().toISOString().split('T')[0],
     deliveryDate: '', actualDeliveryDate: '', deliveryAddress: 'NLNG Site, Bonny Island',
     description: rfq?.description || '', paymentTerms: 'Net 30', currency: 'NGN',
     items: initItems, subtotal: 0, vatRate: 7.5, vatAmount: 0, total: 0,
@@ -418,11 +432,26 @@ function POModal({ po, rfq, poType, onSave, onClose, onCreateWaybill, onViewWayb
 
   const set = k => e => setForm(p => ({ ...p, [k]: e.target.value }));
 
-  // ── Vendor master — replaces free-text supplier entry with the real SAGE
-  // supplier list. See utils/vendorMaster.js.
-  const [vendors] = useState(() => getVendors().filter(v=>v.status==='Active'));
+  // ── Counterparty: type-or-pick ──────────────────────────────────────────────
+  // 2026-08-06, at SLOT's request. This was a <select> that FORCED a choice
+  // from the vendor master. Staff need to raise a PO against a name that isn't
+  // on the list yet, so it is now a free-text box with suggestions attached
+  // (an <input list> + <datalist>): type anything, or pick an existing name.
+  //
+  // Why suggestions still matter: typing freely means "NLNG", "N.L.N.G." and
+  // "Nigeria LNG Limited" become three different counterparties as far as every
+  // report is concerned. Picking a suggested name keeps the spelling identical
+  // on reuse, so per-supplier totals and aged payables stay correct.
+  //
+  // A Client PO's counterparty is a CLIENT and a SLOT PO's is a SUPPLIER, so
+  // the suggestion list follows poType — matching the labels set on 2026-08-05.
+  const [vendors] = useState(() => getVendors().filter(v => v.status === 'Active'));
+  const [clients] = useState(() => getClients().filter(c => c.status === 'Active'));
+  const partyList = form.poType === 'SLOT' ? vendors : clients;
+  // Unmatched free text is expected, not an error: `p` is kept for address and
+  // currency so typing a new name never blanks fields the user already filled.
   const handleVendorSelect = (code) => {
-    const v = vendors.find(x=>x.code===code);
+    const v = partyList.find(x => x.code === code || x.name === code);
     setForm(p => ({ ...p, supplier: code, supplierAddress: v?.address || p.supplierAddress, currency: v?.currency || p.currency }));
   };
 
@@ -530,10 +559,17 @@ function POModal({ po, rfq, poType, onSave, onClose, onCreateWaybill, onViewWayb
           </FG>
           <FG label="Actual Delivery Date"><input style={S.inp} type="date" value={form.actualDeliveryDate||''} onChange={set('actualDeliveryDate')} /></FG>
           <FG label={form.poType === 'SLOT' ? 'Supplier Name' : 'Client Name'} full>
-            <select style={S.sel} value={form.supplier} onChange={e=>handleVendorSelect(e.target.value)} disabled={isView}>
-              <option value="">— Select {form.poType === 'SLOT' ? 'Supplier' : 'Client'} —</option>
-              {vendors.map(v=><option key={v.id} value={v.code}>{v.name} — {v.code} ({v.currency})</option>)}
-            </select>
+            <input
+              style={S.inp}
+              list="po-party-suggestions"
+              value={form.supplier}
+              onChange={e => handleVendorSelect(e.target.value)}
+              placeholder={`Type a ${form.poType === 'SLOT' ? 'supplier' : 'client'} name, or pick from the list`}
+              readOnly={isView}
+            />
+            <datalist id="po-party-suggestions">
+              {partyList.map(v => <option key={v.id} value={v.code}>{v.name} ({v.currency})</option>)}
+            </datalist>
           </FG>
           <FG label={form.poType === 'SLOT' ? 'Supplier Address' : 'Client Address'} full><input style={S.inp} value={form.supplierAddress} onChange={set('supplierAddress')} placeholder={form.poType === 'SLOT' ? 'Supplier address' : 'Client address'} readOnly={isView} /></FG>
           <FG label="Delivery Address" full><input style={S.inp} value={form.deliveryAddress} onChange={set('deliveryAddress')} placeholder="Where to deliver" readOnly={isView} /></FG>
@@ -841,6 +877,12 @@ function InvoiceModal({ inv, po, wb, onSave, onClose }) {
   const { C } = useTheme();
   const S = useStyles();
   const isView = !!inv?.id;
+  // Suggestions for the Supplier box below — both masters, since an invoice can
+  // sit against either a SLOT PO (supplier) or a Client PO (client).
+  const [invParties] = useState(() => [
+    ...getVendors().filter(v => v.status === 'Active'),
+    ...getClients().filter(c => c.status === 'Active'),
+  ]);
 
   // Pre-fill from waybill items
   const initItems = wb?.items?.map(wi => ({ id: uid(), poItemId: wi.poItemId, waybillItemId: wi.id, description: wi.description, qty: Number(wi.deliveredQty) || 0, unit: wi.unit, unitPrice: Number(wi.unitPrice) || 0, totalPrice: (Number(wi.deliveredQty) || 0) * (Number(wi.unitPrice) || 0) })) || po?.items?.map(pi => ({ id: uid(), poItemId: pi.id, description: pi.description, qty: Number(pi.qty) || 0, unit: pi.unit, unitPrice: Number(pi.unitPrice) || 0, totalPrice: Number(pi.totalPrice) || 0 })) || [];
@@ -906,7 +948,14 @@ function InvoiceModal({ inv, po, wb, onSave, onClose }) {
           <FG label="System Invoice No"><input style={S.inp} value={form.invoiceNo} onChange={set('invoiceNo')} placeholder="Auto-generated" readOnly={isView} /></FG>
           <FG label="Supplier Invoice Ref"><input style={S.inp} value={form.supplierInvoiceNo} onChange={set('supplierInvoiceNo')} placeholder="Supplier's ref number" readOnly={isView} /></FG>
           <FG label="GRN Number"><input style={S.inp} value={form.grnNo} onChange={set('grnNo')} placeholder="e.g. GRN-2025-001" readOnly={isView} /></FG>
-          <FG label="Supplier"><input style={S.inp} value={form.supplier} onChange={set('supplier')} readOnly={isView} /></FG>
+          {/* Already free text; the datalist just keeps spelling consistent with
+              whatever was typed on the PO, so both group together in reports. */}
+          <FG label="Supplier">
+            <input style={S.inp} list="inv-party-suggestions" value={form.supplier} onChange={set('supplier')} placeholder="Type a name, or pick from the list" readOnly={isView} />
+            <datalist id="inv-party-suggestions">
+              {invParties.map(v => <option key={v.id} value={v.code}>{v.name} ({v.currency})</option>)}
+            </datalist>
+          </FG>
           <FG label="Invoice Date"><input style={S.inp} type="date" value={form.date} onChange={set('date')} readOnly={isView} /></FG>
           <FG label="Due Date"><input style={S.inp} type="date" value={form.dueDate} onChange={set('dueDate')} readOnly={isView} /></FG>
           <FG label="Currency"><select style={S.sel} value={form.currency ?? 'NGN'} onChange={set('currency')} disabled={isView}>{CURRENCIES.map(c => <option key={c} value={c}>{c || '— none —'}</option>)}</select></FG>
@@ -1268,8 +1317,15 @@ export default function Procurement({ onNav }) {
                           </>
                         ) : (
                           <>
-                            <td style={{ ...S.td, textAlign: 'center' }}><LinkedBadge label={wbs.length + ' WB'} color={wbs.length ? C.info : C.textMuted} /></td>
-                            <td style={{ ...S.td, textAlign: 'center' }}><LinkedBadge label={invs.length + ' INV'} color={invs.length ? C.amber : C.textMuted} /></td>
+                            {/* 2026-08-06 — these were LinkedBadge pills. They looked
+                                like buttons but had no click handler, so a click fell
+                                through to the row's onClick and opened the PO instead —
+                                a control advertising an action it never performed.
+                                Now plain counts: same information, nothing inviting a
+                                click. The real drill-down is the Linked Documents
+                                section inside the PO, where the chips do navigate. */}
+                            <td style={{ ...S.td, textAlign: 'center', fontWeight: 600, color: wbs.length ? C.text : C.textMuted }}>{wbs.length}</td>
+                            <td style={{ ...S.td, textAlign: 'center', fontWeight: 600, color: invs.length ? C.text : C.textMuted }}>{invs.length}</td>
                           </>
                         )}
                         <td style={S.td} onClick={e => e.stopPropagation()}>
