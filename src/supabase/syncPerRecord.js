@@ -230,18 +230,65 @@ export async function saveRecord(table, record) {
 // handleDelete) — this was the missing piece: those local deletes had
 // nothing to call to remove the row from Supabase, so a deleted-locally
 // staff member would otherwise linger in the cloud table forever.
+// ── 2026-08-06: THE RULE ABOVE WAS DOCUMENTED BUT NEVER ENFORCED ─────────────
+//
+// The header comment has always said transactional records are voided and
+// "never physically removed — audit trail". The code below did an
+// unconditional hard DELETE on every table regardless. So deleting an invoice
+// destroyed the row outright: no way to see what it contained, who removed it,
+// or to put it back.
+//
+// SLOT hit this directly — asked how to investigate a deletion from weeks ago
+// and the honest answer was that nothing survived to investigate.
+//
+// Now the documented rule is the actual behaviour:
+//   • NO_VOID_TABLES (vendors, clients, projects, staff, warehouses, boms)
+//     have no `voided` column, so they still hard-delete. Unchanged.
+//   • Everything else is marked voided = true and KEPT. loadAll() already
+//     returns the flag as `_voided`, so the UI can filter it out and the row
+//     stays available for audit and recovery.
 export async function deleteRecord(table, id) {
   if (!supabase) return { ok: false, queued: true };
   if (!id) return { ok: false, error: 'id required' };
   if (!RECORD_TABLES[table]) return { ok: false, error: `unknown table: ${table}` };
+  const physical = RECORD_TABLES[table];
+  const hardDelete = NO_VOID_TABLES.has(physical);
   try {
+    if (hardDelete) {
+      const { error } = await supabase
+        .from(physical)
+        .delete()
+        .eq('id', id)
+        .eq('company_id', COMPANY_ID);
+      if (error) throw error;
+      return { ok: true, mode: 'deleted' };
+    }
+    // Soft delete — the record survives, flagged and stamped.
+    //
+    // `voided` alone is NOT enough to mean "deleted": saveRecord() already sets
+    // it for any record whose status is Cancelled or Rejected, and those must
+    // stay visible. So a deletion is marked inside `data` as well, and loadAll()
+    // filters on THAT. Without this, deleting would appear to work and the row
+    // would come straight back on the next refresh.
+    const { data: rows, error: readErr } = await supabase
+      .from(physical)
+      .select('data')
+      .eq('id', id)
+      .eq('company_id', COMPANY_ID)
+      .limit(1);
+    if (readErr) throw readErr;
+    const existing = rows?.[0]?.data || {};
     const { error } = await supabase
-      .from(RECORD_TABLES[table])
-      .delete()
+      .from(physical)
+      .update({
+        voided:     true,
+        data:       { ...existing, deleted: true, deletedAt: new Date().toISOString() },
+        updated_at: new Date().toISOString(),
+      })
       .eq('id', id)
       .eq('company_id', COMPANY_ID);
     if (error) throw error;
-    return { ok: true };
+    return { ok: true, mode: 'voided' };
   } catch (e) {
     console.warn(`[SLOT] Per-record delete failed for ${table}/${id}:`, e?.message);
     return { ok: false, error: e?.message, queued: true };
@@ -287,7 +334,14 @@ export async function loadAll() {
         .select(cols)
         .eq('company_id', COMPANY_ID);
       if (error) throw error;
-      return [key, (data || []).map(r => ({ ...r.data, _updated_at: r.updated_at, _voided: r.voided }))];
+      // Soft-deleted rows are kept in the database for the audit trail (see
+      // deleteRecord) but must not come back into the app, or deleting would
+      // look like it silently failed. Filtered on data.deleted specifically —
+      // NOT on `voided`, which is also set for Cancelled/Rejected records that
+      // are supposed to stay visible.
+      return [key, (data || [])
+        .filter(r => r?.data?.deleted !== true)
+        .map(r => ({ ...r.data, _updated_at: r.updated_at, _voided: r.voided }))];
     } catch (e) {
       console.warn(`[SLOT] Per-record load failed for ${RECORD_TABLES[key]}:`, e?.message);
       return [key, []];
@@ -440,7 +494,12 @@ export function subscribeActivity(onInsert) {
   return () => { try { supabase.removeChannel(ch); } catch {} };
 }
 
-export async function loadActivity({ sinceIso = null, limit = 200 } = {}) {
+// fromIso/toIso added 2026-08-06. Boot loads only the most recent `limit`
+// entries, which is fine for "what happened today" but makes an investigation
+// into last month impossible — the rows are in the database but never reach
+// the browser. The Activity Log's date filter now passes a range through to
+// here so any period can be pulled on demand, however large the log grows.
+export async function loadActivity({ sinceIso = null, fromIso = null, toIso = null, limit = 200 } = {}) {
   if (!supabase) return [];
   try {
     let q = supabase
@@ -450,6 +509,8 @@ export async function loadActivity({ sinceIso = null, limit = 200 } = {}) {
       .order('created_at', { ascending: false })
       .limit(limit);
     if (sinceIso) q = q.gt('created_at', sinceIso);
+    if (fromIso)  q = q.gte('created_at', fromIso);
+    if (toIso)    q = q.lte('created_at', toIso);
     const { data, error } = await q;
     if (error) throw error;
     return (data || []).map(r => ({

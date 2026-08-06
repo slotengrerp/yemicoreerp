@@ -3,7 +3,8 @@
 // Full audit trail viewer: filter by module · action · user · date range
 // Shows before/after diffs · Export to CSV
 // ══════════════════════════════════════════════════════════════════════════════
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
+import { loadActivity } from '../../supabase/syncPerRecord';
 import { useApp }   from '../../context/AppContext';
 import { useTheme } from '../../context/ThemeContext';
 import { formatDateTime } from '../../utils/helpers';
@@ -90,16 +91,42 @@ export default function ActivityLog() {
   const [page,       setPage]       = useState(1);
   const PAGE_SIZE = 25;
 
+  // ── Historical lookups ──────────────────────────────────────────────────────
+  // Boot loads only the 200 most recent entries into memory. Filtering that by
+  // date can never reach further back than those 200, so "what happened three
+  // weeks ago" was unanswerable even though the rows exist in Supabase.
+  // Setting a date range now fetches that period from the server instead.
+  const [history,        setHistory]        = useState(null);   // null = use live in-memory log
+  const [loadingHistory, setLoadingHistory] = useState(false);
+
+  useEffect(() => {
+    if (!fromDate && !toDate) { setHistory(null); return undefined; }
+    let cancelled = false;
+    setLoadingHistory(true);
+    loadActivity({
+      fromIso: fromDate ? new Date(fromDate).toISOString() : null,
+      toIso:   toDate   ? new Date(toDate + 'T23:59:59').toISOString() : null,
+      limit:   5000,
+    })
+      .then(rows => { if (!cancelled) setHistory(rows || []); })
+      .catch(()   => { if (!cancelled) setHistory([]); })
+      .finally(() => { if (!cancelled) setLoadingHistory(false); });
+    return () => { cancelled = true; };
+  }, [fromDate, toDate]);
+
+  // With a date range set, read from the server results; otherwise the live log.
+  const source = history ?? activity;
+
   // Unique users and modules from log
-  const users   = useMemo(() => [...new Set(activity.map(a => a.who).filter(Boolean))].sort(), [activity]);
-  const modules  = useMemo(() => [...new Set(activity.map(a => a.module).filter(Boolean))].sort(), [activity]);
-  const actions  = useMemo(() => [...new Set(activity.map(a => a.action).filter(Boolean))].sort(), [activity]);
+  const users   = useMemo(() => [...new Set(source.map(a => a.who).filter(Boolean))].sort(), [source]);
+  const modules  = useMemo(() => [...new Set(source.map(a => a.module).filter(Boolean))].sort(), [source]);
+  const actions  = useMemo(() => [...new Set(source.map(a => a.action).filter(Boolean))].sort(), [source]);
 
   const filtered = useMemo(() => {
     const q   = search.toLowerCase();
     const from = fromDate ? new Date(fromDate) : null;
     const to   = toDate   ? new Date(toDate + 'T23:59:59') : null;
-    return activity.filter(a => {
+    return source.filter(a => {
       if (modFilter  !== 'all' && a.module !== modFilter)  return false;
       if (actFilter  !== 'all' && a.action !== actFilter)  return false;
       if (userFilter !== 'all' && a.who    !== userFilter) return false;
@@ -108,7 +135,7 @@ export default function ActivityLog() {
       if (q && !`${a.msg}${a.who}${a.module}${a.action}`.toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [activity, search, modFilter, actFilter, userFilter, fromDate, toDate]);
+  }, [source, search, modFilter, actFilter, userFilter, fromDate, toDate]);
 
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
   const paginated  = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
@@ -186,8 +213,15 @@ export default function ActivityLog() {
               </tr>
             </thead>
             <tbody>
-              {paginated.length === 0 && (
-                <tr><td colSpan={6} style={{ ...td, textAlign:'center', padding:36, color:C.textMuted }}>No activity matches your filters</td></tr>
+              {loadingHistory && (
+                <tr><td colSpan={6} style={{ ...td, textAlign:'center', padding:36, color:C.textMuted }}>Fetching that period from the server…</td></tr>
+              )}
+              {!loadingHistory && paginated.length === 0 && (
+                <tr><td colSpan={6} style={{ ...td, textAlign:'center', padding:36, color:C.textMuted }}>
+                  {history
+                    ? 'No activity was recorded in that period. Note that entries only exist from 6 August 2026, when audit logging to the server was switched on.'
+                    : 'No activity matches your filters'}
+                </td></tr>
               )}
               {paginated.map((a, i) => {
                 const isExp = expanded === i;

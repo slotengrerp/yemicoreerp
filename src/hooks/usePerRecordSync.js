@@ -234,6 +234,18 @@ export function usePerRecordSync({ state, dispatch }) {
             // Read fresh state from the ref — NEVER from the closure capture.
             const db = stateDbRef.current || {};
 
+            // 2026-08-06 — deletions of transactional records are now soft (the
+            // row is kept and flagged, see deleteRecord). Postgres therefore
+            // reports them as an UPDATE, not a DELETE. Left untranslated, the
+            // branch below would merge the just-deleted record straight back
+            // into every other user's screen and the deletion would look like
+            // it had failed. Re-route it so each collection's existing removal
+            // logic applies unchanged.
+            if (eventType === 'UPDATE' && newRow?.deleted === true) {
+              eventType = 'DELETE';
+              old = newRow.id;
+            }
+
             if (eventType === 'DELETE') {
               // For terminal_charges / fleet_repairs we know how to remove
               // from the sub-collection. For flat collections, just remove by id.
