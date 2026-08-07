@@ -568,10 +568,50 @@ function isRealFailure(res) {
   return !!(res && res.ok === false && res.error);
 }
 
+// ── Duplicate rejection, separated 2026-08-06 ───────────────────────────────
+// Postgres 23505 is a unique violation — the record was refused because one of
+// the uq_* indexes (invoice number, staff ref, container no + BoL, BoL number)
+// already holds that value. It is NOT a connection problem, and telling the
+// user to "check your connection and save again" would have them retrying a
+// save that can never succeed. They need to change the number instead.
+function isDuplicateRejection(res) {
+  return !!(res && res.ok === false &&
+    (res.code === '23505' || /duplicate key value|unique constraint/i.test(res.error || '')));
+}
+
+// Name the record the way the user knows it, so the message says which one.
+const REF_FIELDS = ['invoiceNo', 'poNo', 'waybillNo', 'refId', 'containerNo',
+                    'billOfLadingNo', 'orderNo', 'serialNo', 'vehicleNo', 'rfqNo'];
+function describeRecord(record) {
+  for (const f of REF_FIELDS) {
+    const v = record?.[f];
+    if (v != null && String(v).trim() !== '') return String(v).trim();
+  }
+  return '';
+}
+
+function reportDuplicate(table, record) {
+  // Claim the throttle window so the generic "did not save to the cloud"
+  // message that diffAndPush raises next does not contradict this one.
+  lastSyncErrorAt = Date.now();
+  const ref = describeRecord(record);
+  showToast(
+    ref
+      ? `Not saved — "${ref}" already exists. That reference is already in use, so give this record a different one, or open the existing record instead.`
+      : `Not saved — a record with the same reference already exists in ${table}.`,
+    'error'
+  );
+}
+
 export async function pushOne(table, record) {
   if (!USE_PER_RECORD || !supabaseReady) return { ok: false, reason: 'per-record-sync-disabled' };
   const res = await saveRecord(table, record);
-  if (isRealFailure(res)) reportSyncFailure(table);
+  // Duplicate first — it is also a "real failure", but it needs the opposite
+  // advice and must not raise the unsaved-work banner, whose message tells the
+  // user to reconnect and save again. Here, saving again is exactly what will
+  // not help.
+  if (isDuplicateRejection(res)) reportDuplicate(table, record);
+  else if (isRealFailure(res)) reportSyncFailure(table);
   else if (res && res.ok) clearUnsaved();
   return res;
 }
@@ -666,7 +706,14 @@ export async function diffAndPush(table, prevList, nextList) {
       `[SLOT ERP] ${failed} of ${changed.length + removed.length} "${table}" record(s) failed to save to the cloud after a retry.`,
       writeFails.concat(delFails).slice(0, 10)
     );
-    reportSyncFailure(table);   // 2026-08-06 audit — was console-only until now
+    // pushOne already raised an accurate, specific message for each duplicate.
+    // Only add the generic connection warning — and the unsaved-work banner
+    // that comes with it — if something OTHER than a duplicate also failed.
+    // Otherwise a rejected duplicate would put a red bar on screen telling the
+    // user to reconnect, which is the one thing that cannot help them.
+    const allDuplicates = writeFails.concat(delFails)
+      .every(f => /duplicate key value|unique constraint/i.test(f?.error || ''));
+    if (!allDuplicates) reportSyncFailure(table);
   }
 
   return {

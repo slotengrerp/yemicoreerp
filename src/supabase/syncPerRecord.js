@@ -218,7 +218,11 @@ export async function saveRecord(table, record) {
     return { ok: true };
   } catch (e) {
     console.warn(`[SLOT] Per-record save failed for ${table}/${record.id}:`, e?.message);
-    return { ok: false, error: e?.message, queued: true };
+    // `code` carried out 2026-08-06 so the caller can tell a network failure
+    // (retry may work) from a Postgres unique violation, 23505 (retrying can
+    // never work). They need opposite advice, and the generic "check your
+    // connection" message is actively misleading for the second.
+    return { ok: false, error: e?.message, code: e?.code, queued: true };
   }
 }
 
