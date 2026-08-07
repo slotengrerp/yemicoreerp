@@ -6,7 +6,7 @@ import { getDeepLinkTab, formatCurrency } from "../../utils/helpers";
 import { getClients, saveClients } from "../../utils/clientMaster";
 import { getVendors, saveVendors } from "../../utils/vendorMaster";
 import { getProjects, saveProjects } from "../../utils/projectMaster";
-import { journalFromInvoice, journalFromReceipt, journalFromAPBill, journalFromAPPayment, journalFromPettyCash, journalFromFixedAsset, journalFromDepreciation, journalFromTerminalCharge, journalFromAdvanceReceipt, journalFromAdvanceApplication, journalFromPayrollRun, journalFromPayrollPayment, journalFromFleetRepair, journalFromStockIssue, journalFromCreditNote, reverseJournal } from "../../utils/glPosting";
+import { journalFromPurchaseInvoice, journalFromInvoice, journalFromReceipt, journalFromAPBill, journalFromAPPayment, journalFromPettyCash, journalFromFixedAsset, journalFromDepreciation, journalFromTerminalCharge, journalFromAdvanceReceipt, journalFromAdvanceApplication, journalFromPayrollRun, journalFromPayrollPayment, journalFromFleetRepair, journalFromStockIssue, journalFromCreditNote, reverseJournal } from "../../utils/glPosting";
 import { periodOf, isPeriodClosed, isYearClosed } from "../../utils/periods";
 import { mergeCOA } from "../../utils/chartOfAccounts";
 import { FG } from "../ui";
@@ -2909,6 +2909,10 @@ export default function Accounting({data,setData}){
     const receipts     = appState?.db?.arReceipts  || [];
     const creditNotes  = appState?.db?.creditNotes  || [];  // SageReports feature #3
     const apBills      = appState?.db?.ap?.bills    || [];
+    // 2026-08-06 — procurement supplier invoices were never watched here, so
+    // 11 real invoices produced no journals and were absent from AP aging,
+    // supplier balances, P&L and the Trial Balance.
+    const purchaseInvoices = appState?.db?.procurement?.invoices || [];
     const apPayments   = appState?.db?.ap?.payments || [];
     const pettycash    = appState?.db?.pettycash    || [];
     const fixedassets  = appState?.db?.fixedassets  || [];
@@ -2918,7 +2922,7 @@ export default function Accounting({data,setData}){
     const payrollRuns  = appState?.db?.payrollRuns  || [];
     const fleetRepairs = appState?.db?.fleet?.repairs || [];
 
-    if (!invoices.length && !receipts.length && !creditNotes.length && !apBills.length && !apPayments.length
+    if (!invoices.length && !receipts.length && !creditNotes.length && !apBills.length && !apPayments.length && !purchaseInvoices.length
         && !pettycash.length && !fixedassets.length && !terminalCharges.length && !terminalAdvances.length && !stockMovements.length && !payrollRuns.length && !fleetRepairs.length) return;
 
     setJournals(js => {
@@ -3010,6 +3014,20 @@ export default function Accounting({data,setData}){
           try {
             const je = journalFromAPBill(bill);
             if (tryPost(je, bill)) { toAdd.push(je); ids.add(newId); }
+          } catch (e) { /* skip malformed records */ }
+        }
+      });
+
+      // ── Purchase Invoices (Procurement) ─────────────────────────────────
+      // Same shape as AP Bills above. 'Cancelled' is skipped for parity, and
+      // records soft-deleted on 6 Aug carry data.deleted — those must not post
+      // either, or deleting an invoice would leave its journal behind.
+      purchaseInvoices.forEach(inv => {
+        const newId = `JE-PINV-${inv.id}`;
+        if (inv.status !== 'Cancelled' && inv.deleted !== true && !ids.has(newId)) {
+          try {
+            const je = journalFromPurchaseInvoice(inv);
+            if (tryPost(je, inv)) { toAdd.push(je); ids.add(newId); }
           } catch (e) { /* skip malformed records */ }
         }
       });

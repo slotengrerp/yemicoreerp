@@ -26,6 +26,10 @@ const fmt = n => '₦' + (Number(n) || 0).toLocaleString('en-NG', { minimumFract
 // Every procurement document (RFQ, PO, Waybill, Invoice) carries its own
 // `currency`. '' means "no symbol" — amounts print as bare numbers so the
 // figure can be written in by hand.
+// Must match AP_EXPENSE_MAP in utils/glPosting.js — these strings pick the
+// expense account a purchase invoice posts to. Changing one without the other
+// silently sends the spend to 8003 Other Direct Cost.
+const PO_CATEGORIES = ['Materials', 'Services', 'Logistics', 'Labour', 'Maintenance', 'Other'];
 const CURRENCIES = ['NGN', 'USD', 'GBP', 'EUR', ''];
 const CUR_SYM = { NGN: '₦', USD: '$', GBP: '£', EUR: '€', '': '' };
 const curSym = c => CUR_SYM[c] ?? '';
@@ -442,6 +446,12 @@ function POModal({ po, rfq, poType, onSave, onClose, onCreateWaybill, onViewWayb
     supplier: rfq?.clientName || '', supplierAddress: '', date: new Date().toISOString().split('T')[0],
     deliveryDate: '', actualDeliveryDate: '', deliveryAddress: 'NLNG Site, Bonny Island',
     description: rfq?.description || '', paymentTerms: 'Net 30', currency: 'NGN',
+    // 2026-08-06 — drives the expense account the supplier invoice posts to.
+    // Coded here, at approval time, rather than at invoice time: this is the
+    // point where the spend is actually authorised. The invoice inherits it.
+    category: 'Materials',
+    // Rate to NGN, set once on the PO and inherited by its invoice.
+    fxRate: 1,
     items: initItems, subtotal: 0, vatRate: 7.5, vatAmount: 0, total: 0,
     status: 'Draft', approvedBy: '', notes: '', waybillRef: '', invoiceRef: '',
   });
@@ -590,8 +600,15 @@ function POModal({ po, rfq, poType, onSave, onClose, onCreateWaybill, onViewWayb
           <FG label={form.poType === 'SLOT' ? 'Supplier Address' : 'Client Address'} full><input style={S.inp} value={form.supplierAddress} onChange={set('supplierAddress')} placeholder={form.poType === 'SLOT' ? 'Supplier address' : 'Client address'} readOnly={isView} /></FG>
           <FG label="Delivery Address" full><input style={S.inp} value={form.deliveryAddress} onChange={set('deliveryAddress')} placeholder="Where to deliver" readOnly={isView} /></FG>
           <FG label="Payment Terms"><select style={S.sel} value={form.paymentTerms} onChange={set('paymentTerms')} disabled={isView}>{TERMS.map(t => <option key={t}>{t}</option>)}</select></FG>
+          <FG label="Expense Category"><select style={S.sel} value={form.category || 'Materials'} onChange={set('category')} disabled={isView}>{PO_CATEGORIES.map(c => <option key={c}>{c}</option>)}</select></FG>
           <FG label="VAT Rate (%)"><input style={S.inp} type="number" value={form.vatRate} onChange={e => setVAT(e.target.value)} readOnly={isView} /></FG>
           <FG label="Currency"><select style={S.sel} value={form.currency ?? 'NGN'} onChange={set('currency')} disabled={isView}>{CURRENCIES.map(c => <option key={c} value={c}>{c || '— none —'}</option>)}</select></FG>
+          {form.currency && form.currency !== 'NGN' && (
+            <FG label={`Rate: 1 ${form.currency} = ? NGN`}>
+              <input style={S.inp} type="number" value={form.fxRate ?? ''} onChange={set('fxRate')}
+                     placeholder="e.g. 2050" readOnly={isView} />
+            </FG>
+          )}
           <FG label="Status">
             {(!isView || form.status === 'Draft') ? (
               <select style={S.sel} value={form.status} onChange={set('status')} disabled={isView && form.status !== 'Draft'}>
@@ -938,6 +955,8 @@ function InvoiceModal({ inv, po, wb, onSave, onClose }) {
     items: initItems,
     subtotal: initSubtotal, vatAmount: initVAT,
     currency: po?.currency || wb?.currency || 'NGN',
+    // Inherited from the PO so the ledger posts to the right expense account.
+    category: po?.category || 'Materials',
     total: initSubtotal + initVAT,
     netPayable: initSubtotal + initVAT,
     status: 'Pending', paymentDate: '', paymentRef: '', notes: '',
@@ -996,6 +1015,12 @@ function InvoiceModal({ inv, po, wb, onSave, onClose }) {
           <FG label="Invoice Date"><input style={S.inp} type="date" value={form.date} onChange={set('date')} readOnly={isView} /></FG>
           <FG label="Due Date"><input style={S.inp} type="date" value={form.dueDate} onChange={set('dueDate')} readOnly={isView} /></FG>
           <FG label="Currency"><select style={S.sel} value={form.currency ?? 'NGN'} onChange={set('currency')} disabled={isView}>{CURRENCIES.map(c => <option key={c} value={c}>{c || '— none —'}</option>)}</select></FG>
+          {form.currency && form.currency !== 'NGN' && (
+            <FG label={`Rate: 1 ${form.currency} = ? NGN`}>
+              <input style={S.inp} type="number" value={form.fxRate ?? ''} onChange={set('fxRate')}
+                     placeholder="e.g. 2050" readOnly={isView} />
+            </FG>
+          )}
           <FG label="Status"><select style={S.sel} value={form.status} onChange={set('status')} disabled={isView}>{['Pending', 'Approved', 'Paid', 'Overdue', 'Disputed'].map(s => <option key={s}>{s}</option>)}</select></FG>
           {(isView && form.status === 'Paid') && <FG label="Payment Date"><input style={S.inp} value={form.paymentDate} readOnly /></FG>}
           {(isView && form.status === 'Paid') && <FG label="Payment Ref"><input style={S.inp} value={form.paymentRef} readOnly /></FG>}

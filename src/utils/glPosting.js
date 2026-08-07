@@ -765,6 +765,83 @@ export function journalFromDepreciation(asset, periodKey, amount) {
 // record voided/cancelled and keeps it; this builds the mirror-image entry
 // (every Dr/Cr flipped) so the net GL effect nets to zero while both the
 // original and the reversal stay fully visible in the Journal.
+// ══════════════════════════════════════════════════════════════════════════════
+// Purchase invoice (Procurement → Supplier Invoices)
+// ══════════════════════════════════════════════════════════════════════════════
+//
+// 2026-08-06. Procurement was an accounting island: an end-to-end trace found
+// 11 supplier invoices in the database producing zero journal entries, and
+// therefore invisible to AP aging, supplier balances, the P&L and the Trial
+// Balance. Nothing was wrong with the posting machinery — db.procurement was
+// simply never in the auto-post watch list, and no builder existed.
+//
+// Deliberately mirrors journalFromAPBill so a purchase invoice and a manually
+// entered AP bill hit the same accounts and reconcile against each other. The
+// one difference is WHT: it was removed from procurement invoices at SLOT's
+// request on 5 Aug, so there is no WHT line here.
+//
+// The expense account comes from the category, which is set on the PURCHASE
+// ORDER (at approval, where the spend is authorised) and inherited by the
+// invoice. Without a category everything would land in 8003 Other Direct Cost
+// and the P&L could not separate materials from transport.
+export function journalFromPurchaseInvoice(inv) {
+  const cur     = inv.currency || 'NGN';
+  const rate    = Number(inv.fxRate);
+  const expAcct = AP_EXPENSE_MAP[inv.category] || DEFAULT_EXPENSE;
+
+  // ── Refuse rather than guess on foreign currency ──────────────────────────
+  // Procurement invoices did not carry an fxRate until 2026-08-06 (AP bills
+  // always did). Defaulting a missing rate to 1, the way the other builders
+  // can safely do because their forms capture it, would post a GBP 4,901.45
+  // invoice to the ledger as NGN 4,901 — understating it roughly two-thousand-
+  // fold in an entry that still balances and therefore looks correct. Six of
+  // the eleven invoices live at the time of writing were GBP with no rate.
+  //
+  // Throwing here means the auto-post effect skips the record (see its
+  // "skip malformed records" catch) and the invoice simply does not hit the GL
+  // until someone supplies a rate. An absent entry is recoverable; a wrong one
+  // quietly corrupts every report built on it.
+  const needsRate = cur !== 'NGN';
+  if (needsRate && (!Number.isFinite(rate) || rate <= 0)) {
+    throw new Error(
+      `Purchase invoice ${inv.invoiceNo || inv.id}: currency is ${cur} but no exchange rate is set. ` +
+      `Open the invoice and enter the rate to NGN before it can post to the ledger.`
+    );
+  }
+  const fx = needsRate ? rate : 1;
+
+  const subtotal = Number(inv.subtotal)  || 0;
+  const vatAmt   = Number(inv.vatAmount) || 0;
+  const who      = inv.supplier || 'supplier';
+
+  const lines = [
+    // Dr Expense / Cr Trade Payables — the goods or services themselves
+    jLine(
+      expAcct.code, expAcct.name,
+      A.TRADE_PAYABLES.code, A.TRADE_PAYABLES.name,
+      toNGN(subtotal, fx), cur, fx, subtotal,
+      `Purchase invoice ${inv.invoiceNo} — ${who}`,
+    ),
+    // Dr Input VAT / Cr Trade Payables — recoverable, so an asset not a cost
+    ...(vatAmt > 0 ? [jLine(
+      A.INPUT_VAT.code, A.INPUT_VAT.name,
+      A.TRADE_PAYABLES.code, A.TRADE_PAYABLES.name,
+      toNGN(vatAmt, fx), cur, fx, vatAmt,
+      `Input VAT — ${inv.invoiceNo}`,
+    )] : []),
+  ];
+
+  return {
+    id:          `JE-PINV-${inv.id}`,
+    date:        inv.date || new Date().toISOString().split('T')[0],
+    ref:         inv.invoiceNo,
+    description: `Purchase Invoice: ${inv.invoiceNo} — ${who}`,
+    source:      'procurement',
+    sourceId:    inv.id,
+    lines,
+  };
+}
+
 export function reverseJournal(je, reason = 'Record voided') {
   if (!je || !je.lines) return null;
   return {
