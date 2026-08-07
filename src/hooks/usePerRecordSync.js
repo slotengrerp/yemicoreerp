@@ -24,6 +24,7 @@ import {
   RECORD_TABLES,
 } from '../supabase/syncPerRecord';
 import { supabase, supabaseReady } from '../supabase/client';
+import { showToast } from '../utils/helpers';
 import { supabaseAuthChange, getSupabaseSession } from '../supabase/authBridge';
 
 const USE_PER_RECORD = (import.meta?.env?.VITE_USE_PER_RECORD_SYNC === 'true');
@@ -501,9 +502,43 @@ export function usePerRecordSync({ state, dispatch }) {
 //
 // `pushAll(db)` — bulk backfill. Use sparingly (e.g. the initial sync after
 // a new module is built). One row per record, chunked at 100.
+// ── 2026-08-06 error-handling audit ─────────────────────────────────────────
+// diffAndPush/pushOne/pushDelete are fire-and-forget by design, and are called
+// at 82 sites without await and without reading the result. Local state and the
+// success toast therefore go ahead regardless of what the cloud did. On failure
+// these functions only console.error'd — which nobody sees — so a record that
+// never reached Supabase looked exactly like one that saved, right up until a
+// refresh made the work disappear with no explanation.
+//
+// Surfaced here, once, rather than editing all 82 call sites.
+//
+// Throttled: diffAndPush pushes records through a pool, so one bad connection
+// would otherwise raise a toast per record. First failure in a 4-second window
+// speaks for the rest; the console keeps the full detail.
+//
+// Deliberately NOT counted in the message. In a bulk failure the first single
+// record reports before the aggregate does, and a toast reading "1 change" when
+// forty failed would be worse than no number at all.
+let lastSyncErrorAt = 0;
+function reportSyncFailure(table) {
+  const now = Date.now();
+  if (now - lastSyncErrorAt < 4000) return;
+  lastSyncErrorAt = now;
+  showToast(`Some ${table} changes did not save to the cloud — they exist only on this device. Check your connection and save again.`, 'error');
+}
+
+// A real failure carries `error`. {ok:false, queued:true} with no error means
+// Supabase simply isn't ready (offline queue), and {reason:'per-record-sync-
+// disabled'} means the engine is switched off — neither is worth alarming over.
+function isRealFailure(res) {
+  return !!(res && res.ok === false && res.error);
+}
+
 export async function pushOne(table, record) {
   if (!USE_PER_RECORD || !supabaseReady) return { ok: false, reason: 'per-record-sync-disabled' };
-  return saveRecord(table, record);
+  const res = await saveRecord(table, record);
+  if (isRealFailure(res)) reportSyncFailure(table);
+  return res;
 }
 
 // `pushDelete(table, id)` — hard-delete a single record. Only meaningful for
@@ -512,7 +547,9 @@ export async function pushOne(table, record) {
 // instead, never delete.
 export async function pushDelete(table, id) {
   if (!USE_PER_RECORD || !supabaseReady) return { ok: false, reason: 'per-record-sync-disabled' };
-  return deleteRecord(table, id);
+  const res = await deleteRecord(table, id);
+  if (isRealFailure(res)) reportSyncFailure(table);
+  return res;
 }
 
 export async function pushAll(db) {
@@ -593,6 +630,7 @@ export async function diffAndPush(table, prevList, nextList) {
       `[SLOT ERP] ${failed} of ${changed.length + removed.length} "${table}" record(s) failed to save to the cloud after a retry.`,
       writeFails.concat(delFails).slice(0, 10)
     );
+    reportSyncFailure(table);   // 2026-08-06 audit — was console-only until now
   }
 
   return {
