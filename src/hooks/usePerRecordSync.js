@@ -519,8 +519,42 @@ export function usePerRecordSync({ state, dispatch }) {
 // Deliberately NOT counted in the message. In a bulk failure the first single
 // record reports before the aggregate does, and a toast reading "1 change" when
 // forty failed would be worse than no number at all.
+// ── 2026-08-06, follow-up after Yemi's offline test ─────────────────────────
+// The toast above is transient. Yemi confirmed on 6 Aug that a failed save is
+// permanently lost: he edited 3 staff records offline, reconnected, refreshed,
+// checked two browsers, and nothing had saved. There is no retry queue for the
+// per-record engine (enqueue/flushQueue in sync.js belong to the legacy blob
+// engine and keep only the newest snapshot, so per-record deltas cannot use it).
+//
+// That means a user who steps away while the toast fades, comes back and closes
+// the tab has no way of knowing work was lost. So the count of failed writes is
+// tracked here and announced on `window`, letting App.jsx hold a banner up until
+// it is resolved and warn before the tab is closed.
+//
+// Nothing is persisted. Storing failed writes to replay later is exactly what
+// resurrected deleted invoices on 5 Aug, and is deliberately not done here.
+let unsavedCount = 0;
+export function getUnsavedCount() { return unsavedCount; }
+
+function announceUnsaved() {
+  try {
+    window.dispatchEvent(new CustomEvent('slot:unsavedChanges', { detail: { count: unsavedCount } }));
+  } catch { /* non-browser context (tests) */ }
+}
+
+// Called when a save is confirmed good, so the banner clears once the user has
+// successfully re-saved. Any successful write clears it: the user is plainly
+// back online, and leaving a stale banner up would train them to ignore it.
+function clearUnsaved() {
+  if (unsavedCount === 0) return;
+  unsavedCount = 0;
+  announceUnsaved();
+}
+
 let lastSyncErrorAt = 0;
 function reportSyncFailure(table) {
+  unsavedCount += 1;
+  announceUnsaved();
   const now = Date.now();
   if (now - lastSyncErrorAt < 4000) return;
   lastSyncErrorAt = now;
@@ -538,6 +572,7 @@ export async function pushOne(table, record) {
   if (!USE_PER_RECORD || !supabaseReady) return { ok: false, reason: 'per-record-sync-disabled' };
   const res = await saveRecord(table, record);
   if (isRealFailure(res)) reportSyncFailure(table);
+  else if (res && res.ok) clearUnsaved();
   return res;
 }
 
@@ -549,6 +584,7 @@ export async function pushDelete(table, id) {
   if (!USE_PER_RECORD || !supabaseReady) return { ok: false, reason: 'per-record-sync-disabled' };
   const res = await deleteRecord(table, id);
   if (isRealFailure(res)) reportSyncFailure(table);
+  else if (res && res.ok) clearUnsaved();
   return res;
 }
 

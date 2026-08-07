@@ -345,6 +345,29 @@ function Shell() {
   const [online, setOnline]                     = useState(isOnline());
   const [pendingSync, setPendingSync]           = useState(0);
 
+  // ── Unsaved-work banner ─────────────────────────────────────────────────────
+  // 2026-08-06. A cloud write that fails is lost for good — there is no retry
+  // queue for the per-record engine. Confirmed by test: 3 staff records edited
+  // offline, reconnected, refreshed, checked in two browsers, nothing saved.
+  // The toast that warns about it fades after a few seconds, so someone who
+  // looks away and then closes the tab never learns their work was lost.
+  // usePerRecordSync counts failed writes and fires 'slot:unsavedChanges'; this
+  // holds a banner up until a save succeeds, and warns before the tab closes.
+  const [unsaved, setUnsaved] = useState(0);
+  useEffect(() => {
+    const onUnsaved = e => setUnsaved(e?.detail?.count || 0);
+    window.addEventListener('slot:unsavedChanges', onUnsaved);
+    return () => window.removeEventListener('slot:unsavedChanges', onUnsaved);
+  }, []);
+  useEffect(() => {
+    if (!unsaved) return undefined;
+    // Browsers ignore custom text here and show their own wording; returnValue
+    // must still be set for the prompt to appear at all.
+    const warn = e => { e.preventDefault(); e.returnValue = ''; return ''; };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [unsaved]);
+
   // ── Online / offline detection ─────────────────────────────────────────────
   useEffect(() => {
     const handleOnline = async () => {
@@ -773,6 +796,19 @@ function Shell() {
         marginLeft: `clamp(0px, calc((100vw - 767px) * 999), ${sidebarCollapsed ? SIDEBAR_W_CLOSED : SIDEBAR_W_OPEN}px)`,
         transition:'margin-left 0.22s ease',
       }}>
+        {unsaved > 0 && (
+          <div style={{
+            flexShrink:0, background:'#C0392B', color:'#fff',
+            padding:'9px 16px', fontSize:13, fontWeight:600,
+            display:'flex', alignItems:'center', gap:10, lineHeight:1.4,
+          }}>
+            <span style={{ fontSize:16 }}>⚠</span>
+            <span>
+              {unsaved} change{unsaved > 1 ? 's have' : ' has'} NOT saved to the cloud and exist{unsaved > 1 ? '' : 's'} only on this computer.
+              {' '}Do not close this page. Reconnect, then open the record and save it again.
+            </span>
+          </div>
+        )}
         <ErrorBoundary label="the top bar">
           <Topbar
             page={page}
