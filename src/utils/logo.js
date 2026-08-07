@@ -230,7 +230,21 @@ export function openPrintWindow(html) {
 export function printBootstrap({ landscape = false } = {}) {
   return `
   <style>
-    @page { size: A4 ${landscape ? 'landscape' : 'portrait'}; margin: 10mm; }
+    /* ── 2026-08-06, at the GM's request ──────────────────────────────────
+       The line reading "SLOT Engineering — ERP" at the top of every printout,
+       along with the date, the yemicoreerp.web.app URL and the page number,
+       is NOT part of the document we generate — it is Chrome's own print
+       header/footer, which prints the page title and address automatically.
+       It cannot be deleted from our markup.
+
+       Setting the page margin to zero leaves Chrome nowhere to draw that
+       block, so it is omitted. The paper margin is then reapplied as body
+       padding below, with !important because several modules set their own
+       @media print body padding and this style block is emitted last.
+
+       Trade-off accepted by the GM: page numbers belong to the same block
+       and disappear along with it. */
+    @page { size: A4 ${landscape ? 'landscape' : 'portrait'}; margin: 0; }
     .print-toolbar{position:fixed;top:0;left:0;right:0;z-index:9999;display:flex;gap:10px;
       align-items:center;justify-content:flex-end;padding:10px 16px;background:#0F3A1A;
       box-shadow:0 2px 8px rgba(0,0,0,.25);font-family:'Segoe UI',Arial,sans-serif}
@@ -240,7 +254,10 @@ export function printBootstrap({ landscape = false } = {}) {
     .print-toolbar .go{background:#2FA84F;color:#fff}
     .print-toolbar .close{background:transparent;color:#fff;border:1px solid rgba(255,255,255,.4)}
     body{padding-top:56px !important}
-    @media print{.print-toolbar{display:none !important}body{padding-top:0 !important}}
+    /* Paper margin restored here, since @page no longer supplies one.
+       12mm all round matches what the 10mm @page margin plus the old body
+       padding gave, so nothing shifts noticeably on the printed sheet. */
+    @media print{.print-toolbar{display:none !important}body{padding:12mm !important}}
   </style>
   <div class="print-toolbar no-print">
     <span>Use your browser's print dialog to change paper size, orientation or save as PDF.</span>

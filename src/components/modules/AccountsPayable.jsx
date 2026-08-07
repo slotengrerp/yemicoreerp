@@ -14,7 +14,7 @@ import { getProjects }  from '../../utils/projectMaster';
 import { BANK_ACCOUNTS, DEFAULT_FX } from '../../utils/financeConstants';
 import { matchBill, decideOnVariance } from '../../utils/threeWayMatch';
 import { diffAndPush } from '../../hooks/usePerRecordSync';
-import { printBootstrap, openPrintWindow} from '../../utils/logo';
+import { printHeader, printBootstrap, openPrintWindow} from '../../utils/logo';
 
 const uid   = () => generateId();
 const today = () => new Date().toISOString().split('T')[0];
@@ -783,8 +783,8 @@ export default function AccountsPayable() {
                     th,td{border:1px solid #ccc;padding:6px 10px;text-align:left}
                     th{background:#f2f5f3}
                   </style></head><body>
-                    <h2>Supplier Ledger — ${supp.name}</h2>
-                    <div>${supp.code} · ${supp.currency}</div>
+                    ${printHeader('SUPPLIER LEDGER', supp.name)}
+                    <div style="font-size:11px;color:#4A5C4E;margin-bottom:8px">${supp.code} · ${supp.currency}</div>
                     <table><thead><tr><th>Date</th><th>Type</th><th>Ref</th><th>Description</th><th>Amount</th><th>Balance</th></tr></thead><tbody>${rowsHtml}</tbody></table>
                     ${printBootstrap({landscape:false})}
                   </body></html>`);

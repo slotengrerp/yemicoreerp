@@ -11,7 +11,7 @@ import { periodOf, isPeriodClosed, isYearClosed } from "../../utils/periods";
 import { mergeCOA } from "../../utils/chartOfAccounts";
 import { FG } from "../ui";
 import { diffAndPush } from "../../hooks/usePerRecordSync";
-import { printHeader, PRINT_CSS, printBootstrap, openPrintWindow } from '../../utils/logo';
+import { printHeader, PRINT_CSS, printBootstrap, openPrintWindow, SLOT_LOGO_IMG_TAG } from '../../utils/logo';
 
 // ════════════════════════════════════════════════════════════════════
 // SLOT ENGINEERING — ACCOUNTING MODULE v3.0
@@ -59,10 +59,13 @@ const printSection = (title, contentHtml) => {
     </style>
     </head><body>
     <div class="header">
-      <div>
+      <div style="display:flex;align-items:center;gap:12px">
+        ${SLOT_LOGO_IMG_TAG}
+        <div>
         <div class="company">SLOT ENGINEERING NIGERIA LIMITED</div>
         <div class="meta">No 205 Eneka Road, Elimgbu, Port Harcourt · RC: 0000001</div>
         <div class="meta">ernest.ojukwu@sloteng.com · +234(0)8033132454</div>
+        </div>
       </div>
       <div class="report-title">${title}</div>
     </div>

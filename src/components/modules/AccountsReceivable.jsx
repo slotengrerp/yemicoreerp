@@ -15,7 +15,7 @@ import { canDo }    from '../../utils/auth';
 import { showToast, formatDate, generateId } from '../../utils/helpers';
 import { saveDBLocal } from '../../utils/db';
 import { logActivity }  from '../../utils/audit';
-import { SLOT_LOGO_SRC, printBootstrap, openPrintWindow} from '../../utils/logo';
+import { SLOT_LOGO_SRC, printHeader, printBootstrap, openPrintWindow} from '../../utils/logo';
 import { diffAndPush } from '../../hooks/usePerRecordSync';
 import { getClients, getClientByCode, addClient } from '../../utils/clientMaster';
 import { getProjects } from '../../utils/projectMaster';
@@ -1127,8 +1127,8 @@ export default function AccountsReceivable() {
                     th,td{border:1px solid #ccc;padding:6px 10px;text-align:left}
                     th{background:#f2f5f3}
                   </style></head><body>
-                    <h2>Customer Ledger — ${cust.name}</h2>
-                    <div>${cust.code} · ${cust.currency}</div>
+                    ${printHeader('CUSTOMER LEDGER', cust.name)}
+                    <div style="font-size:11px;color:#4A5C4E;margin-bottom:8px">${cust.code} · ${cust.currency}</div>
                     <table><thead><tr><th>Date</th><th>Type</th><th>Ref</th><th>Description</th><th>Amount</th><th>Balance</th></tr></thead><tbody>${rowsHtml}</tbody></table>
                     ${printBootstrap({landscape:false})}
                   </body></html>`);

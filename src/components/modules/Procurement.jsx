@@ -7,7 +7,7 @@ import { useApp } from '../../context/AppContext';
 import { useTheme } from '../../context/ThemeContext';
 import { canDo } from '../../utils/auth';
 import { showToast, formatDate } from '../../utils/helpers';
-import { printHeader, PRINT_CSS, printBootstrap, openPrintWindow} from '../../utils/logo';
+import { printHeader, PRINT_CSS, printBootstrap, openPrintWindow, SLOT_LOGO_B64 } from '../../utils/logo';
 import { getVendors } from '../../utils/vendorMaster';
 import { getClients } from '../../utils/clientMaster';
 import { initApproval, applyDecision, canApproveAtCurrentLevel, approvalSummary } from '../../utils/approvalEngine';
@@ -41,13 +41,14 @@ function printPO(po) {
   const itemRows = (po.items||[]).map((item,i) => `
     <tr style="background:${i%2?'#f3faf5':'#fff'}">
       <td style="padding:7px 10px;border-bottom:1px solid #EAF0EB">${i+1}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #EAF0EB;font-family:monospace;font-size:11px">${item.materialNo||'—'}</td>
       <td style="padding:7px 10px;border-bottom:1px solid #EAF0EB">${item.description||'—'}</td>
       <td style="padding:7px 10px;border-bottom:1px solid #EAF0EB;text-align:center">${item.qty||0}</td>
       <td style="padding:7px 10px;border-bottom:1px solid #EAF0EB;text-align:center">${item.unit||'—'}</td>
       <td style="padding:7px 10px;border-bottom:1px solid #EAF0EB;text-align:right">${fmt(item.unitPrice)}</td>
       <td style="padding:7px 10px;border-bottom:1px solid #EAF0EB;text-align:right;font-weight:700;color:#1A5C2A">${fmt((Number(item.qty)||0)*(Number(item.unitPrice)||0))}</td>
     </tr>`).join('');
-  openPrintWindow(`<!DOCTYPE html><html><head><title>PO ${po.poNo||''}</title><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Segoe UI',Arial,sans-serif;font-size:12px;color:#182A1C;padding:24px}table{width:100%;border-collapse:collapse}th{background:#1A5C2A;color:#fff;padding:8px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.4px}.info-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:16px 0}.field{margin-bottom:8px}.lbl{font-size:9px;font-weight:700;text-transform:uppercase;color:#182A1C;letter-spacing:.5px;margin-bottom:2px}.val{font-size:12px;font-weight:600;border-bottom:1px solid #DDE9DE;padding-bottom:3px}.total-row{background:#F0F8F2;font-weight:700}.sig{display:grid;grid-template-columns:1fr 1fr 1fr;gap:40px;margin-top:40px}.sig-line{border-top:1px solid #ccc;padding-top:6px;font-size:10px;font-weight:600;color:#182A1C}@media print{body{padding:12px}}</style></head><body>${printHeader('PURCHASE ORDER · ' + (po.poNo||''), formatDate(po.date))}<div class="info-grid"><div><div class="field"><div class="lbl">${partyLbl}</div><div class="val">${po.supplier||'—'}</div></div><div class="field"><div class="lbl">${partyLbl} Address</div><div class="val">${po.supplierAddress||'—'}</div></div><div class="field"><div class="lbl">Payment Terms</div><div class="val">${po.paymentTerms||'—'}</div></div></div><div><div class="field"><div class="lbl">Delivery Address</div><div class="val">${po.deliveryAddress||'—'}</div></div><div class="field"><div class="lbl">Delivery Date</div><div class="val">${formatDate(po.deliveryDate)||'—'}</div></div><div class="field"><div class="lbl">Status</div><div class="val">${po.status||'—'}</div></div></div></div><table style="margin-bottom:16px"><thead><tr><th>#</th><th>Description</th><th style="text-align:center">Qty</th><th style="text-align:center">Unit</th><th style="text-align:right">Unit Price</th><th style="text-align:right">Total</th></tr></thead><tbody>${itemRows}</tbody><tfoot><tr class="total-row"><td colspan="5" style="padding:8px 10px;text-align:right">Subtotal</td><td style="padding:8px 10px;text-align:right">${fmt(po.subtotal)}</td></tr><tr class="total-row"><td colspan="5" style="padding:8px 10px;text-align:right">VAT (${po.vatRate||0}%)</td><td style="padding:8px 10px;text-align:right">${fmt(po.vatAmount)}</td></tr><tr style="background:#1A5C2A;color:#fff"><td colspan="5" style="padding:10px;text-align:right;font-weight:800;font-size:13px">TOTAL</td><td style="padding:10px;text-align:right;font-weight:800;font-size:15px">${fmt(po.total)}</td></tr></tfoot></table>${po.notes?`<div style="margin-bottom:16px;padding:10px;background:#f3faf5;border-left:3px solid #1A5C2A;border-radius:4px"><div style="font-size:10px;font-weight:700;color:#182A1C;text-transform:uppercase;margin-bottom:4px">Notes</div><div style="font-size:12px">${po.notes}</div></div>`:''}<div class="sig"><div><div class="sig-line">Prepared By / Date</div></div><div><div class="sig-line">Authorised By / Date</div></div><div><div class="sig-line">${partyLbl} Acknowledgement / Date</div></div></div>${printBootstrap({landscape:false})}</body></html>`);
+  openPrintWindow(`<!DOCTYPE html><html><head><title>PO ${po.poNo||''}</title><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Segoe UI',Arial,sans-serif;font-size:12px;color:#182A1C;padding:24px}table{width:100%;border-collapse:collapse}th{background:#1A5C2A;color:#fff;padding:8px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.4px}.info-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:16px 0}.field{margin-bottom:8px}.lbl{font-size:9px;font-weight:700;text-transform:uppercase;color:#182A1C;letter-spacing:.5px;margin-bottom:2px}.val{font-size:12px;font-weight:600;border-bottom:1px solid #DDE9DE;padding-bottom:3px}.total-row{background:#F0F8F2;font-weight:700}.sig{display:grid;grid-template-columns:1fr 1fr 1fr;gap:40px;margin-top:40px}.sig-line{border-top:1px solid #ccc;padding-top:6px;font-size:10px;font-weight:600;color:#182A1C}@media print{body{padding:12px}}</style></head><body>${printHeader('PURCHASE ORDER · ' + (po.poNo||''), formatDate(po.date))}<div class="info-grid"><div><div class="field"><div class="lbl">${partyLbl}</div><div class="val">${po.supplier||'—'}</div></div><div class="field"><div class="lbl">${partyLbl} Address</div><div class="val">${po.supplierAddress||'—'}</div></div><div class="field"><div class="lbl">Payment Terms</div><div class="val">${po.paymentTerms||'—'}</div></div></div><div><div class="field"><div class="lbl">Delivery Address</div><div class="val">${po.deliveryAddress||'—'}</div></div><div class="field"><div class="lbl">Delivery Date</div><div class="val">${formatDate(po.deliveryDate)||'—'}</div></div><div class="field"><div class="lbl">Status</div><div class="val">${po.status||'—'}</div></div></div></div><table style="margin-bottom:16px"><thead><tr><th>#</th><th>Material No.</th><th>Description</th><th style="text-align:center">Qty</th><th style="text-align:center">Unit</th><th style="text-align:right">Unit Price</th><th style="text-align:right">Total</th></tr></thead><tbody>${itemRows}</tbody><tfoot><tr class="total-row"><td colspan="6" style="padding:8px 10px;text-align:right">Subtotal</td><td style="padding:8px 10px;text-align:right">${fmt(po.subtotal)}</td></tr><tr class="total-row"><td colspan="6" style="padding:8px 10px;text-align:right">VAT (${po.vatRate||0}%)</td><td style="padding:8px 10px;text-align:right">${fmt(po.vatAmount)}</td></tr><tr style="background:#1A5C2A;color:#fff"><td colspan="6" style="padding:10px;text-align:right;font-weight:800;font-size:13px">TOTAL</td><td style="padding:10px;text-align:right;font-weight:800;font-size:15px">${fmt(po.total)}</td></tr></tfoot></table>${po.notes?`<div style="margin-bottom:16px;padding:10px;background:#f3faf5;border-left:3px solid #1A5C2A;border-radius:4px"><div style="font-size:10px;font-weight:700;color:#182A1C;text-transform:uppercase;margin-bottom:4px">Notes</div><div style="font-size:12px">${po.notes}</div></div>`:''}<div class="sig"><div><div class="sig-line">Prepared By / Date</div></div><div><div class="sig-line">Authorised By / Date</div></div><div><div class="sig-line">${partyLbl} Acknowledgement / Date</div></div></div>${printBootstrap({landscape:false})}</body></html>`);
 }
 
 // ── Print: Supplier Invoice ──────────────────────────────────────────────────
@@ -414,10 +415,25 @@ function RFQModal({ rfq, onSave, onClose, onCreatePO }) {
 function POModal({ po, rfq, poType, onSave, onClose, onCreateWaybill, onViewWaybill, onCreateInvoice, onViewInvoice, waybills, invoices, currentUser, appSettings }) {
   const { C } = useTheme();
   const S = useStyles();
-  const isView = !!po?.id;
+  // ── 2026-08-06, GM: "the PO should be editable until it has been approved" ──
+  //
+  // `isView` used to be simply `!!po?.id`, so a PO became read-only the instant
+  // it was saved. A typo in a quantity or a price meant cancelling the PO and
+  // raising a new one, with a new number.
+  //
+  // isView now means "locked", and a PO only locks once it has been approved.
+  // Draft and Pending Approval stay editable. Approved / Partial / Complete /
+  // Rejected / Cancelled do not: past that point the document has been signed
+  // off, deliveries and invoices reference its lines, and silently changing it
+  // would invalidate the approval that was given.
+  const LOCKED_STATUSES = ['Approved', 'Partial', 'Complete', 'Rejected', 'Cancelled'];
+  const isView = !!po?.id && LOCKED_STATUSES.includes(po.status);
+  // Some controls key off "is this an existing record" rather than "is it
+  // locked" — the approval chain, the Linked Documents panel, the print button.
+  const isSaved = !!po?.id;
   const TERMS = ['Net 7', 'Net 15', 'Net 30', 'Net 45', 'Net 60', '50% Advance, 50% on Delivery', 'Full Payment on Delivery', 'Full Payment in Advance'];
 
-  const initItems = rfq?.items?.map(ri => ({ id: uid(), rfqItemId: ri.id, description: ri.description, qty: ri.qty, unit: ri.unit, unitPrice: '', totalPrice: 0 })) || [{ id: uid(), rfqItemId: '', description: '', qty: '', unit: 'units', unitPrice: '', totalPrice: 0 }];
+  const initItems = rfq?.items?.map(ri => ({ id: uid(), rfqItemId: ri.id, materialNo: ri.materialNo || '', description: ri.description, qty: ri.qty, unit: ri.unit, unitPrice: '', totalPrice: 0 })) || [{ id: uid(), rfqItemId: '', materialNo: '', description: '', qty: '', unit: 'units', unitPrice: '', totalPrice: 0 }];
 
   const [form, setForm] = useState(po || {
     poNo: '', poType: poType || 'Client', rfqId: rfq?.id || '', rfqNo: rfq?.rfqNo || '',
@@ -474,7 +490,7 @@ function POModal({ po, rfq, poType, onSave, onClose, onCreateWaybill, onViewWayb
   }
 
   function addItem() {
-    setForm(p => ({ ...p, items: [...p.items, { id: uid(), rfqItemId: '', description: '', qty: '', unit: 'units', unitPrice: '', totalPrice: 0 }] }));
+    setForm(p => ({ ...p, items: [...p.items, { id: uid(), rfqItemId: '', materialNo: '', description: '', qty: '', unit: 'units', unitPrice: '', totalPrice: 0 }] }));
   }
   function removeItem(i) {
     const next = form.items.filter((_, j) => j !== i);
@@ -514,18 +530,18 @@ function POModal({ po, rfq, poType, onSave, onClose, onCreateWaybill, onViewWayb
         {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16, paddingBottom: 12, borderBottom: '1px solid ' + C.borderLight }}>
           <div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: C.text }}>🛒 {isView ? form.poNo : `New ${form.poType === 'SLOT' ? 'SLOT' : 'Client'} Purchase Order`}</div>
-            {isView && form.rfqNo && <div style={{ fontSize: 12, color: C.textMuted, marginTop: 2 }}>Linked RFQ: <span style={{ color: C.green, fontWeight: 600 }}>{form.rfqNo}</span></div>}
+            <div style={{ fontSize: 16, fontWeight: 700, color: C.text }}>🛒 {isSaved ? form.poNo : `New ${form.poType === 'SLOT' ? 'SLOT' : 'Client'} Purchase Order`}</div>
+            {isSaved && form.rfqNo && <div style={{ fontSize: 12, color: C.textMuted, marginTop: 2 }}>Linked RFQ: <span style={{ color: C.green, fontWeight: 600 }}>{form.rfqNo}</span></div>}
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            {isView && form.poType !== 'SLOT' && (form.status === 'Approved' || form.status === 'Partial') && (
+            {isSaved && form.poType !== 'SLOT' && (form.status === 'Approved' || form.status === 'Partial') && (
               <>
                 <Btn variant="outline" sm onClick={() => onCreateWaybill(po)}>+ Waybill</Btn>
                 <Btn variant="amber" sm onClick={() => onCreateInvoice(po)}>+ Invoice</Btn>
               </>
             )}
-            {isView && <Btn variant="ghost" sm onClick={() => printPO(form)}>🖨 Print PO</Btn>}
-            {isView && <Tag status={getPOStatus(po, waybills, invoices)} />}
+            {isSaved && <Btn variant="ghost" sm onClick={() => printPO(form)}>🖨 Print PO</Btn>}
+            {isSaved && <Tag status={getPOStatus(po, waybills, invoices)} />}
             <button onClick={onClose} aria-label="Close dialog" style={{ background: 'none', border: 'none', fontSize: 22, color: C.textMuted, cursor: 'pointer' }}>×</button>
           </div>
         </div>
@@ -555,7 +571,7 @@ function POModal({ po, rfq, poType, onSave, onClose, onCreateWaybill, onViewWayb
           <FG label="PO Date"><input style={S.inp} type="date" value={form.date} onChange={set('date')} readOnly={isView} /></FG>
           <FG label="Expected Delivery Date">
             <input style={S.inp} type="date" value={form.deliveryDate} onChange={set('deliveryDate')} readOnly={isView} />
-            {isView && form.deliveryDate && <DeliveryCountdown expected={form.deliveryDate} actual={form.actualDeliveryDate} />}
+            {isSaved && form.deliveryDate && <DeliveryCountdown expected={form.deliveryDate} actual={form.actualDeliveryDate} />}
           </FG>
           <FG label="Actual Delivery Date"><input style={S.inp} type="date" value={form.actualDeliveryDate||''} onChange={set('actualDeliveryDate')} /></FG>
           <FG label={form.poType === 'SLOT' ? 'Supplier Name' : 'Client Name'} full>
@@ -585,7 +601,7 @@ function POModal({ po, rfq, poType, onSave, onClose, onCreateWaybill, onViewWayb
               <input style={S.inp} value={form.status} readOnly />
             )}
           </FG>
-          {isView && <FG label="Approved By"><input style={S.inp} value={form.approvedBy} readOnly /></FG>}
+          {isSaved && <FG label="Approved By"><input style={S.inp} value={form.approvedBy} readOnly /></FG>}
           {form.poType === 'SLOT' && (
             <>
               <FG label="Waybill Reference No."><input style={S.inp} value={form.waybillRef||''} onChange={set('waybillRef')} placeholder="Enter waybill ref. no. for record" /></FG>
@@ -600,7 +616,7 @@ function POModal({ po, rfq, poType, onSave, onClose, onCreateWaybill, onViewWayb
         <div style={{ overflowX: 'auto', marginBottom: 12 }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
             <thead><tr style={{ background: C.greenPale }}>
-              {['#', 'Description', 'Qty', 'Unit', 'Unit Price' + curSuffix(form.currency), 'Total' + curSuffix(form.currency), isView ? 'Delivered' : '', isView ? 'Remaining' : '', !isView ? 'Del' : ''].filter(Boolean).map(h => <th key={h} style={S.th}>{h}</th>)}
+              {['#', 'Material No.', 'Description', 'Qty', 'Unit', 'Unit Price' + curSuffix(form.currency), 'Total' + curSuffix(form.currency), isView ? 'Delivered' : '', isView ? 'Remaining' : '', !isView ? 'Del' : ''].filter(Boolean).map(h => <th key={h} style={S.th}>{h}</th>)}
             </tr></thead>
             <tbody>
               {form.items.map((item, i) => {
@@ -610,6 +626,7 @@ function POModal({ po, rfq, poType, onSave, onClose, onCreateWaybill, onViewWayb
                 return (
                   <tr key={item.id} style={rowBg}>
                     <td style={S.td}>{i + 1}</td>
+                    <td style={S.td}>{isView ? (item.materialNo || '—') : <input style={{ ...S.inp, width: 120 }} value={item.materialNo || ''} onChange={e => setItem(i, 'materialNo', e.target.value)} placeholder="MESC code" />}</td>
                     <td style={S.td}>{isView ? item.description : <input style={{ ...S.inp, minWidth: 200 }} value={item.description} onChange={e => setItem(i, 'description', e.target.value)} placeholder="Item description" />}</td>
                     <td style={S.td}>{isView ? item.qty : <input style={{ ...S.inp, width: 70 }} type="number" value={item.qty} onChange={e => setItem(i, 'qty', e.target.value)} />}</td>
                     <td style={S.td}>{isView ? item.unit : <input style={{ ...S.inp, width: 80 }} value={item.unit} onChange={e => setItem(i, 'unit', e.target.value)} />}</td>
@@ -623,9 +640,9 @@ function POModal({ po, rfq, poType, onSave, onClose, onCreateWaybill, onViewWayb
               })}
             </tbody>
             <tfoot>
-              <tr style={{ background: C.bgAlt }}><td colSpan={isView ? 5 : 4} style={{ ...S.td, textAlign: 'right', color: C.textMid }}>Subtotal</td><td colSpan={isView ? 4 : 2} style={{ ...S.td, fontWeight: 600 }}>{fmtC(form.subtotal, form.currency)}</td></tr>
-              <tr style={{ background: C.bgAlt }}><td colSpan={isView ? 5 : 4} style={{ ...S.td, textAlign: 'right', color: C.textMid }}>VAT ({form.vatRate}%)</td><td colSpan={isView ? 4 : 2} style={{ ...S.td, fontWeight: 600 }}>{fmtC(form.vatAmount, form.currency)}</td></tr>
-              <tr style={{ background: C.greenPale }}><td colSpan={isView ? 5 : 4} style={{ ...S.td, textAlign: 'right', fontWeight: 700 }}>TOTAL</td><td colSpan={isView ? 4 : 2} style={{ ...S.td, fontWeight: 700, color: C.green, fontSize: 14 }}>{fmtC(form.total, form.currency)}</td></tr>
+              <tr style={{ background: C.bgAlt }}><td colSpan={isView ? 6 : 5} style={{ ...S.td, textAlign: 'right', color: C.textMid }}>Subtotal</td><td colSpan={isView ? 4 : 2} style={{ ...S.td, fontWeight: 600 }}>{fmtC(form.subtotal, form.currency)}</td></tr>
+              <tr style={{ background: C.bgAlt }}><td colSpan={isView ? 6 : 5} style={{ ...S.td, textAlign: 'right', color: C.textMid }}>VAT ({form.vatRate}%)</td><td colSpan={isView ? 4 : 2} style={{ ...S.td, fontWeight: 600 }}>{fmtC(form.vatAmount, form.currency)}</td></tr>
+              <tr style={{ background: C.greenPale }}><td colSpan={isView ? 6 : 5} style={{ ...S.td, textAlign: 'right', fontWeight: 700 }}>TOTAL</td><td colSpan={isView ? 4 : 2} style={{ ...S.td, fontWeight: 700, color: C.green, fontSize: 14 }}>{fmtC(form.total, form.currency)}</td></tr>
             </tfoot>
           </table>
         </div>
@@ -635,7 +652,7 @@ function POModal({ po, rfq, poType, onSave, onClose, onCreateWaybill, onViewWayb
         )}
 
         {/* Linked documents (view mode only) */}
-        {isView && (linkedWaybills.length > 0 || linkedInvoices.length > 0) && (
+        {isSaved && (linkedWaybills.length > 0 || linkedInvoices.length > 0) && (
           <>
             <SectionLabel label="Linked Documents" />
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -650,7 +667,7 @@ function POModal({ po, rfq, poType, onSave, onClose, onCreateWaybill, onViewWayb
         )}
 
         {/* Approval chain — replaces the old free-form Status=Approved dropdown */}
-        {isView && form.status === 'Draft' && (
+        {isSaved && form.status === 'Draft' && (
           <div style={{ marginTop: 16, padding: '12px 14px', background: C.greenPale, border: '1px solid ' + C.borderLight, borderRadius: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={{ fontSize: 12, color: C.textMuted }}>
               This PO is still a Draft. Submitting routes it through the authorization chain for its value ({fmt(form.total)}) — see Settings → Approvals for the current bands.
@@ -658,7 +675,7 @@ function POModal({ po, rfq, poType, onSave, onClose, onCreateWaybill, onViewWayb
             <Btn onClick={submitForApproval}>Submit for Approval</Btn>
           </div>
         )}
-        {isView && form.approval && form.status !== 'Draft' && (
+        {isSaved && form.approval && form.status !== 'Draft' && (
           <div style={{ marginTop: 16, padding: '12px 14px', background: form.status === 'Rejected' ? 'rgba(192,57,43,.08)' : form.status === 'Approved' ? 'rgba(26,122,74,.08)' : 'rgba(201,122,10,.08)', border: '1px solid ' + (form.status === 'Rejected' ? 'rgba(192,57,43,.2)' : form.status === 'Approved' ? 'rgba(26,122,74,.2)' : 'rgba(201,122,10,.2)'), borderRadius: 8 }}>
             <div style={{ fontSize: 12.5, fontWeight: 700, color: form.status === 'Rejected' ? C.danger : form.status === 'Approved' ? C.success : C.amber, marginBottom: 6 }}>
               {approvalSummary(form.approval, appSettings)}
@@ -687,7 +704,7 @@ function POModal({ po, rfq, poType, onSave, onClose, onCreateWaybill, onViewWayb
         {!isView && (
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', paddingTop: 14, borderTop: '1px solid ' + C.borderLight }}>
             <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
-            <Btn onClick={() => onSave(form)}>Save Purchase Order</Btn>
+            <Btn onClick={() => onSave(form)}>{isSaved ? 'Update Purchase Order' : 'Save Purchase Order'}</Btn>
           </div>
         )}
         {isView && (
@@ -708,7 +725,14 @@ function POModal({ po, rfq, poType, onSave, onClose, onCreateWaybill, onViewWayb
 // WaybillModal (passing the in-progress form) and from a row in the waybills
 // list without opening the record first.
 function printWaybill(form) {
-  const totalDelivered = (form.items || []).reduce((s, i) => s + (Number(i.deliveredQty) || 0), 0);
+  // 2026-08-06, GM: on a partial delivery the sheet listed every line on the
+  // PO, including the ones with nothing on the truck — pages of "0 units" that
+  // the driver and the receiving officer had to read past. A delivery note
+  // should describe what was actually delivered, so lines with no quantity are
+  // left off. (The full ordered list still lives on the PO itself.)
+  const delivered = (form.items || []).filter(i => (Number(i.deliveredQty) || 0) > 0);
+  const omitted   = (form.items || []).length - delivered.length;
+  const totalDelivered = delivered.reduce((s, i) => s + (Number(i.deliveredQty) || 0), 0);
   openPrintWindow(`<!DOCTYPE html><html><head><title>${form.waybillNo}</title><style>
       body{font-family:'Segoe UI',Arial,sans-serif;font-size:12px;color:#182A1C;padding:28px;max-width:860px;margin:0 auto}
       .header-bar{background:#C97A0A;color:#fff;padding:8px 16px;display:flex;justify-content:space-between;font-weight:700;font-size:13px}
@@ -723,9 +747,21 @@ function printWaybill(form) {
       .sig{border-top:1px solid #ccc;padding-top:6px;font-size:10px;font-weight:600;color:#182A1C;margin-top:30px}
       @media print{body{padding:16px}}
     </style></head><body>
-      <div style="background:linear-gradient(135deg,#0F3A1A,#1A5C2A);padding:16px 20px;border-radius:8px 8px 0 0;display:flex;justify-content:space-between;align-items:center">
-        <div style="color:#fff;font-size:16px;font-weight:800">SLOT Engineering Nigeria Limited</div>
-        <div style="color:rgba(255,255,255,.7);font-size:11px">GOODS RECEIVED NOTE / WAYBILL</div>
+      <!-- 2026-08-06, GM: this banner carried the company NAME but no logo —
+           the waybill was the only Procurement document not using printHeader(),
+           which embeds it. The logo is added here rather than switching to
+           printHeader() so the delivery note keeps its own distinct look. -->
+      <div style="background:linear-gradient(135deg,#0F3A1A,#1A5C2A);padding:14px 20px;border-radius:8px 8px 0 0;display:flex;justify-content:space-between;align-items:center">
+        <div style="display:flex;align-items:center;gap:12px">
+          <div style="background:#fff;border-radius:6px;padding:4px 6px;display:flex">
+            <img src="data:image/jpeg;base64,${SLOT_LOGO_B64}" alt="SLOT Engineering Nigeria Limited" style="height:38px;width:auto;display:block" />
+          </div>
+          <div>
+            <div style="color:#fff;font-size:16px;font-weight:800">SLOT Engineering Nigeria Limited</div>
+            <div style="color:rgba(255,255,255,.6);font-size:10px;margin-top:2px">Port Harcourt, Rivers State, Nigeria</div>
+          </div>
+        </div>
+        <div style="color:rgba(255,255,255,.75);font-size:11px;font-weight:600">GOODS RECEIVED NOTE / WAYBILL</div>
       </div>
       <div class="header-bar"><span>${form.waybillNo || 'DRAFT'}</span><span>Date: ${form.date}</span></div>
       <div class="meta">
@@ -738,14 +774,15 @@ function printWaybill(form) {
         ${form.deliveryAddress?`<div class="f" style="grid-column:1/-1"><label>Delivery Address</label><span>${form.deliveryAddress}</span></div>`:''}
       </div>
       <table>
-        <thead><tr><th>#</th><th>Description</th><th>Qty</th><th>Unit</th></tr></thead>
+        <thead><tr><th>#</th><th>Material No.</th><th>Description</th><th>Qty</th><th>Unit</th></tr></thead>
         <tbody>
-          ${(form.items||[]).map((item,i)=>
-            `<tr><td>${i+1}</td><td>${item.description}</td><td style="font-weight:700;color:#1A5C2A">${item.deliveredQty||0}</td><td>${item.unit}</td></tr>`
-          ).join('')}
+          ${delivered.map((item,i)=>
+            `<tr><td>${i+1}</td><td>${item.materialNo||'—'}</td><td>${item.description}</td><td style="font-weight:700;color:#1A5C2A">${item.deliveredQty||0}</td><td>${item.unit}</td></tr>`
+          ).join('') || '<tr><td colspan="5" style="text-align:center;padding:18px">No items recorded as delivered on this waybill.</td></tr>'}
         </tbody>
-        <tfoot><tr class="tfoot-row"><td colspan="2">Total This Delivery</td><td colspan="2" style="font-weight:800">${totalDelivered} units</td></tr></tfoot>
+        <tfoot><tr class="tfoot-row"><td colspan="3">Total This Delivery</td><td colspan="2" style="font-weight:800">${totalDelivered} units</td></tr></tfoot>
       </table>
+      ${omitted > 0 ? `<div style="margin-top:8px;font-size:10.5px;color:#4A5C4E">Partial delivery — ${omitted} further item${omitted>1?'s':''} on PO ${form.poNo||''} ${omitted>1?'were':'was'} not delivered on this trip and ${omitted>1?'are':'is'} not listed above.</div>` : ''}
       ${form.notes?`<div style="margin-top:12px;padding:10px;background:#f9fafb;border-radius:6px;font-size:11px"><strong>Notes:</strong> ${form.notes}</div>`:''}
       <div class="sigs">
         <div><div class="sig">Driver Signature / Date</div></div>
@@ -773,7 +810,7 @@ function WaybillModal({ wb, po, onSave, onClose, onCreateInvoice, allWaybills = 
           .filter(wi => wi.poItemId === pi.id)
           .reduce((s, wi) => s + (Number(wi.deliveredQty) || 0), 0);
         const remaining = Math.max(0, (Number(pi.qty) || 0) - prevDelivered);
-        return { id: uid(), poItemId: pi.id, description: pi.description, orderedQty: Number(pi.qty) || 0, previouslyDelivered: prevDelivered, remaining, deliveredQty: '', unit: pi.unit, unitPrice: Number(pi.unitPrice) || 0 };
+        return { id: uid(), poItemId: pi.id, materialNo: pi.materialNo || '', description: pi.description, orderedQty: Number(pi.qty) || 0, previouslyDelivered: prevDelivered, remaining, deliveredQty: '', unit: pi.unit, unitPrice: Number(pi.unitPrice) || 0 };
       })
       .filter(item => item.remaining > 0); // Only show items still outstanding
   })();
