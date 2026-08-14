@@ -28,7 +28,13 @@ function KPI({ label, value, sub, accent, delta, icon, onClick }) {
   const c = accent || C.green;
   const up = delta > 0;
   return (
-    <div style={{ background:C.bgCard, border:'1px solid '+C.border, borderRadius:12, padding:'14px 16px', flex:1, minWidth:155, position:'relative', boxShadow:C.shadowCard }}>
+    // 2026-08-14: onClick was destructured from props but never attached to
+    // any element below — every call site that passed onClick={()=>onNav?.(...)}
+    // (Total Invoiced, Revenue Received, Outstanding, Total Staff, Active
+    // Assets, Pending Approvals) rendered a normal-looking card that simply
+    // did nothing when clicked. Dashboard.jsx's own KPI component wires this
+    // correctly (onClick={onClick} + cursor:pointer); this one didn't.
+    <div onClick={onClick} style={{ background:C.bgCard, border:'1px solid '+C.border, borderRadius:12, padding:'14px 16px', flex:1, minWidth:155, position:'relative', boxShadow:C.shadowCard, cursor:onClick?'pointer':'default' }}>
       <div style={{ position:'absolute', left:0, top:0, bottom:0, width:4, background:c, borderRadius:'12px 0 0 12px' }} />
       <div style={{ paddingLeft:8 }}>
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:6 }}>
@@ -257,7 +263,7 @@ export default function Analytics({ onNav }) {
         <KPI label="Revenue Received" value={fmtM(kpis.totalReceived)} sub="payments collected" icon="💰" accent={C.success} onClick={()=>onNav?.("invoices")} />
         <KPI label="Outstanding" value={fmtM(kpis.outstanding)} sub="accounts receivable" icon="⏳" accent={kpis.outstanding>0?C.amber:C.success} onClick={()=>onNav?.("invoices")} />
         <KPI label="Total Staff" value={kpis.totalStaff} sub={`${nlng.length} NLNG · ${slot.length} SLOT`} icon="👥" onClick={()=>onNav?.("nlng")} />
-        <KPI label="Active Assets" value={kpis.activeAssets} sub={`NBV: ${fmtM(kpis.assetNBV)}`} icon="🏗" accent={C.info} onClick={()=>onNav?.("inventory")} />
+        <KPI label="Active Assets" value={kpis.activeAssets} sub={`NBV: ${fmtM(kpis.assetNBV)}`} icon="🏗" accent={C.info} onClick={()=>onNav?.("fixedassets")} />
         <KPI label="Pending Approvals" value={kpis.pendingApprovals} sub="awaiting action" icon="✅" accent={kpis.pendingApprovals>0?C.danger:C.success} onClick={()=>onNav?.("approvals")} />
       </div>
 

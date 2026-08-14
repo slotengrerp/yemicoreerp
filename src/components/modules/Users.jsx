@@ -85,8 +85,8 @@ function Tag({ role, appSettings }) {
 function KPI({ label, value, accent, onClick }) {
   const { C } = useTheme();
   return (
-    <div style={{ background:C.bgCard, border:'1px solid '+C.border, borderRadius:12, padding:'13px 15px',
-      flex:1, minWidth:120, position:'relative', boxShadow:C.shadowCard }}>
+    <div onClick={onClick} style={{ background:C.bgCard, border:'1px solid '+C.border, borderRadius:12, padding:'13px 15px',
+      flex:1, minWidth:120, position:'relative', boxShadow:C.shadowCard, cursor:onClick?'pointer':'default' }}>
       <div style={{ position:'absolute', left:0, top:0, bottom:0, width:4,
         background:accent||C.green, borderRadius:'12px 0 0 12px' }} />
       <div style={{ paddingLeft:8 }}>

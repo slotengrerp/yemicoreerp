@@ -6,7 +6,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useApp } from '../../context/AppContext';
 import { useTheme } from '../../context/ThemeContext';
 import { canDo } from '../../utils/auth';
-import { showToast, formatDate } from '../../utils/helpers';
+import { showToast, formatDate, getDeepLinkTab } from '../../utils/helpers';
 import { printHeader, PRINT_CSS, printBootstrap, openPrintWindow, SLOT_LOGO_B64 } from '../../utils/logo';
 import { getVendors } from '../../utils/vendorMaster';
 import { getClients } from '../../utils/clientMaster';
@@ -1152,7 +1152,14 @@ export default function Procurement({ onNav }) {
   }
 
   // ── UI state ─────────────────────────────────────────────────────────────
-  const [tab,       setTab]       = useState('po');
+  // 2026-08-14: this module never read the deep-link sessionStorage key at
+  // all (see getDeepLinkTab in utils/helpers.js — every other module that
+  // supports deep links, e.g. Inventory/TerminalOps, calls it here). Dashboard
+  // alert banners that claim "Click to open Procurement → Supplier Invoices
+  // tab" (writeDeepLink('procurement','invoice')) were silently landing on
+  // the hardcoded default 'po' tab instead. Wiring this in fixes both that
+  // alert and the Dashboard "Supplier Invoices" KPI.
+  const [tab,       setTab]       = useState(() => getDeepLinkTab('procurement', 'po'));
   const [poTypeFilter, setPoTypeFilter] = useState('Client'); // which PO type is shown in the PO tab
   const [search,    setSearch]    = useState('');
   const [modal,     setModal]     = useState(null);

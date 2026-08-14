@@ -280,7 +280,15 @@ export default function Dashboard({ onNav }) {
             read 11 (9 Pending + 2 Paid). Same number as before; the label now
             says what it's actually counting, matching Procurement's own
             "Pending Invoices" card. */}
-        <KPI label="Pending Invoices"  value={pendingInv}                     accent={C.warning} icon="🧾" sub={formatCurrency(totalInvValue) + ' total'}    onClick={()=>onNav?.('invoices')} />
+        {/* 2026-08-14: this value/label is pending SUPPLIER invoices (see the
+            2026-08-13 fix note above pendingInv's computation — it matches
+            Procurement's own "Pending Invoices" card), not customer Accounts
+            Receivable invoices. onClick used to send users to 'invoices' (AR),
+            which is a completely different, unrelated dataset — landed on an
+            empty page. Relabeled and deep-linked to Procurement's own Supplier
+            Invoices tab instead, which is what this number is actually
+            counting. */}
+        <KPI label="Supplier Invoices" value={pendingInv}                     accent={C.warning} icon="🧾" sub={formatCurrency(totalInvValue) + ' total'}    onClick={()=>{ writeDeepLink('procurement','invoice'); onNav?.('procurement'); }} />
         <KPI label="Containers Active" value={activeContainers}               accent="#9B59B6"   icon="📦" sub={containers.length + ' total'}                onClick={()=>onNav?.('terminal')} />
         <KPI label="Terminal Charges"  value={formatCurrency(totalTermCharges)} accent={C.danger} icon="🏭" sub={unpostedCharges + ' unposted'}              onClick={()=>onNav?.('terminal')} />
       </div>

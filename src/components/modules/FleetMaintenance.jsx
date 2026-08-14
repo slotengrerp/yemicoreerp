@@ -679,7 +679,15 @@ export default function FleetMaintenance({ onNav }) {
   const [handovers, setHandovers]= useState(saved?.handovers || EMPTY_FLEET_DATA.handovers);
   const [facility,     setFacility]    = useState(saved?.facilitySchedule || EMPTY_FLEET_DATA.facilitySchedule);
   const [calibration,  setCalibration] = useState(saved?.calibration || []);
-  const [tab, setTab] = useState(() => getDeepLinkTab('fleet', 'fleet'));
+  // 2026-08-14: was getDeepLinkTab('fleet', ...) but Dashboard's calibration-
+  // due/overdue alerts write their deep link under the module id 'vehicles'
+  // (writeDeepLink('vehicles','calibration') — 'vehicles' is this module's
+  // actual id in Sidebar/App.jsx's PAGES map; 'fleet' was never a real page
+  // id here). Reading the wrong sessionStorage key meant those alerts always
+  // silently landed on the default Fleet Register tab instead of Calibration
+  // & Cert. Nothing else wrote to the 'fleet' key, so this was always a dead
+  // read.
+  const [tab, setTab] = useState(() => getDeepLinkTab('vehicles', 'fleet'));
 
   // Re-sync local arrays if central store (state.db.fleet) arrives after mount
   // (happens when syncCloud returns data after initial render with empty local arrays)

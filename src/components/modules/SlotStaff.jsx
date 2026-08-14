@@ -231,7 +231,10 @@ function KPI({ label, value, sub, accent, onClick }) {
   const { C } = useTheme();
   const c = accent||C.green;
   return (
-    <div style={{ background:C.bgCard, border:'1px solid '+C.border, borderRadius:12, padding:'12px 15px', flex:1, minWidth:148, position:'relative', boxShadow:C.shadowCard }}>
+    // 2026-08-14: onClick was destructured but never wired — the 4 call sites
+    // (setDeptFilter/setView shortcuts) rendered as normal cards that did
+    // nothing when clicked. See same fix in Analytics.jsx / Users.jsx.
+    <div onClick={onClick} style={{ background:C.bgCard, border:'1px solid '+C.border, borderRadius:12, padding:'12px 15px', flex:1, minWidth:148, position:'relative', boxShadow:C.shadowCard, cursor:onClick?'pointer':'default' }}>
       <div style={{ position:'absolute', left:0, top:0, bottom:0, width:4, background:c, borderRadius:'12px 0 0 12px' }} />
       <div style={{ paddingLeft:6 }}>
         <div style={{ fontSize:10, fontWeight:600, color:C.textMuted, textTransform:'uppercase', letterSpacing:'0.5px', marginBottom:4 }}>{label}</div>
