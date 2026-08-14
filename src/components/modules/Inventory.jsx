@@ -105,11 +105,31 @@ export default function Inventory({ onNav }) {
             createdAt: new Date().toISOString(),
           };
         });
-        const current = (db.inventory || []).filter(x => x.type !== tab);
-        const updated = [...current, ...imported];
-        diffAndPush('inventory', db.inventory, updated); // 2026-07-29 full-app sync sweep
-        dispatch({ type:'UPDATE_MODULE', mod:'inventory', data:updated });
-        saveDBLocal({ ...db, inventory:updated }, state.activity);
+        // 2026-08-14 QA fix: Vehicles is stored in its own `db.vehicles` /
+        // `vehicles` table (see getItems() and saveItems() above — manual
+        // Add/Edit/Delete on this tab already read and write there). This
+        // import path was never updated to match and unconditionally wrote
+        // every import into `db.inventory` / `inventory_items` instead —
+        // for the Vehicles tab that is a table the UI never reads from, so
+        // every imported vehicle silently vanished (saved with a success
+        // toast, gone on next load). Confirmed live: 1,884 orphaned
+        // type:"vehicles" rows sitting in inventory_items, invisible in the
+        // app, while the one vehicle added via "+ Add Item" (which goes
+        // through the correct saveItems() path) was the only one visible.
+        let nextDB;
+        if (tab === 'vehicles') {
+          const updated = [...(db.vehicles || []), ...imported];
+          diffAndPush('vehicles', db.vehicles, updated);
+          dispatch({ type:'UPDATE_MODULE', mod:'vehicles', data:updated });
+          nextDB = { ...db, vehicles: updated };
+        } else {
+          const current = (db.inventory || []).filter(x => x.type !== tab);
+          const updated = [...current, ...imported];
+          diffAndPush('inventory', db.inventory, updated); // 2026-07-29 full-app sync sweep
+          dispatch({ type:'UPDATE_MODULE', mod:'inventory', data:updated });
+          nextDB = { ...db, inventory: updated };
+        }
+        saveDBLocal(nextDB, state.activity);
         logActivity(dispatch, `Imported ${imported.length} ${tab} records`, currentUser);
         showToast(`✓ Imported ${imported.length} records into ${TAB_LABELS[tab]}`);
         if (importRef.current) importRef.current.value = '';
