@@ -6,6 +6,7 @@ import { AppProvider, useApp, defaultAppState } from './context/AppContext';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
 import { signOutOfSupabase, restoreSupabaseSession, onSupabaseAuthChange } from './supabase/auth';
 import { loadDBLocal, loadSettingsLocal, loadAccountingLocal, loadDBCloud, saveDBLocal, saveAccountingLocal, saveDBCloud, getStorageHealth, migrateFleetData } from './utils/db';
+import { computeAutoPostedJournals } from './utils/autoPostJournals';
 import { showToast, WIPE_FLAG_KEY } from './utils/helpers';
 import { flushQueue, getPendingCount, isOnline, subscribeToChanges } from './supabase/sync';
 import { supabase } from './supabase/client';
@@ -299,6 +300,31 @@ function Shell() {
   // direction called for in the project profile (Supabase as the
   // single source of truth, not localStorage).
   usePerRecordSync({ state, dispatch });
+
+  // ── Global GL auto-posting — QA fix (2026-08-14) ─────────────────────────
+  // computeAutoPostedJournals() (extracted from Accounting.jsx) used to only
+  // ever run inside Accounting's own component effect — so any other module
+  // or report reading state.acctData.journals before the user had opened
+  // Accounting at least once in that browser session silently saw an
+  // incomplete ledger, with nothing telling them numbers were missing.
+  // Confirmed live: Sage Reports' Comparative P&L showed Total Expenses
+  // ₦153,676,894 (missing ₦9,151,490 of "Other Direct Cost" from 5 unposted
+  // purchase invoices) until Accounting was visited once, at which point it
+  // silently corrected to ₦162,828,384 with no indication anything had
+  // changed. Running the same idempotent computation here — every JE has a
+  // deterministic ID and is skipped if already present — means the ledger is
+  // complete regardless of which module is opened first. Only dispatches
+  // when something actually changed (computeAutoPostedJournals returns the
+  // same array reference otherwise), so this can't loop against Accounting's
+  // own copy of the same effect or against itself.
+  useEffect(() => {
+    if (loading) return;
+    const current = state.acctData?.journals;
+    const next = computeAutoPostedJournals(current, state.db, state.appSettings);
+    if (next !== current) {
+      dispatch({ type: 'SET_ACCT', payload: { ...state.acctData, journals: next } });
+    }
+  }, [state.db, state.acctData, state.appSettings, loading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Reset scroll to top on every page navigation — no jump, no flash ──
   useEffect(() => {

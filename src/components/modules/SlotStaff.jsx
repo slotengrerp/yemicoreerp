@@ -273,8 +273,8 @@ function StaffModal({ modal, onSave, onClose, projects }) {
         <div style={{ padding:'0 24px 20px' }}>
           <SecLabel label="Staff Information" />
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
-            <FG label="Full Name" full><input style={inp} value={f.fullName} onChange={set('fullName')} placeholder="Full legal name" /></FG>
-            <FG label="Employee ID"><input style={inp} value={f.refId} onChange={set('refId')} placeholder="e.g. SLOT-001" /></FG>
+            <FG label="Full Name *" full><input style={inp} value={f.fullName} onChange={set('fullName')} placeholder="Full legal name" /></FG>
+            <FG label="Employee ID *"><input style={inp} value={f.refId} onChange={set('refId')} placeholder="e.g. SLOT-001" /></FG>
             <FG label="Employment Date"><input style={inp} type="date" value={f.employmentDate||''} onChange={set('employmentDate')} /></FG>
             <FG label="Department"><select style={inp} value={f.department} onChange={set('department')}><option value="">— Select —</option>{DEPARTMENTS.map(d=><option key={d}>{d}</option>)}</select></FG>
             <FG label="Service Title"><select style={inp} value={f.serviceTitle} onChange={set('serviceTitle')}><option value="">— Select —</option>{SERVICE_TITLES.map(t=><option key={t}>{t}</option>)}</select></FG>
@@ -417,6 +417,17 @@ export default function SlotStaff() {
   }
 
   function handleSave(f) {
+    // QA fix: same missing-validation bug as ContractStaff.jsx — blank
+    // "Save Staff Member" silently created a real staff record with no name
+    // or ID, counted in Total/Active Staff and Monthly Payroll.
+    if (!(f.fullName || '').trim()) {
+      showToast('Enter the staff member\'s full name before saving.', 'error');
+      return;
+    }
+    if (!(f.refId || '').trim()) {
+      showToast('Enter an Employee ID before saving.', 'error');
+      return;
+    }
     const basic=Number(f.basicSalary)||0, housing=Number(f.housing)||0, transport=Number(f.transport)||0;
     const record={ ...f, basicSalary:basic, housing, transport, grossSalary:basic+housing+transport };
     const isEdit=modal.mode==='edit';

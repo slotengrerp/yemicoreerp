@@ -193,9 +193,21 @@ export default function Analytics({ onNav }) {
       const dep = Math.min((cost-res)/ul*(months/12), cost-res);
       return a + Math.max(res, cost-dep);
     },0);
-    const pendingApprovals = [...requests.filter(r=>r.status==='Submitted'||r.status==='Pending'), ...pettycash.filter(p=>p.status==='Pending')].length;
+    // QA fix: this only ever counted requests + petty cash, so it silently
+    // undercounted against the real approval queue (Approvals.jsx), which
+    // also tracks procurement POs and invoices. Confirmed live: Dashboard's
+    // "1 purchase order awaiting approval" banner vs this KPI showing 0 for
+    // the same PO. Statuses here match Approvals.jsx's MODULE_CONFIGS
+    // pendingStatuses after its own QA fix (procurement really uses
+    // status:'Pending', set by Procurement.jsx's submitForApproval()).
+    const pendingApprovals = [
+      ...requests.filter(r=>r.status==='Submitted'||r.status==='Pending'),
+      ...pettycash.filter(p=>p.status==='Pending'),
+      ...procurement.filter(p=>p.status==='Pending'),
+      ...invoices.filter(i=>i.status==='Pending'),
+    ].length;
     return { totalInvoiced, totalReceived, outstanding, totalWHT, whtOutstanding, totalStaff, activeAssets, assetNBV, pendingApprovals };
-  }, [invoices, wht, nlng, slot, fixedassets, requests, pettycash]);
+  }, [invoices, wht, nlng, slot, fixedassets, requests, pettycash, procurement]);
 
   // ── Asset depreciation by category ────────────────────────────────────────
   const assetDepData = useMemo(() => {

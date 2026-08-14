@@ -10,6 +10,7 @@ import { showToast, formatDate } from '../../utils/helpers';
 import { saveDBLocal } from '../../utils/db';
 import { logActivity }  from '../../utils/audit';
 import { diffAndPush } from '../../hooks/usePerRecordSync';
+import { applyDecision } from '../../utils/approvalEngine';
 
 // Approvals mod key → RECORD_TABLES key. 'procurement' here only ever
 // touches .pos (see getModRecords/saveModRecords below), so it maps to
@@ -82,8 +83,22 @@ const MODULE_CONFIGS = {
     getDate: r => r.date,
     getPriority: r => r.priority,
     getRef: r => r.requestNo,
-    approve: (item, note, user) => ({ ...item, status:'Approved', approvedBy:user?.name||'Admin', approvedDate:today(), approvalNote:note }),
-    reject:  (item, note, user) => ({ ...item, status:'Rejected', approvedBy:user?.name||'Admin', approvedDate:today(), approvalNote:note }),
+    // QA fix: same nested-approval-chain issue as procurement above.
+    // Requests.jsx's own approve/reject (lines ~207/216) route through
+    // `item.approval` (requiredRoles/currentLevel/history) when present;
+    // this queue used to set only the top-level `status`, which would skip
+    // remaining levels on a multi-approver chain and desync `approval.status`
+    // from Requests.jsx's own approval panel.
+    approve: (item, note, user) => {
+      if (!item.approval) return { ...item, status:'Approved', approvedBy:user?.name||'Admin', approvedDate:today(), approvalNote:note };
+      const approval = applyDecision(item.approval, user, 'Approved', note);
+      return { ...item, approval, status:approval.status, approvedBy:user?.name||'Admin', approvedDate:today(), approvalNote:note };
+    },
+    reject: (item, note, user) => {
+      if (!item.approval) return { ...item, status:'Rejected', approvedBy:user?.name||'Admin', approvedDate:today(), approvalNote:note };
+      const approval = applyDecision(item.approval, user, 'Rejected', note);
+      return { ...item, approval, status:approval.status, approvedBy:user?.name||'Admin', approvedDate:today(), approvalNote:note };
+    },
     dispatchMod: 'request',
   },
   pettycash: {
@@ -94,8 +109,20 @@ const MODULE_CONFIGS = {
     getDate: r => r.date,
     getPriority: r => 'Normal',
     getRef: r => r.voucherNo,
-    approve: (item, note, user) => ({ ...item, status:'Approved', approvedBy:user?.name||'Admin' }),
-    reject:  (item, note, user) => ({ ...item, status:'Rejected', approvedBy:user?.name||'Admin' }),
+    // QA fix: same nested-approval-chain issue as procurement/request above —
+    // PettyCash.jsx's own approve/reject (lines ~232/249) route through
+    // item.approval via applyDecision(). Mirrored here, including PettyCash's
+    // own quirk that reject always finalizes to 'Rejected' outright (no
+    // partial-chain "rejected at this level" state) while approve can stay
+    // 'Pending' if more approval levels remain.
+    approve: (item, note, user) => {
+      const approval = item.approval ? applyDecision(item.approval, user, 'Approved', note) : { status: 'Approved' };
+      return { ...item, approval, status: approval.status, approvedBy: approval.status === 'Approved' ? (user?.name||'Admin') : item.approvedBy };
+    },
+    reject: (item, note, user) => {
+      const approval = item.approval ? applyDecision(item.approval, user, 'Rejected', note) : null;
+      return { ...item, approval, status:'Rejected', approvedBy:user?.name||'Admin' };
+    },
     dispatchMod: 'pettycash',
   },
   invoices: {
@@ -112,14 +139,40 @@ const MODULE_CONFIGS = {
   },
   procurement: {
     label:'Purchase Orders', icon:'🛒',
-    pendingStatuses:['Pending Approval','Submitted'],
+    // QA fix (2026-08-14): was ['Pending Approval','Submitted'] — those
+    // strings are never actually set anywhere. Procurement.jsx's own
+    // submitForApproval() sets status:'Pending' (see approvalEngine.js
+    // initApproval()), so every PO ever submitted for approval was
+    // permanently invisible to this centralised queue. Same recurring
+    // pattern as the earlier poStatus.js drift bug: two screens
+    // computing/checking the same status field with different string sets
+    // that silently fall out of sync.
+    pendingStatuses:['Pending'],
     getTitle: r => r.subject || r.poNo || r.id,
     getSubtitle: r => `${r.supplier||r.vendor||''} · ₦${(Number(r.totalAmount||r.total||r.amount)||0).toLocaleString('en-NG')}`,
     getDate: r => r.date || r.createdAt,
     getPriority: r => r.priority || 'Normal',
     getRef: r => r.poNo || r.id,
-    approve: (item, note, user) => ({ ...item, status:'Approved', approvedBy:user?.name||'Admin', approvalNote:note }),
-    reject:  (item, note, user) => ({ ...item, status:'Rejected', approvalNote:note }),
+    // QA fix: approve/reject here used to set only the top-level `status`
+    // field directly. POs actually carry a multi-level approval chain in
+    // `item.approval` (requiredRoles/currentLevel/history — see
+    // Procurement.jsx's own decide(), which calls applyDecision()). Setting
+    // status:'Approved' directly from here would (a) skip any remaining
+    // approval levels on a multi-approver chain instead of advancing it one
+    // step, and (b) leave `approval.status` stuck on 'Pending' forever,
+    // desyncing this queue's action from Procurement's own approval panel.
+    // Routing through the same applyDecision() the PO screen uses keeps both
+    // entry points consistent.
+    approve: (item, note, user) => {
+      if (!item.approval) return { ...item, status:'Approved', approvedBy:user?.name||'Admin', approvalNote:note };
+      const approval = applyDecision(item.approval, user, 'Approved', note);
+      return { ...item, approval, status:approval.status, approvedBy: approval.status === 'Approved' ? (user?.name||'Admin') : item.approvedBy, approvalNote:note };
+    },
+    reject: (item, note, user) => {
+      if (!item.approval) return { ...item, status:'Rejected', approvalNote:note };
+      const approval = applyDecision(item.approval, user, 'Rejected', note);
+      return { ...item, approval, status:approval.status, approvalNote:note };
+    },
     dispatchMod: 'procurement',
   },
   grn: {

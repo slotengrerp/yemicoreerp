@@ -265,8 +265,8 @@ function StaffModal({ modal, onSave, onClose, projects }) {
         <div style={{ padding:'0 24px 20px' }}>
           <SecLabel label="Personal Information" />
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
-            <FG label="Full Name" full><input style={inp} value={f.fullName} onChange={set('fullName')} placeholder="Full legal name" /></FG>
-            <FG label="Employee ID"><input style={inp} value={f.refId} onChange={set('refId')} placeholder="e.g. NLNG-ENG-005" /></FG>
+            <FG label="Full Name *" full><input style={inp} value={f.fullName} onChange={set('fullName')} placeholder="Full legal name" /></FG>
+            <FG label="Employee ID *"><input style={inp} value={f.refId} onChange={set('refId')} placeholder="e.g. NLNG-ENG-005" /></FG>
             <FG label="Email"><input style={inp} value={f.email} onChange={set('email')} type="email" /></FG>
             <FG label="Phone"><input style={inp} value={f.phone} onChange={set('phone')} placeholder="080…" /></FG>
             <FG label="Date of Birth"><input style={inp} value={f.dob} onChange={set('dob')} type="date" /></FG>
@@ -433,6 +433,20 @@ export default function ContractStaff() {
   }
 
   function handleSave(f) {
+    // QA fix: this form had zero required-field validation — clicking Save
+    // Staff Member on a completely blank form silently created a real staff
+    // record (name "—", counted in Total/Active Staff and Monthly Payroll)
+    // with no way to tell it apart from a real employee except by opening it.
+    // Matches the same required-field pattern used elsewhere in the app
+    // (Procurement, Inventory, Sales Orders, AR, AP).
+    if (!(f.fullName || '').trim()) {
+      showToast('Enter the staff member\'s full name before saving.', 'error');
+      return;
+    }
+    if (!(f.refId || '').trim()) {
+      showToast('Enter an Employee ID before saving.', 'error');
+      return;
+    }
     const basic=Number(f.basicSalary)||0, housing=Number(f.housing)||0, transport=Number(f.transport)||0;
     const record = { ...f, basicSalary:basic, housing, transport, grossSalary:basic+housing+transport };
     const isEdit = modal.mode==='edit';
