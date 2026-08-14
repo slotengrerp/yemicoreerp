@@ -32,29 +32,65 @@ export function exportToCSV(filename, data, options = {}) {
 // Keep same API surface so ExcelManager still works — alias exportToCSV as exportToXLSX
 export const exportToXLSX = exportToCSV;
 
+// ── Robust text decoding for uploaded files ───────────────────────────────────
+// 2026-08-14 QA fix. Every CSV import in this app read uploads with
+// FileReader.readAsText(file, 'utf-8'), which hard-assumes the upload is UTF-8.
+// Excel on Windows saves "CSV (Comma delimited)" in the ANSI codepage
+// (Windows-1252), where an en dash is the single byte 0x96 — not valid UTF-8.
+// readAsText does not fail on that; it silently substitutes U+FFFD. The bad
+// character then gets saved to Supabase and the original is unrecoverable.
+//
+// Two NLNG contract-staff roles are sitting in production as "As-Built Engineer
+// <U+FFFD> Instrumentation" and "<U+FFFD> Mechanical" (plus one copy carried
+// into payroll_runs). Hex-dumping the stored values confirms a literal EF BF BD,
+// i.e. a decoder substitution rather than a typo. Their provenance is NOT
+// proven: the on-disk roster CSV (SLOT_ContractStaff_NLNG_backup_2026-08-06.csv)
+// is pure ASCII and has a plain " - " in those same roles, so those three rows
+// did not come through this reader from that file. Treat the data as a separate
+// repair item; this change is about closing the latent decoder hole, which is
+// real regardless of which upload produced those particular values.
+//
+// Strategy: honour an explicit BOM first, then try strict UTF-8 (fatal:true, so
+// an invalid byte throws instead of silently degrading), and only fall back to
+// Windows-1252 when that throws. Genuine UTF-8 files can't be mis-detected,
+// since valid multi-byte UTF-8 sequences essentially never occur by accident in
+// Windows-1252 text — the fallback only ever runs on input UTF-8 has rejected.
+export function readTextSmart(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onerror = () => reject(new Error('Could not read file'));
+    r.onload = ev => {
+      try {
+        const buf = new Uint8Array(ev.target.result);
+        // Explicit BOMs are authoritative — Excel's "Unicode Text" is UTF-16LE.
+        if (buf[0] === 0xFF && buf[1] === 0xFE) { resolve(new TextDecoder('utf-16le').decode(buf.subarray(2))); return; }
+        if (buf[0] === 0xFE && buf[1] === 0xFF) { resolve(new TextDecoder('utf-16be').decode(buf.subarray(2))); return; }
+        const body = (buf[0] === 0xEF && buf[1] === 0xBB && buf[2] === 0xBF) ? buf.subarray(3) : buf;
+        try {
+          resolve(new TextDecoder('utf-8', { fatal: true }).decode(body));
+        } catch {
+          resolve(new TextDecoder('windows-1252').decode(body));
+        }
+      } catch (err) { reject(err); }
+    };
+    r.readAsArrayBuffer(file);
+  });
+}
+
 /**
  * Import rows from an uploaded CSV file.
  * @param {File} file
  * @returns {Promise<object[]>}
  */
 export function importFromCSV(file) {
-  return new Promise((resolve, reject) => {
-    const r = new FileReader();
-    r.onload = ev => {
-      try {
-        const text = ev.target.result;
-        const lines = text.split(/\r?\n/).filter(l => l.trim());
-        if (lines.length < 2) { reject(new Error('File has no data rows')); return; }
-        const headers = parseCSVLine(lines[0]);
-        const rows = lines.slice(1).map(line => {
-          const vals = parseCSVLine(line);
-          return Object.fromEntries(headers.map((h, i) => [h, vals[i] ?? '']));
-        }).filter(row => Object.values(row).some(v => v !== ''));
-        resolve(rows);
-      } catch (err) { reject(err); }
-    };
-    r.onerror = () => reject(new Error('Could not read file'));
-    r.readAsText(file, 'utf-8');
+  return readTextSmart(file).then(text => {
+    const lines = text.split(/\r?\n/).filter(l => l.trim());
+    if (lines.length < 2) throw new Error('File has no data rows');
+    const headers = parseCSVLine(lines[0]);
+    return lines.slice(1).map(line => {
+      const vals = parseCSVLine(line);
+      return Object.fromEntries(headers.map((h, i) => [h, vals[i] ?? '']));
+    }).filter(row => Object.values(row).some(v => v !== ''));
   });
 }
 
@@ -280,17 +316,10 @@ export function adaptRows(grid, modKey) {
  * @param {string} modKey  which MODULE_COLUMNS entry the file is destined for
  */
 export function importAdapted(file, modKey) {
-  return new Promise((resolve, reject) => {
-    const r = new FileReader();
-    r.onload = ev => {
-      try {
-        const lines = String(ev.target.result).split(/\r?\n/).filter(l => l.trim());
-        if (lines.length < 2) { reject(new Error('File has no data rows')); return; }
-        resolve(adaptRows(lines.map(parseCSVLine), modKey));
-      } catch (err) { reject(err); }
-    };
-    r.onerror = () => reject(new Error('Could not read file'));
-    r.readAsText(file, 'utf-8');
+  return readTextSmart(file).then(text => {
+    const lines = String(text).split(/\r?\n/).filter(l => l.trim());
+    if (lines.length < 2) throw new Error('File has no data rows');
+    return adaptRows(lines.map(parseCSVLine), modKey);
   });
 }
 

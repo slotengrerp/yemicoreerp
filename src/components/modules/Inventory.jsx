@@ -9,6 +9,7 @@ import { logActivity } from '../../utils/audit';
 import { Btn, Tag, StatCard, Modal, FG, FormGrid, SectionLabel, SearchBar, TabBar, EmptyState, Confirm } from '../ui';
 import { printHeader, SLOT_BRAND, PRINT_CSS, printBootstrap, openPrintWindow} from '../../utils/logo';
 import { valueIssue, journalFromStockIssue } from '../../utils/inventoryModel';
+import { readTextSmart } from '../../utils/excelIO';
 import { diffAndPush, pushOne, pushDelete } from '../../hooks/usePerRecordSync';
 
 const TAB_LABELS = { vehicles:'Vehicles Register', heavy:'Heavy Equipment Register', materials:'Construction Materials Register', office:'Office Appliances / Furniture Register' };
@@ -71,10 +72,10 @@ export default function Inventory({ onNav }) {
 
   function handleImport(file) {
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = e => {
+    // 2026-08-14: readTextSmart, not readAsText — Excel/Windows ANSI CSVs were
+    // silently losing every non-ASCII character to U+FFFD. See excelIO.js.
+    readTextSmart(file).then(text => {
       try {
-        const text = e.target.result;
         const lines = text.split('\n').filter(Boolean);
         if (lines.length < 2) { showToast('File empty or has no data rows','error'); return; }
         const headers = lines[0].split(',').map(h => h.trim().replace(/"/g,'').toLowerCase());
@@ -113,8 +114,7 @@ export default function Inventory({ onNav }) {
         showToast(`✓ Imported ${imported.length} records into ${TAB_LABELS[tab]}`);
         if (importRef.current) importRef.current.value = '';
       } catch { showToast('Import failed — use CSV format','error'); }
-    };
-    reader.readAsText(file);
+    }).catch(() => showToast('Import failed — use CSV format','error'));
   }
 
   const items = useMemo(() => getItems(db, tab), [db, tab]);

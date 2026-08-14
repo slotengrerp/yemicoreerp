@@ -13,6 +13,7 @@ import { mergeCOA } from "../../utils/chartOfAccounts";
 import { FG } from "../ui";
 import { diffAndPush } from "../../hooks/usePerRecordSync";
 import { printHeader, PRINT_CSS, printBootstrap, openPrintWindow, SLOT_LOGO_IMG_TAG } from '../../utils/logo';
+import { readTextSmart } from '../../utils/excelIO';
 
 // ════════════════════════════════════════════════════════════════════
 // SLOT ENGINEERING — ACCOUNTING MODULE v3.0
@@ -2662,10 +2663,11 @@ function ImportTab({ setCoa, setJournals }) {
     inp.onchange = e => {
       const file = e.target.files[0]; if(!file) return;
       setXlsxStatus('uploading');
-      const r = new FileReader();
-      r.onload = ev => {
+      // 2026-08-14: readTextSmart, not readAsText — Excel/Windows ANSI CSVs
+      // were silently losing every non-ASCII character to U+FFFD. See excelIO.js.
+      readTextSmart(file).then(text => {
         try {
-          const lines = ev.target.result.split('\n').filter(l=>l.trim());
+          const lines = text.split('\n').filter(l=>l.trim());
           const hdr   = lines[0]?.toLowerCase()||'';
           const isCOA = hdr.includes('code')||hdr.includes('chart')||hdr.includes('account');
           if(isCOA){
@@ -2689,8 +2691,7 @@ function ImportTab({ setCoa, setJournals }) {
           }
           setXlsxStatus('done');
         } catch { setXlsxStatus('error'); }
-      };
-      r.readAsText(file);
+      }).catch(() => setXlsxStatus('error'));
     };
     inp.click();
   }

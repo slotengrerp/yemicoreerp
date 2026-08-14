@@ -12,6 +12,7 @@ import { getVendors, saveVendors } from '../../utils/vendorMaster';
 import { getClients, saveClients } from '../../utils/clientMaster';
 import { saveProjects } from '../../utils/projectMaster';
 import { SLOT_BRAND } from '../../utils/logo';
+import { readTextSmart } from '../../utils/excelIO';
 
 const BACKUP_HISTORY_KEY = 'bc_backup_history';
 function loadHistory()    { try { const r=localStorage.getItem(BACKUP_HISTORY_KEY); return r?JSON.parse(r):[]; } catch { return []; } }
@@ -171,10 +172,13 @@ export default function Backup() {
     const file = e.target.files[0];
     if (!file) return;
     if (!window.confirm(`Restore from "${file.name}"? This will overwrite all current data.`)) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
+    // 2026-08-14: readTextSmart, not readAsText — see excelIO.js. Backup files
+    // this app writes are UTF-8, but a backup that has been round-tripped
+    // through a Windows editor can come back ANSI-encoded, and readAsText would
+    // quietly replace every non-ASCII character in the restored data.
+    readTextSmart(file).then(text => {
       try {
-        const payload = JSON.parse(ev.target.result);
+        const payload = JSON.parse(text);
         // Validate structure
         if (!payload.db && !payload._meta) { showToast('Invalid backup file','error'); return; }
         const dbData = payload.db || payload;
@@ -197,8 +201,7 @@ export default function Backup() {
       } catch {
         showToast('Failed to parse backup file','error');
       }
-    };
-    reader.readAsText(file);
+    }).catch(() => showToast('Failed to parse backup file','error'));
     e.target.value = '';
   }
 
