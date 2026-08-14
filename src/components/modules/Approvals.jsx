@@ -15,10 +15,7 @@ import { applyDecision } from '../../utils/approvalEngine';
 // Approvals mod key → RECORD_TABLES key. 'procurement' here only ever
 // touches .pos (see getModRecords/saveModRecords below), so it maps to
 // procurementPos specifically, not the whole procurement collection.
-// 'grn' has no per-record table (nothing in the app currently creates GRN
-// records — Approvals is the only writer, and only for approve/reject on an
-// always-empty list) — diffAndPush no-ops safely against an unmapped table.
-const APPROVAL_TABLE_BY_MOD = { request: 'request', pettycash: 'pettycash', invoices: 'invoices', procurement: 'procurementPos', grn: 'grn' };
+const APPROVAL_TABLE_BY_MOD = { request: 'request', pettycash: 'pettycash', invoices: 'invoices', procurement: 'procurementPos' };
 
 const today = () => new Date().toISOString().split('T')[0];
 
@@ -174,18 +171,6 @@ const MODULE_CONFIGS = {
       return { ...item, approval, status:approval.status, approvalNote:note };
     },
     dispatchMod: 'procurement',
-  },
-  grn: {
-    label:'GRNs', icon:'📥',
-    pendingStatuses:['Pending'],
-    getTitle: r => `${r.grnNo} — ${r.supplier}`,
-    getSubtitle: r => `Received by: ${r.receivedBy} · Store: ${r.store}`,
-    getDate: r => r.date,
-    getPriority: r => 'Normal',
-    getRef: r => r.grnNo,
-    approve: (item, note, user) => ({ ...item, status:'Accepted', inspectedBy:user?.name||'Admin', inspectionDate:today() }),
-    reject:  (item, note, user) => ({ ...item, status:'Rejected' }),
-    dispatchMod: 'grn',
   },
 };
 

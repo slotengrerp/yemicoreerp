@@ -33,7 +33,6 @@ const MODULE_OPTIONS = [
   { value: 'accounting',   label: '📒 Accounting' },
   { value: 'procurement',  label: '🛒 Procurement' },
   { value: 'invoices',     label: '🧾 Invoices' },
-  { value: 'grn',          label: '📥 Goods Received Notes' },
   { value: 'pettycash',    label: '💵 Petty Cash' },
   { value: 'nlng',         label: '👷 Contract Staff (NLNG)' },
   { value: 'slot',         label: '👤 Company Staff' },

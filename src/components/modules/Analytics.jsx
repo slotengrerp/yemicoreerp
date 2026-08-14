@@ -100,7 +100,6 @@ export default function Analytics({ onNav }) {
   const invoices    = db.invoices    || [];
   const requests    = db.request     || [];
   const pettycash   = db.pettycash   || [];
-  const grn         = db.grn         || [];
   const fixedassets = db.fixedassets || [];
   const wht         = db.wht         || [];
   const nlng        = db.nlng        || [];
@@ -390,7 +389,6 @@ export default function Analytics({ onNav }) {
             { label:'Invoices',        count:invoices.length,    icon:'🧾', active:invoices.filter(i=>i.status==='Paid').length },
             { label:'Petty Cash',      count:pettycash.length,   icon:'💵', active:pettycash.filter(p=>p.status==='Approved').length },
             { label:'Requests',        count:requests.length,    icon:'📋', active:requests.filter(r=>r.status==='Approved').length },
-            { label:'GRNs',            count:grn.length,         icon:'📥', active:grn.filter(g=>g.status==='Accepted').length },
             { label:'Fixed Assets',    count:fixedassets.filter(a=>!a.voided).length, icon:'🏗',  active:fixedassets.filter(a=>!a.voided&&a.status==='Active').length },
             { label:'WHT Entries',     count:wht.length,         icon:'🏛',  active:wht.filter(e=>e.status==='Remitted').length },
           ].map(({ label, count, icon, active }) => (

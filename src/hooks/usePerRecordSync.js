@@ -736,6 +736,46 @@ export async function pushJournal(journal) {
   return postJournalEntry(journal);
 }
 
+// ── Push newly-added journal entries — QA fix (2026-08-14) ──────────────────
+// pushJournal() above existed but nothing ever called it. Every journal entry
+// — manual posts from JournalTab, FX revaluation entries, entries from the
+// journal Import tab, and GL auto-posted entries from computeAutoPostedJournals
+// — only ever reached React state (acctData.journals) and, under the LEGACY
+// engine, the whole-document blob. The per-record engine has no equivalent
+// whole-document save for acctData; journals are their own append-only table
+// (journal_entries — see postJournalEntry's comment: no update path, voids
+// post a new reversing entry). So on the per-record engine, every journal
+// created after the page loaded lived only in that one browser tab and was
+// gone on the next reload or invisible on every other device — silent, until
+// someone reconciled the GL against a different session and the numbers
+// didn't match. This went unnoticed while production ran the legacy engine;
+// it became live-urgent the moment production's build picked up
+// VITE_USE_PER_RECORD_SYNC=true from a local .env (2026-08-14).
+//
+// journal_entries is append-only, so unlike diffAndPush there is no
+// "changed" or "removed" case — only ids not present in prevList are new.
+// Same bounded worker pool + one retry as diffAndPush (see runPool's
+// comment above) so a burst of entries — e.g. auto-post computing a dozen
+// GL lines from unposted invoices in one pass — can't silently drop some of
+// them the way the original unbounded fire-and-forget bug did.
+export async function pushNewJournals(prevList, nextList) {
+  if (!USE_PER_RECORD || !supabaseReady) return { ok: false, pushed: 0, failed: 0, reason: 'per-record-sync-disabled' };
+
+  const prevIds = new Set((prevList || []).filter(Boolean).map(j => j.id));
+  const toPush = (nextList || []).filter(j => j?.id && !prevIds.has(j.id));
+  if (!toPush.length) return { ok: true, pushed: 0, failed: 0 };
+
+  const failed = await runPool(toPush, j => postJournalEntry(j));
+  if (failed.length) {
+    console.error(
+      `[SLOT ERP] ${failed.length} of ${toPush.length} journal entr${toPush.length === 1 ? 'y' : 'ies'} failed to save to the cloud after a retry.`,
+      failed.slice(0, 10)
+    );
+    reportSyncFailure('journal entries');
+  }
+  return { ok: failed.length === 0, pushed: toPush.length - failed.length, failed: failed.length, failures: failed };
+}
+
 export async function pushActivity({ userId, userName, userRole, module, action, message, metadata }) {
   if (!USE_PER_RECORD || !supabaseReady) return { ok: false };
   return logActivityServer({ userId, userName, userRole, module, action, message, metadata });

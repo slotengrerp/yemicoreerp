@@ -21,7 +21,7 @@ const ACTION_COLORS = {
 const MODULE_LABELS = {
   nlng:'Contract Staff', slot:'Company Staff', procurement:'Procurement',
   invoices:'Invoices', pettycash:'Petty Cash', request:'Requests',
-  grn:'GRN', fixedassets:'Fixed Assets', wht:'WHT',
+  fixedassets:'Fixed Assets', wht:'WHT',
   accounting:'Accounting', approvals:'Approvals', users:'Users',
   settings:'Settings', backup:'Backup',
 };

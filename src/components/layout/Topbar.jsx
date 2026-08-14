@@ -11,7 +11,7 @@ const PAGE_TITLES = {
   procurement:'Procurement', inventory:'Inventory', vehicles:'Fleet & Vehicles',
   terminal:'Terminal Operations',
   invoices:'Invoices', pettycash:'Petty Cash', request:'Requests',
-  grn:'Goods Received Notes', fixedassets:'Fixed Asset Register', wht:'Withholding Tax',
+  fixedassets:'Fixed Asset Register', wht:'Withholding Tax',
   accounting:'Accounting', approvals:'Approval Queue', analytics:'Analytics',
   users:'User Management', settings:'Settings', backup:'Backup & Restore',
 };
@@ -19,7 +19,7 @@ const PAGE_ICONS = {
   dashboard:'📊', nlng:'👷', slot:'👤', procurement:'🛒', inventory:'📦',
   vehicles:'🚗', terminal:'🏭',
   invoices:'🧾', pettycash:'💵', request:'📋',
-  grn:'📥', fixedassets:'🏗', wht:'🏛', accounting:'📒',
+  fixedassets:'🏗', wht:'🏛', accounting:'📒',
   approvals:'✅', analytics:'📈', users:'👥', settings:'⚙️', backup:'💾',
 };
 
@@ -53,7 +53,6 @@ export default function Topbar({ page, onLogout, online = true, pendingSync = 0,
     (db.nlng        || []).forEach(r => push('nlng',        r.fullName || 'Staff',          '👷', r, ['fullName','refId','department','email']));
     (db.slot        || []).forEach(r => push('slot',        r.fullName || 'Staff',          '👤', r, ['fullName','refId','department','email']));
     (db.pettycash   || []).forEach(r => push('pettycash',   r.voucherNo || 'Petty Cash',    '💵', r, ['voucherNo','purpose','payee','category']));
-    (db.grn         || []).forEach(r => push('grn',         r.grnNo || 'GRN',               '📥', r, ['grnNo','supplier','poRef','description']));
     (db.fixedassets || []).forEach(r => push('fixedassets', r.assetTag || 'Asset',          '🏗', r, ['assetTag','assetName','location','serialNo']));
     (db.wht         || []).forEach(r => push('wht',         r.refNo || 'WHT',               '🏛', r, ['refNo','vendor','invoiceRef']));
     (db.inventory   || []).forEach(r => push('inventory',   r.regNumber || r.name || 'Item','📦', r, ['name','regNumber','make','position']));

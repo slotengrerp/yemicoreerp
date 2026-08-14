@@ -16,9 +16,6 @@ import { diffAndPush } from '../../hooks/usePerRecordSync';
 // invoices, inventory, vehicles, pettycash, fixedassets, salesOrders all
 // happen to already agree); only the four NESTED_TARGETS ones need
 // remapping since their modKey names differ from the RECORD_TABLES keys.
-// 'grn' has no per-record table (see Approvals.jsx's note — nothing in the
-// app has a GRN-creation flow yet), so it maps to null and diffAndPush is
-// skipped rather than passed an unknown table name.
 //
 // FOUND 2026-07-29, same sweep that wired every other module's save
 // function: this import path bypasses every module's own save/updateDB
@@ -31,7 +28,6 @@ const IMPORT_TABLE_OVERRIDES = {
   ap_bills: 'apBills',
   fleet_roster: 'fleetVehicles',
   terminal_containers: 'terminalContainers',
-  grn: null,
 };
 
 function Btn({ children, onClick, variant='primary', sm, disabled, style={} }) {

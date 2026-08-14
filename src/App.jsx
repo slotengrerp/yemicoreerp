@@ -16,7 +16,7 @@ import LoginScreen      from './components/layout/LoginScreen';
 import Sidebar          from './components/layout/Sidebar';
 import Topbar           from './components/layout/Topbar';
 import MfaNudge         from './components/layout/MfaNudge';
-import { usePerRecordSync, USE_PER_RECORD } from './hooks/usePerRecordSync';
+import { usePerRecordSync, USE_PER_RECORD, pushNewJournals } from './hooks/usePerRecordSync';
 
 // ══════════════════════════════════════════════════════════════════════════════
 // ONE-TIME LOCAL PURGE — 2026-07-28
@@ -325,6 +325,47 @@ function Shell() {
       dispatch({ type: 'SET_ACCT', payload: { ...state.acctData, journals: next } });
     }
   }, [state.db, state.acctData, state.appSettings, loading]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Push new/auto-posted journal entries to Supabase — QA fix (2026-08-14) ──
+  // pushJournal()/pushNewJournals() (usePerRecordSync.js) existed as callable
+  // primitives but nothing ever called them. Every journal entry — manual
+  // posts from Accounting's JournalTab, FX revaluation entries, entries from
+  // the journal Import tab, and GL auto-posted entries from the effect just
+  // above — only ever reached state.acctData.journals and, under the LEGACY
+  // engine, the whole-document blob save. The per-record engine has no
+  // equivalent whole-document save for acctData (journals live in their own
+  // append-only journal_entries table), so on the per-record engine every
+  // journal created after page load lived only in that one browser tab —
+  // gone on reload, invisible on every other device. Not urgent while
+  // production ran the legacy engine; became live-urgent the moment
+  // production's build picked up VITE_USE_PER_RECORD_SYNC=true from a local
+  // .env (2026-08-14).
+  //
+  // This is the one place guaranteed to see every journal regardless of
+  // which of the ~6 places created it, since all of them funnel through
+  // state.acctData.journals before anything renders — watching that single
+  // value here can't miss a source the way wiring each creation site
+  // individually could (the exact class of bug flagged elsewhere in this
+  // file: a fix applied to one door while others stay open).
+  //
+  // journalsRef starts at the FIRST value observed so entries already in
+  // Supabase (just loaded by usePerRecordSync's own loadJournals()) aren't
+  // re-pushed on every mount — pushNewJournals() also independently diffs by
+  // id and postJournalEntry() treats duplicates as success, so even a
+  // mistimed baseline (this effect racing usePerRecordSync's async initial
+  // load) fails safe: at worst a few redundant, harmless insert-attempts.
+  const journalsRef = useRef(null);
+  useEffect(() => {
+    const journals = state.acctData?.journals;
+    if (!Array.isArray(journals)) return;
+    if (journalsRef.current === null) {
+      journalsRef.current = journals; // first observation — baseline, not "new"
+      return;
+    }
+    const prev = journalsRef.current;
+    journalsRef.current = journals;
+    if (journals !== prev) pushNewJournals(prev, journals);
+  }, [state.acctData]);
 
   // ── Reset scroll to top on every page navigation — no jump, no flash ──
   useEffect(() => {

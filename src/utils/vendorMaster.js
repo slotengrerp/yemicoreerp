@@ -1,7 +1,7 @@
 // ══════════════════════════════════════════════════════════════════════════════
 // SLOT Engineering — Vendor Master v2.0
 // Single shared supplier list — persisted to localStorage.
-// Used by Procurement (PO creation) and GRN (receiving).
+// Used by Procurement (PO creation).
 //
 // SOURCE: Accounts_Payable_Supplier_Listing_20260529_123805.xlsx (live SAGE export)
 // Same multi-currency pattern as the Client Master — CSPS and VONK each have

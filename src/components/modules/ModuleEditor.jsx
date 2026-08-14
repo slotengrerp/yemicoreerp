@@ -22,7 +22,6 @@ const DEFAULT_MODULES = [
   { id:'invoices',    label:'Invoices',            icon:'🧾', section:'MODULES',  visible:true, locked:false },
   { id:'pettycash',   label:'Petty Cash',          icon:'💵', section:'MODULES',  visible:true, locked:false },
   { id:'request',     label:'Requests',            icon:'📋', section:'MODULES',  visible:true, locked:false },
-  { id:'grn',         label:'GRN',                 icon:'📥', section:'EXTENDED', visible:true, locked:false },
   { id:'fixedassets', label:'Fixed Assets',        icon:'🏗',  section:'EXTENDED', visible:true, locked:false },
   { id:'wht',         label:'WHT',                 icon:'🏛',  section:'EXTENDED', visible:true, locked:false },
   { id:'accounting',  label:'Accounting',          icon:'📒', section:'FINANCE',  visible:true, locked:false },

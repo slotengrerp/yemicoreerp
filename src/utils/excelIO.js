@@ -357,11 +357,6 @@ export const MODULE_COLUMNS = {
     columns: ['poNo','supplier','date','deliveryDate','description','status','paymentTerms','notes'],
     example: [{ poNo:'SAMPLE-PO-0001', supplier:'SAMPLE — Delete This Row', date:'2025-01-10', deliveryDate:'2025-01-25', description:'Sample item description', status:'Draft', paymentTerms:'Net 30', notes:'Delete this row before importing' }],
   },
-  grn: {
-    label: 'Goods Received Notes',
-    columns: ['grnNo','date','poRef','supplier','receivedBy','store','inspectionStatus','notes'],
-    example: [{ grnNo:'SAMPLE-GRN-0001', date:'2025-01-20', poRef:'SAMPLE-PO-0001', supplier:'SAMPLE — Delete This Row', receivedBy:'Sample Staff', store:'Main Warehouse', inspectionStatus:'Accepted', notes:'Delete this row before importing' }],
-  },
   inventory: {
     label: 'Inventory',
     columns: ['name','regNumber','type','make','quantity','position','status','remark'],
