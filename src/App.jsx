@@ -84,7 +84,21 @@ const ModuleEditor     = lazyWithRetry(() => import('./components/modules/Module
 const FixedAssets      = lazyWithRetry(() => import('./components/modules/FixedAssets'), 'FixedAssets');
 const SalesOrders      = lazyWithRetry(() => import('./components/modules/SalesOrders'), 'SalesOrders');
 const SageReports      = lazyWithRetry(() => import('./components/modules/SageReports'), 'SageReports');
-const SageReports2     = lazyWithRetry(() => import('./components/modules/SageReports2'), 'SageReports2');
+// SageReports2 ("Sage Features II") removed 2026-08-14 per Yemi's instruction —
+// it was a second, independently-built implementation of 6 features already
+// covered by SageReports ("Slot Reports"): Recurring Invoices, Bank
+// Reconciliation, Prepayments & Accruals, and Asset Disposal each wrote to
+// their own separate, disconnected Supabase table there, so data entered
+// through one module was invisible in the other. Whether those 4 tables
+// (recurring_invoices, prepay_accruals, bank_reconciliations, asset_disposals)
+// ever had real data was NOT verified before this removal — the QA-recommended
+// check query was blocked by the environment's own SQL safety classifier and
+// was not independently re-run. Removing the route makes the data merely
+// unreachable from the UI, not deleted, so this is reversible: re-add
+// `const SageReports2 = lazyWithRetry(...)` here, `sagereports2: SageReports2`
+// in PAGES below, and the Sidebar.jsx nav entry to bring it back. The
+// component file and its tables are left in place. See SageReportsTier2.jsx
+// for the equivalent, single-source-of-truth versions of these 6 features.
 
 const PAGES = {
   dashboard:    Dashboard,
@@ -108,7 +122,6 @@ const PAGES = {
   fixedassets:  FixedAssets,
   salesorders:  SalesOrders,
   sagereports:  SageReports,
-  sagereports2: SageReports2,
   excel:        ExcelManager,
   moduleeditor: ModuleEditor,
 };

@@ -45,8 +45,7 @@ const NAV = [
   { id: 'approvals',    label: 'Approvals',           icon: '✅', section: 'FINANCE', badge: true },
   // REPORTS
   { id: 'analytics',    label: 'Analytics',           icon: '📈', section: 'REPORTS' },
-  { id: 'sagereports',  label: 'Sage Reports',        icon: '📑', section: 'REPORTS' },
-  { id: 'sagereports2', label: 'Sage Features II',    icon: '📚', section: 'REPORTS' },
+  { id: 'sagereports',  label: 'Slot Reports',        icon: '📑', section: 'REPORTS' },
   { id: 'excel',        label: 'Excel Import/Export', icon: '📊', section: 'REPORTS', adminOnly: true },
   // SYSTEM
   { id: 'users',        label: 'Users',               icon: '👥', section: 'SYSTEM', adminOnly: true },

@@ -172,7 +172,7 @@ export default function SageReports() {
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:18 }}>
       <div>
-        <div style={{ fontSize:20, fontWeight:700, color:C.text }}>Sage-Style Reports & Features</div>
+        <div style={{ fontSize:20, fontWeight:700, color:C.text }}>Slot Reports</div>
         <div style={{ fontSize:12, color:C.textMuted, marginTop:3 }}>
           Daily-workflow reports Nigerian accountants rely on Sage 200 Evolution for
         </div>
