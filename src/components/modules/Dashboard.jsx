@@ -7,6 +7,7 @@ import { useApp }   from '../../context/AppContext';
 import { useTheme } from '../../context/ThemeContext';
 import { formatCurrency, formatDate } from '../../utils/helpers';
 import { writeDeepLink, getDeepLinkTab } from '../../utils/helpers';
+import { getPOStatus } from '../../utils/poStatus';
 
 // ── Mini components ───────────────────────────────────────────────────────────
 function KPI({ label, value, sub, accent, icon, onClick }) {
@@ -172,7 +173,14 @@ export default function Dashboard({ onNav }) {
   const slotPayroll     = slotStaff.reduce((a,s) => a+(Number(s.basicSalary)||0)+(Number(s.housing)||0)+(Number(s.transport)||0), 0);
   const activeStaff     = allStaff.filter(s => s.status === 'Active').length;
 
-  const activePOs       = pos.filter(p => ['Approved','Partial'].includes(p.status)).length;
+  // FIX 2026-08-13: this filtered on the PO's raw stored status, which can
+  // lag behind reality — a PO stays "Approved" in storage even after it's
+  // fully delivered, until someone manually flips it. Procurement.jsx's own
+  // card instead recomputes status from actual waybill delivery data via
+  // getPOStatus(), so the two screens showed different counts for the same
+  // 3 real records (Dashboard: 2, Procurement: 1). Now both use the same
+  // function, so they can't drift apart again.
+  const activePOs       = pos.filter(p => ['Approved','Partial'].includes(getPOStatus(p, waybills, suppInv))).length;
   const pendingPOs      = pos.filter(p => p.status === 'Draft').length;
   const totalPOValue    = pos.reduce((a,p) => a+(Number(p.total)||0), 0);
 
@@ -266,7 +274,13 @@ export default function Dashboard({ onNav }) {
         <KPI label="Total Staff"       value={allStaff.length}                accent={C.green}   icon="👷" sub={activeStaff + ' active'}                    onClick={()=>onNav?.('nlng')} />
         <KPI label="Monthly Payroll"   value={formatCurrency(totalPayroll)}   accent={C.amber}   icon="💰" sub="All staff combined"                          onClick={()=>onNav?.('slot')} />
         <KPI label="Active POs"        value={activePOs}                      accent={C.info}    icon="🛒" sub={pendingPOs + ' pending approval'}             onClick={()=>onNav?.('procurement')} />
-        <KPI label="Supp. Invoices"    value={pendingInv}                     accent={C.warning} icon="🧾" sub={formatCurrency(totalInvValue) + ' total'}    onClick={()=>onNav?.('invoices')} />
+        {/* FIX 2026-08-13: labeled "Supp. Invoices" but the value was always
+            pendingInv (Pending-status only), not the true total — so it read
+            9 here while the Supplier Invoices list widget on this same page
+            read 11 (9 Pending + 2 Paid). Same number as before; the label now
+            says what it's actually counting, matching Procurement's own
+            "Pending Invoices" card. */}
+        <KPI label="Pending Invoices"  value={pendingInv}                     accent={C.warning} icon="🧾" sub={formatCurrency(totalInvValue) + ' total'}    onClick={()=>onNav?.('invoices')} />
         <KPI label="Containers Active" value={activeContainers}               accent="#9B59B6"   icon="📦" sub={containers.length + ' total'}                onClick={()=>onNav?.('terminal')} />
         <KPI label="Terminal Charges"  value={formatCurrency(totalTermCharges)} accent={C.danger} icon="🏭" sub={unpostedCharges + ' unposted'}              onClick={()=>onNav?.('terminal')} />
       </div>

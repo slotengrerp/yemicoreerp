@@ -99,12 +99,22 @@ export default function SalesOrders() {
     saveDBLocal({ ...db, salesOrders: next }, state.activity);
   }
 
-  function handleSave() {
-    if (!editing) return;
-    if (!editing.client) { showToast('Select a client', 'error'); return; }
-    if (!editing.items?.length) { showToast('At least one line item required', 'error'); return; }
-    const isEdit = sos.some(s => s.id === editing.id);
-    const so = isEdit ? editing : { ...editing, soNo: editing.soNo || nextSoNo(sos) };
+  function handleSave(rec) {
+    // Accepts the record directly (preferred) instead of only reading the
+    // `editing` state. QA found that Save always failed on the first click
+    // with a false "Select a client" error, even with a client correctly
+    // selected: SOForm.onClick did `setSo(f); setTimeout(onSave, 0)`, but
+    // `onSave` is this function's closure from the PREVIOUS render, so it
+    // still saw the stale `editing` (client: '') from when the form first
+    // opened — setEditing(f) hadn't propagated back into this closure yet.
+    // A second click "worked" only because the parent had re-rendered by
+    // then. Passing `f` straight through removes the race entirely.
+    const target = rec || editing;
+    if (!target) return;
+    if (!target.client) { showToast('Select a client', 'error'); return; }
+    if (!target.items?.length) { showToast('At least one line item required', 'error'); return; }
+    const isEdit = sos.some(s => s.id === target.id);
+    const so = isEdit ? target : { ...target, soNo: target.soNo || nextSoNo(sos) };
     const next = isEdit ? sos.map(s => s.id === so.id ? so : s) : [so, ...sos];
     persist(next);
     logActivity(dispatch, `${isEdit?'Updated':'Created'} Sales Order ${so.soNo} for ${so.client}`, currentUser, { module:'salesorders', action: isEdit?'edit':'create' });
@@ -270,6 +280,11 @@ export default function SalesOrders() {
                         <div style={{ display:'flex', gap:4 }}>
                           <Btn sm variant="ghost" onClick={() => { setSel(s); setTab('detail'); }}>View</Btn>
                           {perms.edit && <Btn sm variant="outline" onClick={() => { setEditing({ ...s }); setTab('new'); }}>Edit</Btn>}
+                          {/* QA fix: handleDelete/the Confirm modal already existed in this file
+                              (wired to `confirm` state below) but no button ever called
+                              setConfirm(id) — Sales Orders could be created but never cancelled
+                              from the UI. Wiring the existing, previously-orphaned flow up here. */}
+                          {perms.del && <Btn sm variant="danger" onClick={() => setConfirm(s.id)}>Cancel</Btn>}
                         </div>
                       </td>
                     </tr>
@@ -436,7 +451,7 @@ function SOForm({ so: initial, setSo, onSave, onCancel, C, inp, currentUser }) {
       </Card>
       <div style={{ display:'flex', justifyContent:'flex-end', gap:10 }}>
         <Btn variant="ghost" onClick={onCancel}>Cancel</Btn>
-        <Btn onClick={() => { setSo(f); setTimeout(onSave, 0); }}>💾 Save Sales Order</Btn>
+        <Btn onClick={() => { setSo(f); onSave(f); }}>💾 Save Sales Order</Btn>
       </div>
     </div>
   );

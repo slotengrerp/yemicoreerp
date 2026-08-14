@@ -152,6 +152,14 @@ export default function Inventory({ onNav }) {
 
   function handleSave(formData) {
     const record = tab !== 'vehicles' ? { ...formData, type: tab } : formData;
+    // Required-field guard — added 2026-08-13. QA found this saved a
+    // completely blank Heavy Equipment record (every column showed "—").
+    // Checking the same fields getLabel() below already uses to name a
+    // record: if none of those are filled, there's nothing to identify it by.
+    if (!(record.vehicleNumber || record.regNumber || record.name || record.description || '').trim()) {
+      showToast('Enter at least a registration/plate number or name before saving.', 'error');
+      return;
+    }
     if (modal.mode === 'add') {
       saveItems(tab, [...items, { ...record, id: generateId(), sn: items.length+1, createdAt: new Date().toISOString() }]);
       logActivity(dispatch, 'Added ' + tab + ': ' + getLabel(record), currentUser);

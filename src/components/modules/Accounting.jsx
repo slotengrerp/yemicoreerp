@@ -29,6 +29,14 @@ const AcctTheme = createContext(C);
 const fmt    = n => new Intl.NumberFormat("en-NG",{style:"currency",currency:"NGN",maximumFractionDigits:0}).format(n||0);
 const fmtDate= d => d ? new Date(d).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}) : "—";
 const today  = () => new Date().toISOString().split("T")[0];
+// Default report window: start of current calendar year → current month.
+// Was hardcoded to "2026-01"/"2026-05" (a snapshot of whatever month it was
+// written in). Once real activity moved past May, P&L/Cash Flow opened to an
+// all-zero report by default — found during QA (Aug 2026: default range
+// showed ₦0 everywhere despite ₦162.8M+ in real recorded activity, which
+// only appeared once the range was manually extended to include August).
+const curYearStart = () => new Date().getFullYear() + "-01";
+const curMonth     = () => new Date().toISOString().slice(0,7);
 
 // ════════════════════════════════════════════════════════════════════
 // GLOBAL UTILITIES — Print · Export Excel · Clickable KPI
@@ -1294,8 +1302,8 @@ function TrialBalanceTab({journals,coa,isAdmin=true}){
 
 // ── P&L Statement Tab ─────────────────────────────────────────────
 function PLTab({journals,coa,isAdmin=true}){
-  const [from,setFrom]=useState("2026-01");
-  const [to,setTo]=useState("2026-05");
+  const [from,setFrom]=useState(curYearStart());
+  const [to,setTo]=useState(curMonth());
   const [generated,setGenerated]=useState(false);
   const [plData,setPlData]=useState(null);
 
@@ -1477,8 +1485,8 @@ function BalanceSheetTab({journals,coa,isAdmin=true}){
 
 // ── Cash Flow Tab ─────────────────────────────────────────────────
 function CashFlowTab({journals,coa,isAdmin=true}){
-  const [from,setFrom]=useState("2026-01");
-  const [to,setTo]=useState("2026-05");
+  const [from,setFrom]=useState(curYearStart());
+  const [to,setTo]=useState(curMonth());
   const [generated,setGenerated]=useState(false);
 
   const generate=()=>setGenerated(true);
@@ -2030,10 +2038,13 @@ function PeriodEndFXRevalTab({ journals, setJournals, coa, C, fmt, fmtFC }) {
 
 // ── VAT Returns Tab ───────────────────────────────────────────────
 function VATTab({journals,coa,vatAdj,setVatAdj}){
-  const [period,setPeriod]=useState("2026-05");
+  // Same stale-default bug as PLTab/CashFlowTab above: was hardcoded to
+  // "2026-05", so the VAT period selector opened to a month with no data
+  // once real activity moved past May. Defaults to the current month instead.
+  const [period,setPeriod]=useState(curMonth());
   const [generated,setGenerated]=useState(false);
   const [showModal,setShowModal]=useState(false);
-  const [adjForm,setAdjForm]=useState({period:"2026-05",type:"output",amount:"",description:""});
+  const [adjForm,setAdjForm]=useState({period:curMonth(),type:"output",amount:"",description:""});
 
   const generate=()=>setGenerated(true);
   const saveAdj=()=>{

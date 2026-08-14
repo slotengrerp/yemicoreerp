@@ -12,6 +12,8 @@ import { getVendors } from '../../utils/vendorMaster';
 import { getClients } from '../../utils/clientMaster';
 import { initApproval, applyDecision, canApproveAtCurrentLevel, approvalSummary } from '../../utils/approvalEngine';
 import { diffAndPush } from '../../hooks/usePerRecordSync';
+import { Confirm } from '../ui';
+import { getDeliveredQty, getPOStatus } from '../../utils/poStatus';
 // 2026-08-05 — Procurement was the ONLY module of 24 that never logged
 // anything. Deleting an invoice left no trace anywhere, which is how a set of
 // deleted invoices became untraceable. See logActivity calls below.
@@ -150,33 +152,16 @@ function nextNo(prefix, list, field) {
 }
 
 // ── Quantity calculators ───────────────────────────────────────────────────
-function getDeliveredQty(poItemId, waybills, poId) {
-  return waybills
-    .filter(wb => wb.poId === poId && wb.status !== 'Rejected')
-    .flatMap(wb => wb.items)
-    .filter(wi => wi.poItemId === poItemId)
-    .reduce((s, wi) => s + (Number(wi.deliveredQty) || 0), 0);
-}
+// getDeliveredQty / getPOStatus moved to utils/poStatus.js on 2026-08-13 so
+// Dashboard.jsx can compute "Active POs" identically to this module without
+// importing this whole (lazy-loaded) module file — see that file's header
+// comment for why the two screens disagreed before.
 function getInvoicedQty(poItemId, invoices, poId) {
   return invoices
     .filter(inv => inv.poId === poId)
     .flatMap(inv => inv.items)
     .filter(ii => ii.poItemId === poItemId)
     .reduce((s, ii) => s + (Number(ii.qty) || 0), 0);
-}
-function getPOStatus(po, waybills, invoices) {
-  if (po.status === 'Draft' || po.status === 'Cancelled') return po.status;
-  if ((po.poType || 'Client') === 'SLOT') {
-    // SLOT POs never get waybill/invoice records — delivery is tracked via
-    // the manual Actual Delivery Date field instead.
-    if (po.actualDeliveryDate) return 'Complete';
-    return po.status === 'Approved' ? 'Approved' : 'PO Issued';
-  }
-  const totalOrdered = po.items.reduce((s, i) => s + (Number(i.qty) || 0), 0);
-  const totalDelivered = po.items.reduce((s, i) => s + getDeliveredQty(i.id, waybills, po.id), 0);
-  if (totalDelivered === 0) return po.status === 'Approved' ? 'Approved' : 'PO Issued';
-  if (totalDelivered >= totalOrdered) return 'Complete';
-  return 'Partial';
 }
 
 // ── Empty default shape ──────────────────────────────────────────────────
@@ -1171,12 +1156,23 @@ export default function Procurement({ onNav }) {
   const [poTypeFilter, setPoTypeFilter] = useState('Client'); // which PO type is shown in the PO tab
   const [search,    setSearch]    = useState('');
   const [modal,     setModal]     = useState(null);
+  // Delete confirmation — added 2026-08-13, replacing window.confirm() (see
+  // delRecord below). Native confirm() dialogs were the one thing in this
+  // module that didn't match the rest of the app's styled modals.
+  const [confirmDel, setConfirmDel] = useState(null);
   // modal types: rfq_view, rfq_create, po_view, po_create, wb_view, wb_create, inv_view, inv_create
 
   const S = useStyles();
 
   // ── Computed stats ────────────────────────────────────────────────────────
-  const pendingPOs     = pos.filter(p => p.status === 'Pending').length;
+  // FIX 2026-08-13: this checked for status 'Pending', which no PO ever has —
+  // the actual not-yet-approved status throughout this module is 'Draft'
+  // (see the Status dropdown in POModal and getPOStatus() above). That typo
+  // meant this counter was permanently stuck at 0, so the Dashboard's "N
+  // purchase orders awaiting approval" banner sent staff to a screen whose
+  // own card insisted nothing was pending. Now matches Dashboard.jsx's
+  // (correct) pendingPOs calculation.
+  const pendingPOs     = pos.filter(p => p.status === 'Draft').length;
   const activePOs      = pos.filter(p => ['Approved', 'Partial'].includes(getPOStatus(p, waybills, invoices))).length;
   const pendingInv     = invoices.filter(i => i.status === 'Pending').length;
   const totalPOValue   = pos.reduce((s, p) => s + (Number(p.total) || 0), 0);
@@ -1196,6 +1192,14 @@ export default function Procurement({ onNav }) {
   // ── CRUD handlers ─────────────────────────────────────────────────────────
   function saveRFQ(form) {
     const isEdit = !!form.id;
+    // Required-field guard — added 2026-08-13. QA found this saved with
+    // Requested By, Department and the line item all left blank, producing
+    // an RFQ that names no one and asks for nothing. The Requests module
+    // already blocks equivalent blanks; this one never did.
+    if (!(form.requestedBy || '').trim()) {
+      showToast('Enter who this RFQ is requested by before saving.', 'error');
+      return;
+    }
     const record = { ...form, id: form.id || uid(), rfqNo: form.rfqNo || nextNo('RFQ', rfqs, 'rfqNo'), createdAt: form.createdAt || new Date().toISOString() };
     const next = isEdit ? rfqs.map(r => r.id === record.id ? record : r) : [...rfqs, record];
     save(setRfqs, 'rfqs', next);
@@ -1208,6 +1212,31 @@ export default function Procurement({ onNav }) {
 
   function savePO(form) {
     const isEdit = !!form.id;
+    // Required-field guard — added 2026-08-13. QA found this saved with no
+    // client/supplier name and no line items at all (₦0 total). Requests
+    // already blocks equivalent blanks; PO never did.
+    if (!(form.supplier || '').trim()) {
+      showToast(`Enter a ${form.poType === 'SLOT' ? 'supplier' : 'client'} name before saving.`, 'error');
+      return;
+    }
+    if (!(form.items || []).some(i => (i.description || '').trim() && (Number(i.qty) || 0) > 0)) {
+      showToast('Add at least one line item with a description and quantity before saving.', 'error');
+      return;
+    }
+    // Duplicate PO Number guard — added 2026-08-13. This field looks
+    // auto-generated (placeholder says so) but is free text — staff use it
+    // to enter the client's own PO reference. Nothing ever checked it
+    // against numbers already in use: QA found 3 separate PO records sharing
+    // the exact same number, with different totals and statuses, and no
+    // warning at any point.
+    const typedPoNo = (form.poNo || '').trim();
+    if (typedPoNo) {
+      const clash = pos.find(p => p.poNo === typedPoNo && p.id !== form.id);
+      if (clash) {
+        showToast(`PO number ${typedPoNo} is already used by another purchase order (${clash.supplier || 'no name'}). Enter a different number or leave it blank to auto-generate one.`, 'error');
+        return;
+      }
+    }
     const items = form.items.map(i => ({ ...i, totalPrice: (Number(i.qty) || 0) * (Number(i.unitPrice) || 0) }));
     const subtotal = items.reduce((s, i) => s + i.totalPrice, 0);
     const vatAmount = Math.round(subtotal * (Number(form.vatRate) || 0) / 100);
@@ -1241,6 +1270,28 @@ export default function Procurement({ onNav }) {
   // from the unsaved form would hand the customer a sheet with no number on it.
   function saveInvoice(form, opts = {}) {
     const isEdit = !!form.id;
+    // Required-field guard — added 2026-08-13. QA found this saved with no
+    // PO link and no line items at all (₦0, real system invoice number
+    // consumed for a record with nothing in it).
+    if (!(form.supplier || '').trim()) {
+      showToast('Enter a supplier name before saving.', 'error');
+      return;
+    }
+    if (!(form.items || []).some(i => (i.description || '').trim() && (Number(i.qty) || 0) > 0)) {
+      showToast('This invoice has no delivered line items to bill. Link a PO with a waybill delivery before submitting.', 'error');
+      return;
+    }
+    // Duplicate Invoice Number guard — added 2026-08-13, same issue as the PO
+    // number field: looks auto-generated but is free text, and nothing
+    // checked it against numbers already in use.
+    const typedInvNo = (form.invoiceNo || '').trim();
+    if (typedInvNo) {
+      const clash = invoices.find(i => i.invoiceNo === typedInvNo && i.id !== form.id);
+      if (clash) {
+        showToast(`Invoice number ${typedInvNo} is already used by another invoice (${clash.supplier || 'no name'}). Enter a different number or leave it blank to auto-generate one.`, 'error');
+        return;
+      }
+    }
     const record = { ...form, id: form.id || uid(), invoiceNo: form.invoiceNo || nextNo('SINV', invoices, 'invoiceNo'), createdAt: form.createdAt || new Date().toISOString() };
     const next = isEdit ? invoices.map(i => i.id === record.id ? record : i) : [...invoices, record];
     save(setInvoices, 'invoices', next);
@@ -1260,15 +1311,26 @@ export default function Procurement({ onNav }) {
   const DOC_LABEL = { rfqs: 'RFQ', pos: 'purchase order', waybills: 'waybill', invoices: 'invoice' };
   const DOC_REF   = { rfqs: 'rfqNo', pos: 'poNo', waybills: 'waybillNo', invoices: 'invoiceNo' };
 
+  // Split in two, 2026-08-13: delRecord used to call window.confirm()
+  // synchronously and delete on the spot. That's the only native browser
+  // dialog left in this module (every other confirmation is a styled
+  // in-app modal) — replaced with the same Confirm component Inventory.jsx
+  // already uses, so this now just stages the pending delete and the
+  // Confirm modal rendered below calls doDelete() on Confirm Delete.
   function delRecord(list, setList, listName, id) {
     const rec = list.find(x => x.id === id);
     const label = DOC_LABEL[listName] || 'record';
     const ref   = rec?.[DOC_REF[listName]] || id;
-    if (!window.confirm(`Delete ${label} ${ref}?\n\nThis is recorded in the activity log against your name.`)) return;
+    setConfirmDel({ list, setList, listName, id, label, ref });
+  }
+  function doDelete() {
+    if (!confirmDel) return;
+    const { list, setList, listName, id, label, ref } = confirmDel;
     save(setList, listName, list.filter(x => x.id !== id));
     logActivity(dispatch, `Deleted ${label} ${ref}`, currentUser,
       { module: 'procurement', action: 'delete', recordId: id });
     showToast(`Deleted ${label} ${ref}`, 'error');
+    setConfirmDel(null);
   }
 
   // ── Row click handlers (drill-down) ───────────────────────────────────────
@@ -1500,6 +1562,13 @@ export default function Procurement({ onNav }) {
         <InvoiceModal inv={modal.inv} po={pos.find(p => p.id === modal.inv.poId)}
           wb={waybills.find(w => w.id === modal.inv.waybillId)}
           onSave={saveInvoice} onClose={() => setModal(null)} />
+      )}
+      {confirmDel && (
+        <Confirm
+          message={`Delete ${confirmDel.label} ${confirmDel.ref}? This is recorded in the activity log against your name.`}
+          onConfirm={doDelete}
+          onCancel={() => setConfirmDel(null)}
+        />
       )}
     </div>
   );
