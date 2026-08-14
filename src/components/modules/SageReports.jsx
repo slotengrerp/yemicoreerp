@@ -462,9 +462,97 @@ function CustomerStatementTab({ state, dispatch, inp }) {
   );
 }
 
+// ── AP Bills adapter — QA fix (2026-08-14) ──────────────────────────────────
+// Supplier Statement, Aged Payables, Batch Payment Run and WHT Certificates
+// all read exclusively from db.ap.bills / db.ap.payments — a manual bill
+// ledger that has zero real entries anywhere in the system. Every actual
+// supplier invoice is created in Procurement -> Supplier Invoices
+// (db.procurement.invoices) instead, so all four reports showed ₦0.00 / "no
+// records" for every vendor despite real pending invoices. Confirmed live:
+// ACRIFA GLOBAL SERVIC has 2 pending procurement invoices totalling
+// ₦9,829,800, but Supplier Statement / Aged Payables / Batch Payment Run all
+// showed nothing for that vendor.
+//
+// This maps db.procurement.invoices into the exact "bill" shape the four
+// tabs below already expect, so none of their rendering/aging/print logic
+// needs to change — only where each one sources `bills`/`payments` from.
+// Real db.ap.bills entries (if any are ever entered manually) are still
+// included, appended after the procurement-derived ones.
+//
+// FX SAFETY: mirrors the rule utils/glPosting.js's journalFromPurchaseInvoice
+// already applies for the GL — a foreign-currency invoice with no captured
+// exchange rate is never guessed into NGN (that would silently misstate what
+// SLOT owes on a document that can go out to a real vendor). Its
+// ngnEquivalent is left at 0 (so it can't corrupt a total) and
+// needsFxRate:true is set so callers can surface the gap instead of quietly
+// dropping it. At the time of writing 9 of the 11 real procurement invoices
+// (all supplier "CSPS (POUNDS)") have no fxRate captured and will not appear
+// in these reports' totals until Procurement records a rate on them.
+function procurementInvoicesAsBills(procurement) {
+  const invoices = procurement?.invoices || [];
+  return invoices.map(inv => {
+    const currency  = inv.currency || 'NGN';
+    const rate      = Number(inv.fxRate);
+    const needsRate = currency !== 'NGN';
+    const hasRate   = !needsRate || (Number.isFinite(rate) && rate > 0);
+    const fx        = needsRate ? rate : 1;
+    const native    = Number(inv.netPayable ?? inv.total) || 0;
+    const ngn       = hasRate ? Math.round(native * fx) : 0;
+    return {
+      id:            inv.id,
+      vendor:        inv.supplier,
+      vendorName:    inv.supplier,
+      date:          inv.date,
+      billNo:        inv.invoiceNo,
+      invoiceNo:     inv.invoiceNo,
+      description:   inv.items?.[0]?.description || `PO ${inv.poNo || '—'}`,
+      status:        inv.status,
+      dueDate:       inv.dueDate,
+      currency,
+      needsFxRate:   needsRate && !hasRate,
+      nativeAmount:  native,
+      ngnEquivalent: ngn,
+      netPayable:    ngn,
+      paidAmount:    inv.status === 'Paid' ? ngn : 0,
+      whtRate:       inv.whtRate,
+      whtAmount:     hasRate ? Math.round((Number(inv.whtAmount) || 0) * fx) : 0,
+      source:        'procurement',
+    };
+  });
+}
+
+// A Paid procurement invoice IS the payment leg (Procurement doesn't track a
+// separate payment record) — one synthetic payment per Paid invoice with a
+// resolved NGN amount.
+function procurementInvoicesAsPayments(procurement) {
+  return procurementInvoicesAsBills(procurement)
+    .filter(b => b.status === 'Paid' && !b.needsFxRate)
+    .map(b => ({
+      id:            `pay-${b.id}`,
+      billId:        b.id,
+      vendor:        b.vendor,
+      vendorName:    b.vendorName,
+      date:          b.date,
+      paymentNo:     `PAY-${b.invoiceNo}`,
+      reference:     b.invoiceNo,
+      ngnEquivalent: b.ngnEquivalent,
+      amount:        b.ngnEquivalent,
+      source:        'procurement',
+    }));
+}
+
+function getApSource(db) {
+  const manual = db.ap || { bills: [], payments: [] };
+  return {
+    bills:    [...procurementInvoicesAsBills(db.procurement), ...(manual.bills || [])],
+    payments: [...procurementInvoicesAsPayments(db.procurement), ...(manual.payments || [])],
+  };
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // FEATURE 2 — SUPPLIER STATEMENT + REMITTANCE ADVICE
-// Same pattern as Customer Statement but on db.ap.bills / db.ap.payments.
+// Same pattern as Customer Statement but on db.ap.bills / db.ap.payments,
+// now backed by real Procurement invoices — see procurementInvoicesAsBills().
 // Also includes a Remittance Advice generator for a single payment batch.
 // ════════════════════════════════════════════════════════════════════════════
 function SupplierStatementTab({ state, dispatch, inp }) {
@@ -475,9 +563,13 @@ function SupplierStatementTab({ state, dispatch, inp }) {
   const [fromDate,   setFromDate]   = useState('');
   const [toDate,     setToDate]     = useState(today());
 
-  const apData   = db.ap || { bills: [], payments: [] };
+  const apData   = useMemo(() => getApSource(db), [db.procurement, db.ap]);
   const bills    = apData.bills    || [];
   const payments = apData.payments || [];
+  const pendingFxCount = useMemo(
+    () => vendorCode ? bills.filter(b => b.needsFxRate && (b.vendor === vendorCode)).length : 0,
+    [bills, vendorCode]
+  );
 
   const txns = useMemo(() => {
     if (!vendorCode) return [];
@@ -517,12 +609,17 @@ function SupplierStatementTab({ state, dispatch, inp }) {
   const opening = useMemo(() => {
     if (!vendorCode || !fromDate) return 0;
     const before = txns.filter(t => new Date(t.date) < new Date(fromDate));
-    return before.reduce((s, t) => s + t.debit - t.credit, 0);
+    // QA fix (2026-08-14): was `debit - credit`, backwards from the "positive
+    // = we owe them" the code already claimed — a Bill (credit) is what we
+    // owe, so it should ADD to the balance; a Payment (debit) reduces it.
+    // Invisible until now because this tab always showed ₦0 (see
+    // procurementInvoicesAsBills() above) — the first real bill exposed it.
+    return before.reduce((s, t) => s + t.credit - t.debit, 0);
   }, [txns, vendorCode, fromDate]);
 
   const totalDebit  = txns.reduce((s, t) => s + t.debit,  0);
   const totalCredit = txns.reduce((s, t) => s + t.credit, 0);
-  const closing     = opening + totalDebit - totalCredit; // positive = we owe them
+  const closing     = opening + totalCredit - totalDebit; // positive = we owe them
 
   const aging = useMemo(() => {
     if (!vendorCode) return { current:0, b30:0, b60:0, b90:0, b120:0 };
@@ -668,6 +765,11 @@ function SupplierStatementTab({ state, dispatch, inp }) {
 
       {vendorCode && (
         <>
+          {pendingFxCount > 0 && (
+            <div style={{ padding:'10px 14px', background:'rgba(230,126,34,0.12)', border:'1px solid '+C.amber, borderRadius:8, marginBottom:14, fontSize:12, color:C.text }}>
+              ⚠️ {pendingFxCount} invoice{pendingFxCount>1?'s':''} for this supplier {pendingFxCount>1?'are':'is'} in a foreign currency with no exchange rate captured, so {pendingFxCount>1?'they are':'it is'} excluded from the totals below. Open the invoice in Procurement → Supplier Invoices and enter a rate to include it.
+            </div>
+          )}
           <div style={{ display:'flex', gap:10, marginBottom:14 }}>
             <div style={{ flex:1, padding:'10px 14px', background:C.bgCard, border:'1px solid '+C.border, borderRadius:8 }}>
               <div style={{ fontSize:10, color:C.textMuted, textTransform:'uppercase' }}>Opening (we owe)</div>
@@ -1527,10 +1629,17 @@ function AgingTab({ state, dispatch, inp }) {
     return Object.values(map).sort((a,b) => b.total - a.total);
   }, [db.invoices, asOf]);
 
+  // QA fix (2026-08-14): was db.ap?.bills (always empty) — see
+  // procurementInvoicesAsBills() above for why real supplier invoices now
+  // feed this instead.
+  const apBillsAll = useMemo(() => getApSource(db).bills, [db.procurement, db.ap]);
+  const apPendingFxCount = useMemo(
+    () => apBillsAll.filter(b => b.needsFxRate && b.status !== 'Paid' && b.status !== 'Cancelled').length,
+    [apBillsAll]
+  );
   const apRows = useMemo(() => {
-    const bills = db.ap?.bills || [];
     const map = {};
-    bills.filter(b => b.status !== 'Paid' && b.status !== 'Cancelled').forEach(b => {
+    apBillsAll.filter(b => b.status !== 'Paid' && b.status !== 'Cancelled').forEach(b => {
       const bal = (Number(b.ngnEquivalent || b.netPayable) || 0) - (Number(b.paidAmount) || 0);
       if (bal <= 0) return;
       const key = b.vendor || b.vendorName;
@@ -1540,7 +1649,7 @@ function AgingTab({ state, dispatch, inp }) {
       map[key].total += bal;
     });
     return Object.values(map).sort((a,b) => b.total - a.total);
-  }, [db.ap, asOf]);
+  }, [apBillsAll, asOf]);
 
   const rows = side === 'ar' ? arRows : apRows;
   const totals = rows.reduce((acc, r) => {
@@ -1617,6 +1726,12 @@ function AgingTab({ state, dispatch, inp }) {
       </div>
       <FG label="As of Date"><input type="date" value={asOf} onChange={e=>setAsOf(e.target.value)} style={{ ...inp, maxWidth:200 }} /></FG>
 
+      {side === 'ap' && apPendingFxCount > 0 && (
+        <div style={{ padding:'10px 14px', background:'rgba(230,126,34,0.12)', border:'1px solid '+C.amber, borderRadius:8, marginTop:14, fontSize:12, color:C.text }}>
+          ⚠️ {apPendingFxCount} supplier invoice{apPendingFxCount>1?'s are':' is'} in a foreign currency with no exchange rate captured, so {apPendingFxCount>1?'they are':'it is'} excluded from the balances below. Open the invoice(s) in Procurement → Supplier Invoices and enter a rate to include them.
+        </div>
+      )}
+
       <table style={{ width:'100%', borderCollapse:'collapse', marginTop:14 }}>
         <thead><tr>
           <th style={th}>#</th><th style={th}>Code</th><th style={th}>Name</th>
@@ -1665,14 +1780,21 @@ function AgingTab({ state, dispatch, inp }) {
 function BatchPaymentTab({ state, dispatch, inp }) {
   const { C } = useTheme();
   const { db, currentUser } = state;
-  const bills = db.ap?.bills || [];
+  // QA fix (2026-08-14): was db.ap?.bills (always empty) — see
+  // procurementInvoicesAsBills() above for why real supplier invoices now
+  // feed this instead.
+  const bills = useMemo(() => getApSource(db).bills, [db.procurement, db.ap]);
   const batches = db.paymentBatches || [];
   const [selected, setSelected] = useState(new Set()); // bill ids
   const [bankCode, setBankCode] = useState('3003');
   const [paymentDate, setPaymentDate] = useState(today());
   const [reference, setReference] = useState('');
 
-  const outstanding = bills.filter(b => b.status !== 'Paid' && b.status !== 'Cancelled');
+  // needsFxRate bills have no resolved NGN amount — can't be batched for
+  // payment until Procurement records an exchange rate on them (see the FX
+  // SAFETY note on procurementInvoicesAsBills above).
+  const outstanding = bills.filter(b => b.status !== 'Paid' && b.status !== 'Cancelled' && !b.needsFxRate);
+  const pendingFxCount = bills.filter(b => b.needsFxRate && b.status !== 'Paid' && b.status !== 'Cancelled').length;
   const selectedBills = outstanding.filter(b => selected.has(b.id));
   const totalSelected = selectedBills.reduce((s, b) => {
     const bal = (Number(b.ngnEquivalent || b.netPayable) || 0) - (Number(b.paidAmount) || 0);
@@ -1716,33 +1838,65 @@ function BatchPaymentTab({ state, dispatch, inp }) {
     const updated = [batch, ...batches];
     saveBatches(updated);
 
-    // Mark bills as Paid and add to ap.payments
-    const apData = db.ap || { bills: [], payments: [] };
-    const updatedBills = apData.bills.map(b => selected.has(b.id)
-      ? { ...b, status: 'Paid', paidAmount: Number(b.netPayable), paidDate: paymentDate, paymentRef: batchNo }
-      : b);
-    const newPayments = selectedBills.map(b => ({
-      id: uid(),
-      paymentNo: `${batchNo}-${b.id.slice(-4)}`,
-      billId: b.id,
-      vendor: b.vendor,
-      vendorName: b.vendorName,
-      date: paymentDate,
-      amount: (Number(b.ngnEquivalent || b.netPayable) || 0) - (Number(b.paidAmount) || 0),
-      ngnEquivalent: (Number(b.ngnEquivalent || b.netPayable) || 0) - (Number(b.paidAmount) || 0),
-      bankCode, bankName: bank?.name || '',
-      reference: batchNo,
-      batchNo,
-      createdAt: new Date().toISOString(),
-    }));
-    const newAp = {
-      bills: updatedBills,
-      payments: [...(apData.payments || []), ...newPayments],
-    };
-    diffAndPush('apBills', apData.bills, updatedBills); // 2026-07-29 full-app sync sweep
-    newPayments.forEach(p => pushOne('apPayments', p)); // new rows only, no diff needed
-    dispatch({ type:'UPDATE_MODULE', mod:'ap', data: newAp });
-    saveDBLocal({ ...db, ap: newAp }, state.activity);
+    // ── Mark paid — QA fix (2026-08-14) ─────────────────────────────────────
+    // Selected bills are now (mostly) real Procurement invoices, not entries
+    // in the old db.ap.bills ledger. Marking one "Paid" has to update the
+    // ACTUAL invoice record in db.procurement.invoices, via the exact save
+    // path Procurement.jsx itself uses (diffAndPush('procurementInvoices',...)
+    // + UPDATE_MODULE mod:'procurement') — otherwise the payment would be
+    // recorded here while Procurement's own Supplier Invoices list still
+    // showed the same invoice as Pending, recreating the exact cross-module
+    // split this fix exists to close. Any bill genuinely entered in the
+    // legacy manual db.ap.bills ledger (source !== 'procurement') still
+    // updates that ledger the original way.
+    const procSelected   = selectedBills.filter(b => b.source === 'procurement');
+    const manualSelected = selectedBills.filter(b => b.source !== 'procurement');
+    let nextDb = db;
+
+    if (procSelected.length > 0) {
+      const procIds = new Set(procSelected.map(b => b.id));
+      const proc = db.procurement || { rfqs: [], pos: [], waybills: [], invoices: [] };
+      const prevInvoices = proc.invoices || [];
+      const updatedInvoices = prevInvoices.map(inv => procIds.has(inv.id)
+        ? { ...inv, status: 'Paid', paymentDate, paymentRef: batchNo }
+        : inv);
+      diffAndPush('procurementInvoices', prevInvoices, updatedInvoices); // same table Procurement.jsx writes to
+      const nextProc = { ...proc, invoices: updatedInvoices };
+      dispatch({ type: 'UPDATE_MODULE', mod: 'procurement', data: nextProc });
+      nextDb = { ...nextDb, procurement: nextProc };
+    }
+
+    if (manualSelected.length > 0) {
+      const apData = db.ap || { bills: [], payments: [] };
+      const manualIds = new Set(manualSelected.map(b => b.id));
+      const updatedBills = (apData.bills || []).map(b => manualIds.has(b.id)
+        ? { ...b, status: 'Paid', paidAmount: Number(b.netPayable), paidDate: paymentDate, paymentRef: batchNo }
+        : b);
+      const newPayments = manualSelected.map(b => ({
+        id: uid(),
+        paymentNo: `${batchNo}-${b.id.slice(-4)}`,
+        billId: b.id,
+        vendor: b.vendor,
+        vendorName: b.vendorName,
+        date: paymentDate,
+        amount: (Number(b.ngnEquivalent || b.netPayable) || 0) - (Number(b.paidAmount) || 0),
+        ngnEquivalent: (Number(b.ngnEquivalent || b.netPayable) || 0) - (Number(b.paidAmount) || 0),
+        bankCode, bankName: bank?.name || '',
+        reference: batchNo,
+        batchNo,
+        createdAt: new Date().toISOString(),
+      }));
+      const newAp = {
+        bills: updatedBills,
+        payments: [...(apData.payments || []), ...newPayments],
+      };
+      diffAndPush('apBills', apData.bills, updatedBills); // 2026-07-29 full-app sync sweep
+      newPayments.forEach(p => pushOne('apPayments', p)); // new rows only, no diff needed
+      dispatch({ type: 'UPDATE_MODULE', mod: 'ap', data: newAp });
+      nextDb = { ...nextDb, ap: newAp };
+    }
+
+    saveDBLocal(nextDb, state.activity);
 
     logActivity(dispatch, `Batch payment ${batchNo} generated — ${items.length} bills, total ${fmt(batch.totalAmount)}`, currentUser);
     showToast(`Batch ${batchNo} generated — ${items.length} bills paid`);
@@ -1817,6 +1971,12 @@ function BatchPaymentTab({ state, dispatch, inp }) {
         <FG label="Reference"><input value={reference} onChange={e=>setReference(e.target.value)} placeholder="Bank transfer ref (optional)" style={inp} /></FG>
       </div>
 
+      {pendingFxCount > 0 && (
+        <div style={{ padding:'10px 14px', background:'rgba(230,126,34,0.12)', border:'1px solid '+C.amber, borderRadius:8, marginBottom:14, fontSize:12, color:C.text }}>
+          ⚠️ {pendingFxCount} supplier invoice{pendingFxCount>1?'s are':' is'} in a foreign currency with no exchange rate captured, so {pendingFxCount>1?'they are':'it is'} not shown here and can't be batched yet. Open the invoice(s) in Procurement → Supplier Invoices and enter a rate first.
+        </div>
+      )}
+
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8, flexWrap:'wrap', gap:10 }}>
         <div style={{ fontSize:13, fontWeight:700, color:C.textMid }}>Outstanding Bills ({outstanding.length})</div>
         <div style={{ display:'flex', gap:8, alignItems:'center' }}>
@@ -1890,8 +2050,15 @@ function BatchPaymentTab({ state, dispatch, inp }) {
 function WHTTab({ state, dispatch, inp }) {
   const { C } = useTheme();
   const { db, currentUser } = state;
-  const bills = db.ap?.bills || [];
-  const payments = db.ap?.payments || [];
+  // QA fix (2026-08-14): was db.ap?.bills (always empty) — see
+  // procurementInvoicesAsBills() above. Note WHT was removed from
+  // Procurement invoices at SLOT's request on 5 Aug 2026 (see
+  // journalFromPurchaseInvoice in utils/glPosting.js), so most real
+  // invoices will legitimately show ₦0 WHT here — that reflects the current
+  // business process, not a bug in this report.
+  const apData   = useMemo(() => getApSource(db), [db.procurement, db.ap]);
+  const bills    = apData.bills;
+  const payments = apData.payments;
   const vendors = useMemo(() => getVendors(), []);
   const [vendorCode, setVendorCode] = useState('');
   const [fromDate, setFromDate] = useState(`${year()}-01-01`);
