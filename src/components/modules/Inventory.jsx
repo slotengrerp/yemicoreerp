@@ -79,7 +79,7 @@ export default function Inventory({ onNav }) {
         const lines = text.split('\n').filter(Boolean);
         if (lines.length < 2) { showToast('File empty or has no data rows','error'); return; }
         const headers = lines[0].split(',').map(h => h.trim().replace(/"/g,'').toLowerCase());
-        const imported = lines.slice(1).map((line, idx) => {
+        const parsedRows = lines.slice(1).map((line, idx) => {
           const vals = line.split(',').map(v => v.trim().replace(/"/g,''));
           const row = {};
           headers.forEach((h, i) => { row[h] = vals[i] || ''; });
@@ -105,6 +105,23 @@ export default function Inventory({ onNav }) {
             createdAt: new Date().toISOString(),
           };
         });
+        // 2026-08-14: same identifying-field guard handleSave() uses for manual
+        // Add/Edit (see line ~179 — "vehicleNumber || regNumber || name ||
+        // description"). CSV import had no equivalent: a row whose CSV headers
+        // didn't match any of the aliases above imported successfully with
+        // every field blank — indistinguishable from a genuinely empty/orphaned
+        // row to any later cleanup. That gap is the likely reason a real
+        // 324-row vehicle import silently produced unidentifiable rows earlier
+        // today. Reject unidentifiable rows here instead, and tell the user
+        // immediately so a header mismatch is caught at import time, not
+        // discovered later as "missing" data.
+        const imported = parsedRows.filter(r => (r.vehicleNumber || r.regNumber || r.name || r.description || '').trim());
+        const skipped = parsedRows.length - imported.length;
+        if (imported.length === 0) {
+          showToast('Import failed — no row had a Vehicle/Reg No., Name, or Description column the app recognizes. Check your CSV headers.', 'error');
+          if (importRef.current) importRef.current.value = '';
+          return;
+        }
         // 2026-08-14 QA fix: Vehicles is stored in its own `db.vehicles` /
         // `vehicles` table (see getItems() and saveItems() above — manual
         // Add/Edit/Delete on this tab already read and write there). This
@@ -130,8 +147,12 @@ export default function Inventory({ onNav }) {
           nextDB = { ...db, inventory: updated };
         }
         saveDBLocal(nextDB, state.activity);
-        logActivity(dispatch, `Imported ${imported.length} ${tab} records`, currentUser);
-        showToast(`✓ Imported ${imported.length} records into ${TAB_LABELS[tab]}`);
+        logActivity(dispatch, `Imported ${imported.length} ${tab} records${skipped ? ` (${skipped} skipped — unrecognized headers)` : ''}`, currentUser);
+        if (skipped > 0) {
+          showToast(`Imported ${imported.length} records into ${TAB_LABELS[tab]}. ${skipped} row(s) skipped — no matching Vehicle/Reg No., Name, or Description column found.`, 'error');
+        } else {
+          showToast(`✓ Imported ${imported.length} records into ${TAB_LABELS[tab]}`);
+        }
         if (importRef.current) importRef.current.value = '';
       } catch { showToast('Import failed — use CSV format','error'); }
     }).catch(() => showToast('Import failed — use CSV format','error'));
