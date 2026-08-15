@@ -21,7 +21,7 @@ const BANKS = ['Access Bank','Citibank','Ecobank','Fidelity Bank','First Bank','
 const STATUSES = ['Active','Inactive','Suspended','On Leave'];
 const SERVICE_TITLES = ['Managing Director','Director','General Manager','Deputy General Manager','Assistant General Manager','Senior Manager','Manager','Assistant Manager','Senior Officer','Officer','Assistant Officer','Coordinator','Executive','Analyst','Supervisor','Technician','Assistant'];
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-const EMPTY = { fullName:'', refId:'', department:'', serviceTitle:'', workLocation:'Port Harcourt HQ', employmentDate:'', projectCode:'', phone:'', email:'', bank:'', accountNo:'', basicSalary:'', housing:'', transport:'', otherAddition:'', paye:'', status:'Active', photoUrl:'' };
+const EMPTY = { fullName:'', refId:'', department:'', serviceTitle:'', workLocation:'Port Harcourt HQ', employmentDate:'', projectCode:'', phone:'', email:'', bank:'', accountNo:'', basicSalary:'', housing:'', transport:'', otherAddition:'', paye:'', status:'Active', photoUrl:'', photoPosY:50 };
 // item 2: staff photo uploads reuse the same Supabase Storage bucket/helper
 // as DocScanner rather than standing up a new bucket — uploadDocument()
 // already falls back to inline base64 if Supabase Storage is unavailable.
@@ -230,7 +230,7 @@ function printPayslip(s, period) {
 function printStaffCard(s) {
   const initials = (s.fullName||'U').split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
   const photoBlock = s.photoUrl
-    ? `<img src="${s.photoUrl}" alt="" style="width:100%;height:100%;object-fit:cover" />`
+    ? `<img src="${s.photoUrl}" alt="" style="width:100%;height:100%;object-fit:cover;object-position:center ${s.photoPosY ?? 50}%" />`
     : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:800;color:#fff">${initials}</div>`;
   openPrintWindow(`<!DOCTYPE html><html><head><title>Staff ID — ${s.fullName}</title>
   <style>
@@ -342,7 +342,9 @@ function StaffModal({ modal, onSave, onClose, projects }) {
       const reader = new FileReader();
       reader.onload = async ev => {
         const dataUrl = ev.target.result;
-        setF(p => ({ ...p, photoUrl: dataUrl })); // instant preview
+        // Reset the position slider on every new upload — an offset dialed in
+        // for the previous photo is very unlikely to be right for this one.
+        setF(p => ({ ...p, photoUrl: dataUrl, photoPosY: 50 })); // instant preview
         setPhotoBusy(true);
         try {
           const { uploadDocument } = await import('../../supabase/storage');
@@ -382,11 +384,25 @@ function StaffModal({ modal, onSave, onClose, projects }) {
               way to attach a real photo. */}
           <div style={{ display:'flex', alignItems:'center', gap:14, marginBottom:16, paddingTop:18 }}>
             <div style={{ width:64, height:64, borderRadius:'50%', overflow:'hidden', background:'linear-gradient(135deg,#0F3A1A,#2E7D40)', border:'2px solid '+C.amber, display:'flex', alignItems:'center', justifyContent:'center', fontSize:20, fontWeight:800, color:'#fff', flexShrink:0 }}>
-              {f.photoUrl ? <img src={f.photoUrl} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : initials}
+              {f.photoUrl ? <img src={f.photoUrl} alt="" style={{ width:'100%', height:'100%', objectFit:'cover', objectPosition:'center '+(f.photoPosY ?? 50)+'%' }} /> : initials}
             </div>
-            <div>
-              <Btn variant="ghost" sm onClick={handlePhotoPick} style={{ opacity:photoBusy?0.6:1, cursor:photoBusy?'not-allowed':'pointer' }}>{photoBusy ? 'Uploading…' : (f.photoUrl ? '📷 Change Photo' : '📷 Add Photo')}</Btn>
-              {f.photoUrl && !photoBusy && <button onClick={()=>setF(p=>({...p,photoUrl:''}))} style={{ marginLeft:8, background:'none', border:'none', color:C.textMuted, fontSize:11, cursor:'pointer', textDecoration:'underline' }}>Remove</button>}
+            <div style={{ flex:1 }}>
+              <div>
+                <Btn variant="ghost" sm onClick={handlePhotoPick} style={{ opacity:photoBusy?0.6:1, cursor:photoBusy?'not-allowed':'pointer' }}>{photoBusy ? 'Uploading…' : (f.photoUrl ? '📷 Change Photo' : '📷 Add Photo')}</Btn>
+                {f.photoUrl && !photoBusy && <button onClick={()=>setF(p=>({...p,photoUrl:'',photoPosY:50}))} style={{ marginLeft:8, background:'none', border:'none', color:C.textMuted, fontSize:11, cursor:'pointer', textDecoration:'underline' }}>Remove</button>}
+              </div>
+              {/* Passport-style photos usually have headroom above the face, so a
+                  dead-center crop into a circle often clips the top of the head.
+                  Lets a photo be nudged instead of re-uploaded, and the same
+                  photoPosY value is used everywhere this photo renders — Staff
+                  Cards grid and the printed ID card — so one adjustment fixes it
+                  in every place, not just this preview. */}
+              {f.photoUrl && (
+                <div style={{ marginTop:8, display:'flex', alignItems:'center', gap:8 }}>
+                  <span style={{ fontSize:10, color:C.textMuted, whiteSpace:'nowrap' }}>Adjust photo</span>
+                  <input type="range" min="0" max="100" value={f.photoPosY ?? 50} onChange={e=>setF(p=>({...p,photoPosY:Number(e.target.value)}))} style={{ flex:1, maxWidth:160 }} />
+                </div>
+              )}
             </div>
           </div>
           <SecLabel label="Staff Information" />
@@ -753,7 +769,7 @@ export default function SlotStaff() {
                       {/* item 2: photo if the staff record has one, else the
                           same initials-circle fallback as before */}
                       <div style={{ width:44, height:44, borderRadius:'50%', overflow:'hidden', background:'rgba(201,122,10,.4)', border:'2px solid '+C.amber, display:'flex', alignItems:'center', justifyContent:'center', fontSize:15, fontWeight:800, color:'#fff', flexShrink:0 }}>
-                        {s.photoUrl ? <img src={s.photoUrl} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : initials}
+                        {s.photoUrl ? <img src={s.photoUrl} alt="" style={{ width:'100%', height:'100%', objectFit:'cover', objectPosition:'center '+(s.photoPosY ?? 50)+'%' }} /> : initials}
                       </div>
                       <div style={{ flex:1, minWidth:0 }}>
                         <div style={{ fontSize:13, fontWeight:700, color:'#fff', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{s.fullName}</div>
