@@ -16,7 +16,10 @@ import { diffAndPush } from '../../hooks/usePerRecordSync';
 const uid   = () => generateId();
 const today = () => new Date().toISOString().split('T')[0];
 const year  = () => new Date().getFullYear();
-const fmt   = n => '₦' + (Number(n)||0).toLocaleString('en-NG', { minimumFractionDigits: 2 });
+// 2026-08-15: maximumFractionDigits wasn't set, so it defaulted to 3 —
+// a depreciation figure with 3 decimals (e.g. ₦1,234.567) would print as-is
+// instead of rounding to kobo like every other module's fmt().
+const fmt   = n => '₦' + (Number(n)||0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 function nextTag(list, cat) {
   const prefix = { 'Plant & Equipment':'PE', 'Motor Vehicle':'MV', 'Office Equipment':'OE', 'Furniture & Fittings':'FF', 'Land & Building':'LB', 'IT Equipment':'IT', 'Tools & Machinery':'TM' }[cat]||'FA';
@@ -83,8 +86,10 @@ function FG({ label, full, children }) {
 }
 
 function Overlay({ children, onClose }) {
+  // 2026-08-15: backdrop no longer closes the form on click — see same fix
+  // in ui/index.jsx's shared Modal and Procurement.jsx's Overlay.
   return (
-    <div onClick={onClose} style={{ position:'fixed', inset:0, zIndex:9999, background:'rgba(10,35,15,0.62)', backdropFilter:'blur(3px)', display:'flex', alignItems:'flex-start', justifyContent:'center', padding:'24px 16px', overflowY:'auto' }}>
+    <div style={{ position:'fixed', inset:0, zIndex:9999, background:'rgba(10,35,15,0.62)', backdropFilter:'blur(3px)', display:'flex', alignItems:'flex-start', justifyContent:'center', padding:'24px 16px', overflowY:'auto' }}>
       <div onClick={e=>e.stopPropagation()} style={{ width:'100%', maxWidth:780, marginBottom:32 }}>{children}</div>
     </div>
   );
@@ -102,9 +107,9 @@ function printRegister(assets) {
     const d = calcDepreciation(a.cost,a.residualValue,a.usefulLifeYrs,a.purchaseDate);
     return `<tr style="background:${i%2===1?'#f3faf5':'#fff'}">
       <td>${a.assetTag}</td><td>${a.description}</td><td>${a.category}</td>
-      <td>${formatDate(a.purchaseDate)}</td><td style="text-align:right">₦${(Number(a.cost)||0).toLocaleString('en-NG')}</td>
-      <td style="text-align:right">₦${d.accDep.toLocaleString('en-NG',{maximumFractionDigits:0})}</td>
-      <td style="text-align:right;font-weight:700;color:#1A5C2A">₦${d.nbv.toLocaleString('en-NG',{maximumFractionDigits:0})}</td>
+      <td>${formatDate(a.purchaseDate)}</td><td style="text-align:right">₦${(Number(a.cost)||0).toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+      <td style="text-align:right">₦${d.accDep.toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+      <td style="text-align:right;font-weight:700;color:#1A5C2A">₦${d.nbv.toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
       <td>${a.location}</td><td>${a.condition}</td><td>${a.status}</td>
     </tr>`;
   }).join('');
@@ -112,7 +117,7 @@ function printRegister(assets) {
   ${printHeader('FIXED ASSET REGISTER', `As at ${new Date().toLocaleDateString('en-GB',{day:'2-digit',month:'long',year:'numeric'})}`)}
   <table><thead><tr><th>Tag</th><th>Description</th><th>Category</th><th>Purchase Date</th><th style="text-align:right">Cost</th><th style="text-align:right">Acc. Dep.</th><th style="text-align:right">NBV</th><th>Location</th><th>Condition</th><th>Status</th></tr></thead>
   <tbody>${rows}</tbody>
-  <tfoot><tr class="total-row"><td colspan="4" style="text-align:right;font-size:10px;text-transform:uppercase">Totals</td><td style="text-align:right">₦${totalCost.toLocaleString('en-NG')}</td><td></td><td style="text-align:right">₦${totalNBV.toLocaleString('en-NG',{maximumFractionDigits:0})}</td><td colspan="3"></td></tr></tfoot>
+  <tfoot><tr class="total-row"><td colspan="4" style="text-align:right;font-size:10px;text-transform:uppercase">Totals</td><td style="text-align:right">₦${totalCost.toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}</td><td></td><td style="text-align:right">₦${totalNBV.toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}</td><td colspan="3"></td></tr></tfoot>
   </table>
   ${printBootstrap({landscape:false})}</body></html>`);
 }

@@ -72,7 +72,12 @@ export function StatCard({ label, value, accent, sub, icon: Icon, onClick }) {
 export function Modal({ title, onClose, children, footer, maxWidth = 540 }) {
   const { C } = useTheme();
   return (
-    <div onClick={onClose} style={{
+    // 2026-08-15: backdrop used to call onClose on any click — one misclick
+    // outside a half-filled form (which happens constantly, since this modal
+    // covers nearly every form in the app) silently discarded everything
+    // typed with no confirmation. Backdrop no longer closes the modal; only
+    // the explicit × button (or a Cancel/Close button in the footer) does.
+    <div style={{
       position: 'fixed', inset: 0, zIndex: 9999,
       background: 'rgba(10,35,15,0.60)',
       backdropFilter: 'blur(3px)',

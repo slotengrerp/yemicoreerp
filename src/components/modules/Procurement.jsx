@@ -22,7 +22,12 @@ import { logActivity } from '../../utils/audit';
 // listName ('rfqs'|'pos'|'waybills'|'invoices') → RECORD_TABLES key, used by save() below.
 const PROC_TABLE_BY_LIST = { rfqs: 'procurementRfqs', pos: 'procurementPos', waybills: 'procurementWaybills', invoices: 'procurementInvoices' };
 
-const fmt = n => '₦' + (Number(n) || 0).toLocaleString('en-NG', { minimumFractionDigits: 0 });
+// 2026-08-15: was minimumFractionDigits:0 with no max — decimals appeared or
+// vanished depending on the underlying number instead of pinning to kobo,
+// unlike Invoices.jsx/PettyCash.jsx/AccountsPayable.jsx's fmt(). RFQ/PO/
+// Waybill/Invoice totals are exactly the figures staff reconcile against
+// supplier paperwork, so this is the one most worth getting exact.
+const fmt = n => '₦' + (Number(n) || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 // ── Currency selection ───────────────────────────────────────────────────────
 // Every procurement document (RFQ, PO, Waybill, Invoice) carries its own
@@ -36,7 +41,7 @@ const CURRENCIES = ['NGN', 'USD', 'GBP', 'EUR', ''];
 const CUR_SYM = { NGN: '₦', USD: '$', GBP: '£', EUR: '€', '': '' };
 const curSym = c => CUR_SYM[c] ?? '';
 // Same formatting as fmt(), but with the document's own currency symbol.
-const fmtC = (n, c) => curSym(c) + (Number(n) || 0).toLocaleString('en-NG', { minimumFractionDigits: 0 });
+const fmtC = (n, c) => curSym(c) + (Number(n) || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 // Column-header suffix: "Unit Price (₦)" / "Unit Price (USD)" / "Unit Price"
 const curSuffix = c => (c ? ` (${curSym(c) || c})` : '');
 
@@ -112,6 +117,63 @@ function printInvoice(inv) {
     <div><div class="sig-line">Designation</div></div>
   </div>
   ${printBootstrap({landscape:false})}</body></html>`);
+}
+
+// ── Print: RFQ ────────────────────────────────────────────────────────────
+// 2026-08-15 — RFQ was the only document in the RFQ→PO→Waybill→Invoice chain
+// with no print output at all; staff had no paper copy to send a supplier or
+// keep on file. Modelled on printPO/printInvoice above. Unset estimated
+// prices print as "—" rather than a currency-formatted zero (see the
+// matching on-screen fix in RFQModal's item rows, same root cause: an empty
+// string price defaulted through Number('')||0 to a bare 0/"$0").
+function printRFQ(rfq) {
+  const cur = rfq.currency ?? 'NGN';
+  const m = n => fmtC(n, cur);
+  const priceCell = p => (p === '' || p == null) ? '—' : m(p);
+  const totalEstimated = (rfq.items || []).reduce((s, i) => s + (Number(i.qty) || 0) * (Number(i.estimatedPrice) || 0), 0);
+  const rows = (rfq.items || []).map((it, i) => `
+    <tr style="background:${i % 2 ? '#f3faf5' : '#fff'}">
+      <td style="padding:7px 10px;border-bottom:1px solid #EAF0EB">${i + 1}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #EAF0EB">${it.description || '—'}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #EAF0EB;text-align:center">${it.qty || 0}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #EAF0EB;text-align:center">${it.unit || '—'}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #EAF0EB;text-align:right">${priceCell(it.estimatedPrice)}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #EAF0EB;text-align:right;font-weight:700;color:#1A5C2A">${it.estimatedPrice === '' || it.estimatedPrice == null ? '—' : m((Number(it.qty) || 0) * (Number(it.estimatedPrice) || 0))}</td>
+    </tr>`).join('');
+  openPrintWindow(`<!DOCTYPE html><html><head><title>RFQ ${rfq.rfqNo || ''}</title><style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{font-family:'Segoe UI',Arial,sans-serif;font-size:12px;color:#182A1C;padding:24px}
+    table{width:100%;border-collapse:collapse}
+    th{background:#1A5C2A;color:#fff;padding:8px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.4px}
+    .info-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:16px 0}
+    .field{margin-bottom:8px}
+    .lbl{font-size:9px;font-weight:700;text-transform:uppercase;color:#182A1C;letter-spacing:.5px;margin-bottom:2px}
+    .val{font-size:12px;font-weight:600;border-bottom:1px solid #DDE9DE;padding-bottom:3px}
+    .total-row{background:#F0F8F2;font-weight:700}
+    .sig{display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:44px}
+    .sig-line{border-top:1px solid #ccc;padding-top:6px;font-size:10px;font-weight:600;color:#182A1C}
+    @media print{body{padding:12px}}
+  </style></head><body>
+  ${printHeader('REQUEST FOR QUOTATION · ' + (rfq.rfqNo || ''), formatDate(rfq.date))}
+  <div class="info-grid">
+    <div>
+      <div class="field"><div class="lbl">Client</div><div class="val">${rfq.clientName || '—'}</div></div>
+      <div class="field"><div class="lbl">Department</div><div class="val">${rfq.department || '—'}</div></div>
+      <div class="field"><div class="lbl">Requested By</div><div class="val">${rfq.requestedBy || '—'}</div></div>
+    </div>
+    <div>
+      <div class="field"><div class="lbl">Required By</div><div class="val">${formatDate(rfq.requiredBy) || '—'}</div></div>
+      <div class="field"><div class="lbl">Status</div><div class="val">${rfq.status || '—'}</div></div>
+      <div class="field"><div class="lbl">Description</div><div class="val">${rfq.description || '—'}</div></div>
+    </div>
+  </div>
+  <table>
+    <thead><tr><th>#</th><th>Description</th><th style="text-align:center">Qty</th><th style="text-align:center">Unit</th><th style="text-align:right">Est. Unit Price</th><th style="text-align:right">Est. Total</th></tr></thead>
+    <tbody>${rows}</tbody>
+    <tfoot><tr class="total-row"><td colspan="5" style="padding:8px 10px;text-align:right">Total Estimated Value</td><td style="padding:8px 10px;text-align:right">${m(totalEstimated)}</td></tr></tfoot>
+  </table>
+  <div class="sig"><div><div class="sig-line">Prepared By / Date</div></div><div><div class="sig-line">Approved By / Date</div></div></div>
+  ${printBootstrap({ landscape: false })}</body></html>`);
 }
 
 // ── Legacy local key (read-only now, used once for migration in loadInitial) ──
@@ -261,8 +323,13 @@ function FG({ label, full, children }) {
 }
 
 function Overlay({ children, onClose }) {
+  // 2026-08-15: backdrop click used to call onClose directly — every RFQ, PO,
+  // Waybill and Invoice form in this module is a long, multi-field form, so a
+  // single misclick outside it silently discarded everything typed. Same fix
+  // as ui/index.jsx's shared Modal: only the explicit × / Close button closes
+  // this now.
   return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(10,35,15,0.60)', backdropFilter: 'blur(3px)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '24px 16px', overflowY: 'auto' }}>
+    <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(10,35,15,0.60)', backdropFilter: 'blur(3px)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '24px 16px', overflowY: 'auto' }}>
       <div onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: 880, marginBottom: 32 }}>{children}</div>
     </div>
   );
@@ -333,6 +400,8 @@ function RFQModal({ rfq, onSave, onClose, onCreatePO }) {
             <div style={{ fontSize: 12, color: C.textMuted, marginTop: 2 }}>Enquiry / Tender Request</div>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            {/* item 10: RFQ was the only doc in the RFQ→PO→Waybill→Invoice chain with no print output */}
+            {isView && <Btn variant="ghost" sm onClick={() => printRFQ(form)}>🖨 Print RFQ</Btn>}
             {isView && form.status === 'PO Received' && <Btn variant="amber" sm onClick={() => onCreatePO(form)}>Create PO →</Btn>}
             {isView && <Tag status={form.status} />}
             <button onClick={onClose} aria-label="Close dialog" style={{ background: 'none', border: 'none', fontSize: 22, color: C.textMuted, cursor: 'pointer' }}>×</button>
@@ -370,8 +439,12 @@ function RFQModal({ rfq, onSave, onClose, onCreatePO }) {
                 <td style={S.td}>{isView ? item.description : <input style={{ ...S.inp, minWidth: 180 }} value={item.description} onChange={e => setItem(i, 'description', e.target.value)} placeholder="Item description" />}</td>
                 <td style={S.td}>{isView ? item.qty : <input style={{ ...S.inp, width: 70 }} type="number" value={item.qty} onChange={e => setItem(i, 'qty', e.target.value)} />}</td>
                 <td style={S.td}>{isView ? item.unit : <input style={{ ...S.inp, width: 80 }} value={item.unit} onChange={e => setItem(i, 'unit', e.target.value)} />}</td>
-                <td style={S.td}>{isView ? fmtC(item.estimatedPrice, form.currency) : <input style={{ ...S.inp, width: 120 }} type="number" value={item.estimatedPrice} onChange={e => setItem(i, 'estimatedPrice', e.target.value)} />}</td>
-                <td style={{ ...S.td, fontWeight: 600, color: C.green }}>{fmtC((Number(item.qty) || 0) * (Number(item.estimatedPrice) || 0), form.currency)}</td>
+                {/* item 10: an unfilled price is '' — Number('')||0 used to print as
+                    a currency-formatted "0" here and in the row total, which read as
+                    "this item is free" rather than "no price entered yet". Show a
+                    dash instead until a real number (including a real 0) is typed. */}
+                <td style={S.td}>{isView ? (item.estimatedPrice === '' || item.estimatedPrice == null ? '—' : fmtC(item.estimatedPrice, form.currency)) : <input style={{ ...S.inp, width: 120 }} type="number" value={item.estimatedPrice} onChange={e => setItem(i, 'estimatedPrice', e.target.value)} placeholder="Not yet priced" />}</td>
+                <td style={{ ...S.td, fontWeight: 600, color: C.green }}>{(item.estimatedPrice === '' || item.estimatedPrice == null) ? '—' : fmtC((Number(item.qty) || 0) * (Number(item.estimatedPrice) || 0), form.currency)}</td>
                 {!isView && <td style={S.td}><button onClick={() => removeItem(i)} style={{ background: C.danger, color: '#fff', border: 'none', borderRadius: 5, padding: '2px 8px', cursor: 'pointer', fontSize: 12 }}>✕</button></td>}
               </tr>
             ))}
@@ -795,10 +868,13 @@ function printWaybill(form) {
     </body></html>`);
 }
 
-function WaybillModal({ wb, po, onSave, onClose, onCreateInvoice, allWaybills = [] }) {
+function WaybillModal({ wb, po, onSave, onClose, onCreateInvoice, allWaybills = [], invoices = [] }) {
   const { C } = useTheme();
   const S = useStyles();
   const isView = !!wb?.id;
+  // item 5: one invoice per waybill. Without this check, "Create Invoice →"
+  // stayed clickable forever, so a supplier's waybill could be invoiced twice.
+  const existingInvoice = wb?.id ? invoices.find(inv => inv.waybillId === wb.id) : null;
 
   // FIX: New waybill shows ONLY items with remaining qty (not yet fully delivered)
   const initItems = (() => {
@@ -848,7 +924,8 @@ function WaybillModal({ wb, po, onSave, onClose, onCreateInvoice, allWaybills = 
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             {isView && <Btn variant="ghost" sm onClick={handlePrintWaybill}>🖨 Print Waybill</Btn>}
-            {isView && form.status === 'Accepted' && <Btn variant="amber" sm onClick={() => onCreateInvoice && onCreateInvoice(wb)}>Create Invoice →</Btn>}
+            {isView && form.status === 'Accepted' && !existingInvoice && <Btn variant="amber" sm onClick={() => onCreateInvoice && onCreateInvoice(wb)}>Create Invoice →</Btn>}
+            {isView && form.status === 'Accepted' && existingInvoice && <span style={{ fontSize: 11, color: C.success, fontWeight: 600 }}>✓ Invoiced ({existingInvoice.invoiceNo})</span>}
             {isView && <Tag status={form.status} />}
             <button onClick={onClose} aria-label="Close dialog" style={{ background: 'none', border: 'none', fontSize: 22, color: C.textMuted, cursor: 'pointer' }}>×</button>
           </div>
@@ -1554,11 +1631,11 @@ export default function Procurement({ onNav }) {
           onCreateInvoice={po => setModal({ type: 'inv_create', po })} />
       )}
       {modal?.type === 'wb_create' && (
-        <WaybillModal po={modal.po} allWaybills={waybills} onSave={saveWaybill} onClose={() => setModal(null)}
+        <WaybillModal po={modal.po} allWaybills={waybills} invoices={invoices} onSave={saveWaybill} onClose={() => setModal(null)}
           onCreateInvoice={wb => setModal({ type: 'inv_create', wb, po: pos.find(p => p.id === wb.poId) })} />
       )}
       {modal?.type === 'wb_view' && (
-        <WaybillModal wb={modal.wb} po={pos.find(p => p.id === modal.wb.poId)}
+        <WaybillModal wb={modal.wb} po={pos.find(p => p.id === modal.wb.poId)} invoices={invoices}
           onSave={saveWaybill} onClose={() => setModal(null)}
           onCreateInvoice={wb => setModal({ type: 'inv_create', wb, po: pos.find(p => p.id === wb.poId) })} />
       )}

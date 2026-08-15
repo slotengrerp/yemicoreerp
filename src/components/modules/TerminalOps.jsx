@@ -105,7 +105,9 @@ const TABS = [
 // ── Print: Slot Terminal Sheet (matches Image 1) ────────────────────────────
 function printSlotTerminalSheet(list, containers) {
   const getType = no => (containers.find(c=>c.containerNo===no)||{}).containerType||'—';
-  const fmt = n => '₦'+Number(n||0).toLocaleString('en-NG');
+  // 2026-08-15: pinned to 2 decimals — this prints a charges sheet handed to
+  // suppliers/clients, so it needs to match their kobo-precise paperwork.
+  const fmt = n => '₦'+Number(n||0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const rows = list.map((c,i) => `
     <tr style="background:${i%2?'#f3faf5':'#fff'}">
       <td>${i+1}</td><td><strong>${c.containerNo}</strong></td><td>${getType(c.containerNo)}</td>
@@ -137,7 +139,7 @@ function printSlotTerminalSheet(list, containers) {
     </tr></thead>
     <tbody>${rows}
     <tr class="tot"><td colspan="9" style="padding:8px;text-align:right">GRAND TOTAL</td>
-    <td style="padding:8px;text-align:right;font-size:12px">₦${grandTotal.toLocaleString('en-NG')}</td><td></td></tr>
+    <td style="padding:8px;text-align:right;font-size:12px">₦${grandTotal.toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}</td><td></td></tr>
     </tbody>
   </table>
   <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:40px;margin-top:40px">
@@ -199,7 +201,7 @@ function printFlopingLogisticsSheet(list) {
 // own register sheet, so it can be checked against the original line by line.
 function printSingleBoL(bol, childContainers, charges = []) {
   const d = v => v ? formatDate(v) : '—';
-  const money = n => '₦' + Number(n || 0).toLocaleString('en-NG');
+  const money = n => '₦' + Number(n || 0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const totalCharges = charges.reduce((s, c) => s + (Number(c.totalAmount) || 0), 0);
 
   const rows = childContainers.map((c, i) => `
@@ -338,7 +340,9 @@ function KPI({label,value,sub,accent,alert,onClick}) {
 }
 
 function Overlay({children,onClose}) {
-  return <div onClick={onClose} style={{position:'fixed',inset:0,zIndex:9999,background:'rgba(10,35,15,0.62)',backdropFilter:'blur(3px)',display:'flex',alignItems:'flex-start',justifyContent:'center',padding:'24px 16px',overflowY:'auto'}}><div onClick={e=>e.stopPropagation()} style={{width:'100%',maxWidth:720,marginBottom:32}}>{children}</div></div>;
+  // 2026-08-15: backdrop no longer closes the form on click — see same fix
+  // in ui/index.jsx's shared Modal and Procurement.jsx's Overlay.
+  return <div style={{position:'fixed',inset:0,zIndex:9999,background:'rgba(10,35,15,0.62)',backdropFilter:'blur(3px)',display:'flex',alignItems:'flex-start',justifyContent:'center',padding:'24px 16px',overflowY:'auto'}}><div onClick={e=>e.stopPropagation()} style={{width:'100%',maxWidth:720,marginBottom:32}}>{children}</div></div>;
 }
 
 // ── Main export ────────────────────────────────────────────────────────────────
@@ -1647,7 +1651,7 @@ function ShippingCompanyModal({data,onSave,onClose}) {
 // `bolId` / `entityId` filter without changing the engine.
 function TerminalStatements({ journals, coa, C }) {
   const terminalJournals = (journals || []).filter(j => j.source === 'terminal' || j.source === 'terminal-advance');
-  const fmt = n => '₦' + (Number(n)||0).toLocaleString('en-NG', { maximumFractionDigits: 0 });
+  const fmt = n => '₦' + (Number(n)||0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   // Aggregate by account code
   const balByCode = {};

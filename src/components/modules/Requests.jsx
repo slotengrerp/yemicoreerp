@@ -83,8 +83,10 @@ function FG({ label, full, half, children }) {
 }
 
 function Overlay({ children, onClose, wide }) {
+  // 2026-08-15: backdrop no longer closes the form on click — see same fix
+  // in ui/index.jsx's shared Modal and Procurement.jsx's Overlay.
   return (
-    <div onClick={onClose} style={{ position:'fixed', inset:0, zIndex:9999, background:'rgba(10,35,15,0.62)', backdropFilter:'blur(3px)', display:'flex', alignItems:'flex-start', justifyContent:'center', padding:'24px 16px', overflowY:'auto' }}>
+    <div style={{ position:'fixed', inset:0, zIndex:9999, background:'rgba(10,35,15,0.62)', backdropFilter:'blur(3px)', display:'flex', alignItems:'flex-start', justifyContent:'center', padding:'24px 16px', overflowY:'auto' }}>
       <div onClick={e=>e.stopPropagation()} style={{ width:'100%', maxWidth: wide ? 900 : 680, marginBottom:32 }}>{children}</div>
     </div>
   );

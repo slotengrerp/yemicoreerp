@@ -34,7 +34,9 @@ const STATUS_COLOR = {
 // 2026-07-28, having held three fabricated sales orders against real
 // customer names). See App.jsx boot-sequence note.
 
-const fmt    = n => '₦' + (Number(n)||0).toLocaleString('en-NG', { maximumFractionDigits: 0 });
+// 2026-08-15: was maximumFractionDigits:0 — sales order totals rounded off
+// kobo, unlike every other financial-document module's fmt().
+const fmt    = n => '₦' + (Number(n)||0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtFC  = (n, c) => { const sym = { USD:'$', EUR:'€', GBP:'£' }[c] || ''; return `${sym}${(Number(n)||0).toLocaleString('en-US',{maximumFractionDigits:2})}`; };
 const STATUS_BADGE = ({ status }) => { const m = STATUS_COLOR[status] || STATUS_COLOR.Draft; return <span style={{ display:'inline-block', padding:'2px 9px', borderRadius:20, fontSize:11, fontWeight:600, color:m.color, background:m.bg, border:`1px solid ${m.color}30`, whiteSpace:'nowrap' }}>{status}</span>; };
 

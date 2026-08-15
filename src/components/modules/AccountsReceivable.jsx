@@ -89,8 +89,10 @@ function SecLabel({ label }) {
   return <div style={{ fontSize:11, fontWeight:700, color:C.textMid, textTransform:'uppercase', letterSpacing:'0.4px', margin:'16px 0 8px', paddingBottom:5, borderBottom:'2px solid '+C.greenPale }}>{label}</div>;
 }
 function Overlay({ children, onClose }) {
+  // 2026-08-15: backdrop no longer closes the form on click — see same fix
+  // in ui/index.jsx's shared Modal and Procurement.jsx's Overlay.
   return (
-    <div onClick={onClose} style={{ position:'fixed', inset:0, zIndex:9999, background:'rgba(10,35,15,0.62)', backdropFilter:'blur(3px)', display:'flex', alignItems:'flex-start', justifyContent:'center', padding:'24px 16px', overflowY:'auto' }}>
+    <div style={{ position:'fixed', inset:0, zIndex:9999, background:'rgba(10,35,15,0.62)', backdropFilter:'blur(3px)', display:'flex', alignItems:'flex-start', justifyContent:'center', padding:'24px 16px', overflowY:'auto' }}>
       <div onClick={e=>e.stopPropagation()} style={{ width:'100%', maxWidth:860, marginBottom:32 }}>{children}</div>
     </div>
   );
@@ -108,8 +110,8 @@ function printInvoice(inv) {
     <tr style="background:${i%2===1?'#f3faf5':'#fff'}">
       <td>${i+1}</td><td>${it.description}</td><td style="text-align:center">${it.qty}</td>
       <td style="text-align:center">${it.unit}</td>
-      <td style="text-align:right">${sym}${(Number(it.unitPrice)||0).toLocaleString('en-NG')}</td>
-      <td style="text-align:right;font-weight:600">${sym}${(Number(it.total)||0).toLocaleString('en-NG')}</td>
+      <td style="text-align:right">${sym}${(Number(it.unitPrice)||0).toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+      <td style="text-align:right;font-weight:600">${sym}${(Number(it.total)||0).toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
     </tr>`).join('');
 
   openPrintWindow(`<!DOCTYPE html><html><head><title>Invoice ${inv.invoiceNo}</title>
@@ -187,13 +189,13 @@ function printInvoice(inv) {
   <tbody>${rows}</tbody></table>
 
   <div class="total-section">
-    <div class="total-row-sm"><span>Subtotal</span><span>${sym}${(Number(inv.subtotal)||0).toLocaleString('en-NG')}</span></div>
-    <div class="total-row-sm"><span>VAT (7.5%)</span><span>${sym}${(Number(inv.vatAmount)||0).toLocaleString('en-NG')}</span></div>
-    <div class="total-row-sm"><span>WHT (${inv.whtRate||5}%)</span><span>– ${sym}${(Number(inv.whtAmount)||0).toLocaleString('en-NG')}</span></div>
-    ${inv.ncdfAmount ? `<div class="total-row-sm"><span>NCDF (${inv.ncdfRate||1}%)</span><span>– ${sym}${(Number(inv.ncdfAmount)||0).toLocaleString('en-NG')}</span></div>` : ''}
-    <div class="grand-total"><span>Net Payable</span><span>${sym}${(Number(inv.netPayable)||0).toLocaleString('en-NG')}</span></div>
+    <div class="total-row-sm"><span>Subtotal</span><span>${sym}${(Number(inv.subtotal)||0).toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}</span></div>
+    <div class="total-row-sm"><span>VAT (7.5%)</span><span>${sym}${(Number(inv.vatAmount)||0).toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}</span></div>
+    <div class="total-row-sm"><span>WHT (${inv.whtRate||5}%)</span><span>– ${sym}${(Number(inv.whtAmount)||0).toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}</span></div>
+    ${inv.ncdfAmount ? `<div class="total-row-sm"><span>NCDF (${inv.ncdfRate||1}%)</span><span>– ${sym}${(Number(inv.ncdfAmount)||0).toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}</span></div>` : ''}
+    <div class="grand-total"><span>Net Payable</span><span>${sym}${(Number(inv.netPayable)||0).toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}</span></div>
   </div>
-  ${cur!=='NGN' ? `<div style="text-align:right;font-size:11px;color:#182A1C;margin-top:4px">NGN equivalent at ₦${inv.fxRate}/${cur}: ₦${(Number(inv.ngnEquivalent)||0).toLocaleString('en-NG')}</div>` : ''}
+  ${cur!=='NGN' ? `<div style="text-align:right;font-size:11px;color:#182A1C;margin-top:4px">NGN equivalent at ₦${inv.fxRate}/${cur}: ₦${(Number(inv.ngnEquivalent)||0).toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>` : ''}
 
   ${inv.notes ? `<p style="margin-top:16px;font-size:12px;color:#182A1C"><strong>Notes:</strong> ${inv.notes}</p>` : ''}
 

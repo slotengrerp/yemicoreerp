@@ -86,8 +86,10 @@ function FG({ label, full, children }) {
 }
 
 function Overlay({ children, onClose }) {
+  // 2026-08-15: backdrop no longer closes the form on click — see same fix
+  // in ui/index.jsx's shared Modal and Procurement.jsx's Overlay.
   return (
-    <div onClick={onClose} style={{ position:'fixed', inset:0, zIndex:9999, background:'rgba(10,35,15,0.62)', backdropFilter:'blur(3px)', display:'flex', alignItems:'flex-start', justifyContent:'center', padding:'24px 16px', overflowY:'auto' }}>
+    <div style={{ position:'fixed', inset:0, zIndex:9999, background:'rgba(10,35,15,0.62)', backdropFilter:'blur(3px)', display:'flex', alignItems:'flex-start', justifyContent:'center', padding:'24px 16px', overflowY:'auto' }}>
       <div onClick={e=>e.stopPropagation()} style={{ width:'100%', maxWidth:620, marginBottom:32 }}>{children}</div>
     </div>
   );
@@ -135,16 +137,16 @@ function printRegister(list, fund) {
   const rows = list.map((v,i)=>`<tr style="background:${i%2===1?'#f3faf5':'#fff'}">
     <td>${v.voucherNo}</td><td>${formatDate(v.date)}</td><td>${v.payee}</td><td>${v.description}</td>
     <td>${v.category}</td><td>${v.requestedBy}</td>
-    <td style="text-align:right;font-weight:600">₦${(Number(v.amount)||0).toLocaleString('en-NG')}</td>
+    <td style="text-align:right;font-weight:600">₦${(Number(v.amount)||0).toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
     <td style="text-align:center">${v.receipt?'✓':''}</td>
     <td style="text-align:center"><span style="padding:2px 8px;border-radius:20px;font-size:10px;background:${v.status==='Approved'?'#d4edda':'#fff3cd'};color:${v.status==='Approved'?'#155724':'#856404'}">${v.status}</span></td>
   </tr>`).join('');
   const total = list.reduce((a,v)=>a+(Number(v.amount)||0),0);
   openPrintWindow(`<!DOCTYPE html><html><head><title>Petty Cash Register</title><style>${PRINT_CSS}</style></head><body>
-  ${printHeader('PETTY CASH DISBURSEMENT REGISTER', `Fund Balance: ₦${(Number(fund.balance)||0).toLocaleString('en-NG')}`)}
+  ${printHeader('PETTY CASH DISBURSEMENT REGISTER', `Fund Balance: ₦${(Number(fund.balance)||0).toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}`)}
   <table><thead><tr><th>Voucher No</th><th>Date</th><th>Payee</th><th>Description</th><th>Category</th><th>Requested By</th><th style="text-align:right">Amount</th><th>Receipt</th><th>Status</th></tr></thead>
   <tbody>${rows}</tbody>
-  <tfoot><tr class="total-row"><td colspan="6" style="text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:.5px">Total Disbursed</td><td style="text-align:right;font-size:14px">₦${total.toLocaleString('en-NG')}</td><td colspan="2"></td></tr></tfoot>
+  <tfoot><tr class="total-row"><td colspan="6" style="text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:.5px">Total Disbursed</td><td style="text-align:right;font-size:14px">₦${total.toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}</td><td colspan="2"></td></tr></tfoot>
   </table>
   ${printBootstrap({landscape:false})}</body></html>`);
 }

@@ -21,7 +21,11 @@ const BANKS = ['Access Bank','Citibank','Ecobank','Fidelity Bank','First Bank','
 const STATUSES = ['Active','Inactive','Suspended','On Leave'];
 const SERVICE_TITLES = ['Managing Director','Director','General Manager','Deputy General Manager','Assistant General Manager','Senior Manager','Manager','Assistant Manager','Senior Officer','Officer','Assistant Officer','Coordinator','Executive','Analyst','Supervisor','Technician','Assistant'];
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-const EMPTY = { fullName:'', refId:'', department:'', serviceTitle:'', workLocation:'Port Harcourt HQ', employmentDate:'', projectCode:'', phone:'', email:'', bank:'', accountNo:'', basicSalary:'', housing:'', transport:'', otherAddition:'', paye:'', status:'Active' };
+const EMPTY = { fullName:'', refId:'', department:'', serviceTitle:'', workLocation:'Port Harcourt HQ', employmentDate:'', projectCode:'', phone:'', email:'', bank:'', accountNo:'', basicSalary:'', housing:'', transport:'', otherAddition:'', paye:'', status:'Active', photoUrl:'' };
+// item 2: staff photo uploads reuse the same Supabase Storage bucket/helper
+// as DocScanner rather than standing up a new bucket — uploadDocument()
+// already falls back to inline base64 if Supabase Storage is unavailable.
+const PHOTO_COMPANY_ID = import.meta.env.VITE_COMPANY_DOC || 'slot-engineering-nigeria';
 
 // ── Print helpers ──────────────────────────────────────────────────────────
 function printPayroll(filtered, period) {
@@ -34,11 +38,11 @@ function printPayroll(filtered, period) {
       <td>${empDate}</td>
       <td>${s.department}</td><td>${s.serviceTitle||'—'}</td><td>${s.bank}</td>
       <td style="font-family:monospace">${s.accountNo}</td>
-      <td style="text-align:right">₦${(Number(s.basicSalary)||0).toLocaleString('en-NG')}</td>
-      <td style="text-align:right">₦${(Number(s.housing)||0).toLocaleString('en-NG')}</td>
-      <td style="text-align:right">₦${(Number(s.transport)||0).toLocaleString('en-NG')}</td>
-      <td style="text-align:right">₦${otherAdd.toLocaleString('en-NG')}</td>
-      <td style="text-align:right;font-weight:700;color:#1A5C2A">₦${gross.toLocaleString('en-NG')}</td>
+      <td style="text-align:right">₦${(Number(s.basicSalary)||0).toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+      <td style="text-align:right">₦${(Number(s.housing)||0).toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+      <td style="text-align:right">₦${(Number(s.transport)||0).toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+      <td style="text-align:right">₦${otherAdd.toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+      <td style="text-align:right;font-weight:700;color:#1A5C2A">₦${gross.toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
       <td style="text-align:center"><span style="padding:2px 8px;border-radius:20px;font-size:10px;background:${s.status==='Active'?'#d4edda':'#f8d7da'};color:${s.status==='Active'?'#155724':'#721c24'}">${s.status}</span></td>
     </tr>`;
   }).join('');
@@ -74,11 +78,11 @@ ${printHeader('COMPANY STAFF — MONTHLY PAYROLL REGISTER', period)}
     <tbody>${rows}</tbody>
     <tfoot><tr class="tot">
       <td colspan="8" style="text-align:right;text-transform:uppercase;font-size:10px;letter-spacing:.5px">Total — ${filtered.length} Staff</td>
-      <td style="text-align:right">₦${totalB.toLocaleString('en-NG')}</td>
-      <td style="text-align:right">₦${totalH.toLocaleString('en-NG')}</td>
-      <td style="text-align:right">₦${totalT.toLocaleString('en-NG')}</td>
-      <td style="text-align:right">₦${totalOtherAdd.toLocaleString('en-NG')}</td>
-      <td style="text-align:right;font-size:14px">₦${total.toLocaleString('en-NG')}</td><td></td>
+      <td style="text-align:right">₦${totalB.toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+      <td style="text-align:right">₦${totalH.toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+      <td style="text-align:right">₦${totalT.toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+      <td style="text-align:right">₦${totalOtherAdd.toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+      <td style="text-align:right;font-size:14px">₦${total.toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}</td><td></td>
     </tr></tfoot>
   </table>
   <div class="footer">
@@ -106,7 +110,11 @@ function printPayslip(s, period) {
   const nhf         = Math.round(basic*0.025); // NHF 2.5% of basic
   const totalDeduct = pension + paye + nhf;
   const netPay      = gross - totalDeduct;
-  const fmtN = n => '₦'+Math.round(n).toLocaleString('en-NG');
+  // 2026-08-15: was Math.round(n) — rounded every figure on this payslip to
+  // whole naira, while ContractStaff.jsx's printPayslip (the same document
+  // for NLNG contract staff) already shows 2 decimals. Matched so the two
+  // payslip formats are consistent regardless of which staff list someone's on.
+  const fmtN = n => '₦'+Number(n).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   openPrintWindow(`<!DOCTYPE html><html><head><title>Payslip — ${s.fullName} — ${period}</title>
   <style>
@@ -259,12 +267,50 @@ function StaffModal({ modal, onSave, onClose, projects }) {
   const { C } = useTheme();
   const isEdit = modal.mode==='edit';
   const [f, setF] = useState(modal.data);
+  const [photoBusy, setPhotoBusy] = useState(false);
   const set = k => e => setF(p=>({...p,[k]:e.target.value}));
   const gross=(Number(f.basicSalary)||0)+(Number(f.housing)||0)+(Number(f.transport)||0)+(Number(f.otherAddition)||0);
   const inp={ padding:'7px 10px', borderRadius:7, border:'1px solid '+C.border, background:C.bgCard, color:C.text, fontSize:13, width:'100%', outline:'none', fontFamily:'inherit', boxSizing:'border-box' };
+  const initials=(f.fullName||'U').split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
+
+  // item 2: staff cards had no photo, only initials. Shows an instant local
+  // preview while the upload runs in the background, then swaps in the
+  // stored URL (or the inline base64 data URL if Supabase Storage isn't
+  // reachable — uploadDocument() handles that fallback itself).
+  function handlePhotoPick() {
+    if (photoBusy) return; // Btn has no native disabled prop — guard here instead
+    const inpEl = document.createElement('input');
+    inpEl.type = 'file';
+    inpEl.accept = 'image/png,image/jpeg,image/webp';
+    inpEl.onchange = e => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = async ev => {
+        const dataUrl = ev.target.result;
+        setF(p => ({ ...p, photoUrl: dataUrl })); // instant preview
+        setPhotoBusy(true);
+        try {
+          const { uploadDocument } = await import('../../supabase/storage');
+          const up = await uploadDocument({
+            dataUrl, name: `staff-${f.refId || 'photo'}`, contentType: file.type, companyId: PHOTO_COMPANY_ID,
+          });
+          if (up?.url) setF(p => ({ ...p, photoUrl: up.url }));
+        } catch (err) {
+          showToast('Photo upload failed — kept a local copy for now.', 'error');
+        } finally {
+          setPhotoBusy(false);
+        }
+      };
+      reader.readAsDataURL(file);
+    };
+    inpEl.click();
+  }
 
   return (
-    <div onClick={onClose} style={{ position:'fixed', inset:0, zIndex:9999, background:'rgba(10,35,15,.62)', backdropFilter:'blur(3px)', display:'flex', alignItems:'flex-start', justifyContent:'center', padding:'24px 16px', overflowY:'auto' }}>
+    // 2026-08-15: backdrop no longer closes the form on click — see same fix
+    // in ui/index.jsx's shared Modal and Procurement.jsx's Overlay.
+    <div style={{ position:'fixed', inset:0, zIndex:9999, background:'rgba(10,35,15,.62)', backdropFilter:'blur(3px)', display:'flex', alignItems:'flex-start', justifyContent:'center', padding:'24px 16px', overflowY:'auto' }}>
       <div onClick={e=>e.stopPropagation()} style={{ background:C.bgCard, border:'1px solid '+C.border, borderRadius:14, width:'100%', maxWidth:620, marginBottom:32, boxShadow:C.shadowModal }}>
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'18px 24px 14px', borderBottom:'1px solid '+C.borderLight }}>
           <div>
@@ -274,13 +320,34 @@ function StaffModal({ modal, onSave, onClose, projects }) {
           <button onClick={onClose} aria-label="Close dialog" style={{ background:'none', border:'none', fontSize:22, color:C.textMuted, cursor:'pointer' }}>×</button>
         </div>
         <div style={{ padding:'0 24px 20px' }}>
+          {/* item 2: photo slot — staff cards showed initials only, with no
+              way to attach a real photo. */}
+          <div style={{ display:'flex', alignItems:'center', gap:14, marginBottom:16, paddingTop:18 }}>
+            <div style={{ width:64, height:64, borderRadius:'50%', overflow:'hidden', background:'linear-gradient(135deg,#0F3A1A,#2E7D40)', border:'2px solid '+C.amber, display:'flex', alignItems:'center', justifyContent:'center', fontSize:20, fontWeight:800, color:'#fff', flexShrink:0 }}>
+              {f.photoUrl ? <img src={f.photoUrl} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : initials}
+            </div>
+            <div>
+              <Btn variant="ghost" sm onClick={handlePhotoPick} style={{ opacity:photoBusy?0.6:1, cursor:photoBusy?'not-allowed':'pointer' }}>{photoBusy ? 'Uploading…' : (f.photoUrl ? '📷 Change Photo' : '📷 Add Photo')}</Btn>
+              {f.photoUrl && !photoBusy && <button onClick={()=>setF(p=>({...p,photoUrl:''}))} style={{ marginLeft:8, background:'none', border:'none', color:C.textMuted, fontSize:11, cursor:'pointer', textDecoration:'underline' }}>Remove</button>}
+            </div>
+          </div>
           <SecLabel label="Staff Information" />
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
             <FG label="Full Name *" full><input style={inp} value={f.fullName} onChange={set('fullName')} placeholder="Full legal name" /></FG>
             <FG label="Employee ID *"><input style={inp} value={f.refId} onChange={set('refId')} placeholder="e.g. SLOT-001" /></FG>
             <FG label="Employment Date"><input style={inp} type="date" value={f.employmentDate||''} onChange={set('employmentDate')} /></FG>
-            <FG label="Department"><select style={inp} value={f.department} onChange={set('department')}><option value="">— Select —</option>{DEPARTMENTS.map(d=><option key={d}>{d}</option>)}</select></FG>
-            <FG label="Service Title"><select style={inp} value={f.serviceTitle} onChange={set('serviceTitle')}><option value="">— Select —</option>{SERVICE_TITLES.map(t=><option key={t}>{t}</option>)}</select></FG>
+            {/* item 1: was a closed <select> — staff whose department/title
+                wasn't already on the fixed list had no way to enter it. Same
+                free-type + datalist combo already used for Supplier/Client
+                fields in Procurement.jsx and Service Title in ContractStaff.jsx. */}
+            <FG label="Department">
+              <input style={inp} list="slotstaff-department-suggestions" value={f.department} onChange={set('department')} placeholder="Type a department, or pick from the list" />
+              <datalist id="slotstaff-department-suggestions">{DEPARTMENTS.map(d=><option key={d} value={d} />)}</datalist>
+            </FG>
+            <FG label="Service Title">
+              <input style={inp} list="slotstaff-title-suggestions" value={f.serviceTitle} onChange={set('serviceTitle')} placeholder="Type a service title, or pick from the list" />
+              <datalist id="slotstaff-title-suggestions">{SERVICE_TITLES.map(t=><option key={t} value={t} />)}</datalist>
+            </FG>
             <FG label="Work Location"><select style={inp} value={f.workLocation} onChange={set('workLocation')}>{WORK_LOCATIONS.map(l=><option key={l}>{l}</option>)}</select></FG>
             <FG label="Project / Cost Centre"><select style={inp} value={f.projectCode||''} onChange={set('projectCode')}><option value="">— Unallocated —</option>{projects.map(p=><option key={p.code} value={p.code}>{p.code}</option>)}</select></FG>
             <FG label="Status"><select style={inp} value={f.status} onChange={set('status')}>{STATUSES.map(s=><option key={s}>{s}</option>)}</select></FG>
@@ -621,18 +688,25 @@ export default function SlotStaff() {
               {filtered.length===0&&<div style={{ gridColumn:'1/-1', textAlign:'center', padding:32, color:C.textMuted }}>No staff records</div>}
               {filtered.map(s=>{
                 const initials=(s.fullName||'U').split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
-                const gross=(Number(s.basicSalary)||0)+(Number(s.housing)||0)+(Number(s.transport)||0);
                 const sc={ Active:C.success, Inactive:C.danger, Suspended:C.warning, 'On Leave':'#1A5C8A' }[s.status]||C.textMuted;
                 return (
                   <div key={s.id} style={{ background:C.bgCard, border:'1px solid '+C.border, borderRadius:12, overflow:'hidden', boxShadow:C.shadowCard }}>
                     <div style={{ background:'linear-gradient(135deg,#0F3A1A,#2E7D40)', padding:'16px', display:'flex', alignItems:'center', gap:12 }}>
-                      <div style={{ width:44, height:44, borderRadius:'50%', background:'rgba(201,122,10,.4)', border:'2px solid '+C.amber, display:'flex', alignItems:'center', justifyContent:'center', fontSize:15, fontWeight:800, color:'#fff', flexShrink:0 }}>{initials}</div>
+                      {/* item 2: photo if the staff record has one, else the
+                          same initials-circle fallback as before */}
+                      <div style={{ width:44, height:44, borderRadius:'50%', overflow:'hidden', background:'rgba(201,122,10,.4)', border:'2px solid '+C.amber, display:'flex', alignItems:'center', justifyContent:'center', fontSize:15, fontWeight:800, color:'#fff', flexShrink:0 }}>
+                        {s.photoUrl ? <img src={s.photoUrl} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : initials}
+                      </div>
                       <div style={{ flex:1, minWidth:0 }}>
                         <div style={{ fontSize:13, fontWeight:700, color:'#fff', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{s.fullName}</div>
                         <div style={{ fontSize:11, color:'rgba(255,255,255,.65)', marginTop:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{s.serviceTitle}</div>
                       </div>
                       <div style={{ padding:'2px 8px', borderRadius:20, background:sc+'25', border:'1px solid '+sc+'40', fontSize:10, fontWeight:600, color:sc, flexShrink:0 }}>{s.status}</div>
                     </div>
+                    {/* item 2: Gross Salary removed — a card grid staff browse
+                        anyone can click through isn't the right place to
+                        surface pay figures. Salary stays in the staff form
+                        and the Payroll View, both of which are permission-gated. */}
                     <div style={{ padding:'12px 14px' }}>
                       {[['Department',s.department],['Location',s.workLocation],['Employee ID',s.refId]].map(([l,v])=>(
                         <div key={l} style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
@@ -640,10 +714,6 @@ export default function SlotStaff() {
                           <span style={{ fontSize:11, fontWeight:600, color:l==='Employee ID'?C.green:C.text, fontFamily:l==='Employee ID'?'monospace':'inherit' }}>{v||'—'}</span>
                         </div>
                       ))}
-                      <div style={{ marginTop:10, paddingTop:10, borderTop:'1px solid '+C.borderLight, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                        <span style={{ fontSize:10, color:C.textMuted, textTransform:'uppercase', letterSpacing:'.4px' }}>Gross Salary</span>
-                        <span style={{ fontSize:14, fontWeight:700, color:C.amber }}>{formatCurrency(gross)}</span>
-                      </div>
                     </div>
                   </div>
                 );

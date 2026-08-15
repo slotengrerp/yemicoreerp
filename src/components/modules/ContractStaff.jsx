@@ -43,11 +43,11 @@ function printPayroll(staff, period, filtered) {
       <td>${s.sn}</td><td><strong>${s.fullName}</strong></td><td style="font-family:monospace;font-size:11px">${s.refId}</td>
       <td>${empDate}</td>
       <td>${s.department}</td><td>${s.bank}</td><td style="font-family:monospace">${s.accountNo}</td>
-      <td style="text-align:right">₦${(Number(s.basicSalary)||0).toLocaleString('en-NG')}</td>
-      <td style="text-align:right">₦${(Number(s.housing)||0).toLocaleString('en-NG')}</td>
-      <td style="text-align:right">₦${(Number(s.transport)||0).toLocaleString('en-NG')}</td>
-      <td style="text-align:right">₦${otherAdd.toLocaleString('en-NG')}</td>
-      <td style="text-align:right;font-weight:700;color:#1A5C2A">₦${gross.toLocaleString('en-NG')}</td>
+      <td style="text-align:right">₦${(Number(s.basicSalary)||0).toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+      <td style="text-align:right">₦${(Number(s.housing)||0).toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+      <td style="text-align:right">₦${(Number(s.transport)||0).toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+      <td style="text-align:right">₦${otherAdd.toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+      <td style="text-align:right;font-weight:700;color:#1A5C2A">₦${gross.toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
       <td style="text-align:center"><span style="padding:2px 8px;border-radius:20px;font-size:10px;background:${s.status==='Active'?'#d4edda':'#f8d7da'};color:${s.status==='Active'?'#155724':'#721c24'}">${s.status}</span></td>
     </tr>`;
   }).join('');
@@ -69,11 +69,11 @@ ${printHeader('NLNG CONTRACT STAFF — MONTHLY PAYROLL REGISTER', period)}
     <tbody>${rows}</tbody>
     <tfoot><tr class="total-row">
       <td colspan="7" style="text-align:right;text-transform:uppercase;font-size:10px;letter-spacing:.5px">Total — ${filtered.length} Staff Members</td>
-      <td style="text-align:right">₦${totalBasic.toLocaleString('en-NG')}</td>
-      <td style="text-align:right">₦${totalHousing.toLocaleString('en-NG')}</td>
-      <td style="text-align:right">₦${totalTransport.toLocaleString('en-NG')}</td>
-      <td style="text-align:right">₦${totalOtherAdd.toLocaleString('en-NG')}</td>
-      <td style="text-align:right;font-size:14px">₦${total.toLocaleString('en-NG')}</td>
+      <td style="text-align:right">₦${totalBasic.toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+      <td style="text-align:right">₦${totalHousing.toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+      <td style="text-align:right">₦${totalTransport.toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+      <td style="text-align:right">₦${totalOtherAdd.toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+      <td style="text-align:right;font-size:14px">₦${total.toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
       <td></td>
     </tr></tfoot>
   </table>
@@ -252,8 +252,10 @@ function StaffModal({ modal, onSave, onClose, projects }) {
   const gross = (Number(f.basicSalary)||0)+(Number(f.housing)||0)+(Number(f.transport)||0)+(Number(f.bonnyAllowance)||0)+(Number(f.leaveAllowance)||0)+(Number(f.eoyBonus)||0)+(Number(f.overtimeAllowance)||0)+(Number(f.otherAddition)||0);
   const inp = { padding:'7px 10px', borderRadius:7, border:'1px solid '+C.border, background:C.bgCard, color:C.text, fontSize:13, width:'100%', outline:'none', fontFamily:'inherit', boxSizing:'border-box' };
 
+  // 2026-08-15: backdrop no longer closes the form on click — see same fix
+  // in ui/index.jsx's shared Modal and Procurement.jsx's Overlay.
   return (
-    <div onClick={onClose} style={{ position:'fixed', inset:0, zIndex:9999, background:'rgba(10,35,15,.62)', backdropFilter:'blur(3px)', display:'flex', alignItems:'flex-start', justifyContent:'center', padding:'24px 16px', overflowY:'auto' }}>
+    <div style={{ position:'fixed', inset:0, zIndex:9999, background:'rgba(10,35,15,.62)', backdropFilter:'blur(3px)', display:'flex', alignItems:'flex-start', justifyContent:'center', padding:'24px 16px', overflowY:'auto' }}>
       <div onClick={e=>e.stopPropagation()} style={{ background:C.bgCard, border:'1px solid '+C.border, borderRadius:14, width:'100%', maxWidth:620, marginBottom:32, boxShadow:C.shadowModal }}>
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'18px 24px 14px', borderBottom:'1px solid '+C.borderLight }}>
           <div>
@@ -275,7 +277,12 @@ function StaffModal({ modal, onSave, onClose, projects }) {
           </div>
           <SecLabel label="Work Information" />
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
-            <FG label="Department"><select style={inp} value={f.department} onChange={set('department')}><option value="">— Dept —</option>{DEPARTMENTS.map(d=><option key={d}>{d}</option>)}</select></FG>
+            {/* item 1: same fix as SlotStaff.jsx's Department field — a closed
+                <select> couldn't record a department not already on the list. */}
+            <FG label="Department">
+              <input style={inp} list="contractstaff-department-suggestions" value={f.department} onChange={set('department')} placeholder="Type a department, or pick from the list" />
+              <datalist id="contractstaff-department-suggestions">{DEPARTMENTS.map(d=><option key={d} value={d} />)}</datalist>
+            </FG>
             <FG label="Service Title / Role"><input style={inp} value={f.role} onChange={set('role')} placeholder="e.g. Site Engineer" /></FG>
             <FG label="Work Location"><input style={inp} value={f.workLocation} onChange={set('workLocation')} placeholder="e.g. NLNG Bonny Island, Rivers State" /></FG>
             <FG label="Project / Cost Centre"><select style={inp} value={f.projectCode||''} onChange={set('projectCode')}><option value="">— Unallocated —</option>{projects.map(p=><option key={p.code} value={p.code}>{p.code}</option>)}</select></FG>

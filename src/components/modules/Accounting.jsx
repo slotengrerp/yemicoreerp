@@ -28,7 +28,11 @@ let C = { ...LIGHT, white: "#FFFFFF" };
 const AcctTheme = createContext(C);
 
 // ── Formatters ─────────────────────────────────────────────────────
-const fmt    = n => new Intl.NumberFormat("en-NG",{style:"currency",currency:"NGN",maximumFractionDigits:0}).format(n||0);
+// 2026-08-15: was maximumFractionDigits:0 — a general ledger rounding off
+// kobo meant journal lines that were off by a few kobo looked identical to
+// balanced ones. Every other module's fmt() already shows 2 decimals; this
+// was the odd one out and the most consequential since it's the actual GL.
+const fmt    = n => new Intl.NumberFormat("en-NG",{style:"currency",currency:"NGN",minimumFractionDigits:2,maximumFractionDigits:2}).format(n||0);
 const fmtDate= d => d ? new Date(d).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}) : "—";
 const today  = () => new Date().toISOString().split("T")[0];
 // Default report window: start of current calendar year → current month.
