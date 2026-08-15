@@ -379,6 +379,18 @@ function RFQModal({ rfq, onSave, onClose, onCreatePO }) {
   const [form, setForm] = useState(rfq || { rfqNo: '', date: new Date().toISOString().split('T')[0], requiredBy: '', requestedBy: '', department: '', description: '', clientName: '', currency: 'NGN', items: [{ id: uid(), description: '', qty: '', unit: 'units', estimatedPrice: '' }], status: 'Sourcing' });
   const set = k => e => setForm(p => ({ ...p, [k]: e.target.value }));
 
+  // 2026-08-15: same fix as WaybillModal's Pending Inspection lock. A saved
+  // RFQ used to become permanently read-only, including while still
+  // "Sourcing" — the phase where estimated prices get updated as supplier
+  // quotes actually come in. Stays editable until it moves past Sourcing.
+  //
+  // Keyed off rfq.status (the saved record), not form.status (the live
+  // dropdown), for the same reason as the waybill: flipping the dropdown to
+  // "PO Received" must not itself lock the form or reveal "Create PO →"
+  // before Save — onCreatePO(form) would then build a PO from data that was
+  // never actually persisted to this RFQ.
+  const isLocked = isView && rfq.status !== 'Sourcing';
+
   // Type-or-pick client, added 2026-08-06. An RFQ is a client enquiry (its
   // statuses run Sourcing → Bids Submitted → PO Received), but it never
   // recorded WHO it was for. Free text with suggestions, same as the PO.
@@ -402,7 +414,7 @@ function RFQModal({ rfq, onSave, onClose, onCreatePO }) {
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             {/* item 10: RFQ was the only doc in the RFQ→PO→Waybill→Invoice chain with no print output */}
             {isView && <Btn variant="ghost" sm onClick={() => printRFQ(form)}>🖨 Print RFQ</Btn>}
-            {isView && form.status === 'PO Received' && <Btn variant="amber" sm onClick={() => onCreatePO(form)}>Create PO →</Btn>}
+            {isView && rfq.status === 'PO Received' && <Btn variant="amber" sm onClick={() => onCreatePO(form)}>Create PO →</Btn>}
             {isView && <Tag status={form.status} />}
             <button onClick={onClose} aria-label="Close dialog" style={{ background: 'none', border: 'none', fontSize: 22, color: C.textMuted, cursor: 'pointer' }}>×</button>
           </div>
@@ -410,62 +422,62 @@ function RFQModal({ rfq, onSave, onClose, onCreatePO }) {
 
         {/* Body */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
-          <FG label="RFQ Number"><input style={S.inp} value={form.rfqNo} onChange={set('rfqNo')} placeholder="Auto-generated" readOnly={isView} /></FG>
-          <FG label="Date"><input style={S.inp} type="date" value={form.date} onChange={set('date')} readOnly={isView} /></FG>
-          <FG label="Required By"><input style={S.inp} type="date" value={form.requiredBy} onChange={set('requiredBy')} readOnly={isView} /></FG>
-          <FG label="Requested By"><input style={S.inp} value={form.requestedBy} onChange={set('requestedBy')} placeholder="Name" readOnly={isView} /></FG>
-          <FG label="Department"><input style={S.inp} value={form.department} onChange={set('department')} placeholder="Enter department" readOnly={isView} /></FG>
+          <FG label="RFQ Number"><input style={S.inp} value={form.rfqNo} onChange={set('rfqNo')} placeholder="Auto-generated" readOnly={isLocked} /></FG>
+          <FG label="Date"><input style={S.inp} type="date" value={form.date} onChange={set('date')} readOnly={isLocked} /></FG>
+          <FG label="Required By"><input style={S.inp} type="date" value={form.requiredBy} onChange={set('requiredBy')} readOnly={isLocked} /></FG>
+          <FG label="Requested By"><input style={S.inp} value={form.requestedBy} onChange={set('requestedBy')} placeholder="Name" readOnly={isLocked} /></FG>
+          <FG label="Department"><input style={S.inp} value={form.department} onChange={set('department')} placeholder="Enter department" readOnly={isLocked} /></FG>
           <FG label="Client Name">
-            <input style={S.inp} list="rfq-party-suggestions" value={form.clientName || ''} onChange={set('clientName')} placeholder="Type a client name, or pick from the list" readOnly={isView} />
+            <input style={S.inp} list="rfq-party-suggestions" value={form.clientName || ''} onChange={set('clientName')} placeholder="Type a client name, or pick from the list" readOnly={isLocked} />
             <datalist id="rfq-party-suggestions">
               {rfqClients.map(c => <option key={c.id} value={c.code}>{c.name} ({c.currency})</option>)}
             </datalist>
           </FG>
-          <FG label="Status"><select style={S.sel} value={form.status} onChange={set('status')} disabled={isView}>
+          <FG label="Status"><select style={S.sel} value={form.status} onChange={set('status')} disabled={isLocked}>
             {RFQ_STATUSES.map(s => <option key={s}>{s}</option>)}</select></FG>
-          <FG label="Currency"><select style={S.sel} value={form.currency ?? 'NGN'} onChange={set('currency')} disabled={isView}>{CURRENCIES.map(c => <option key={c} value={c}>{c || '— none —'}</option>)}</select></FG>
-          <FG label="Description" full><input style={S.inp} value={form.description} onChange={set('description')} placeholder="Brief description of requirements" readOnly={isView} /></FG>
+          <FG label="Currency"><select style={S.sel} value={form.currency ?? 'NGN'} onChange={set('currency')} disabled={isLocked}>{CURRENCIES.map(c => <option key={c} value={c}>{c || '— none —'}</option>)}</select></FG>
+          <FG label="Description" full><input style={S.inp} value={form.description} onChange={set('description')} placeholder="Brief description of requirements" readOnly={isLocked} /></FG>
         </div>
 
         <SectionLabel label="Requested Items" />
         <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 12, fontSize: 12 }}>
           <thead><tr style={{ background: C.greenPale }}>
-            {['#', 'Description', 'Qty', 'Unit', 'Est. Unit Price' + curSuffix(form.currency), 'Est. Total' + curSuffix(form.currency), isView ? '' : 'Del'].map(h => <th key={h} style={S.th}>{h}</th>)}
+            {['#', 'Description', 'Qty', 'Unit', 'Est. Unit Price' + curSuffix(form.currency), 'Est. Total' + curSuffix(form.currency), isLocked ? '' : 'Del'].map(h => <th key={h} style={S.th}>{h}</th>)}
           </tr></thead>
           <tbody>
             {form.items.map((item, i) => (
               <tr key={item.id} style={{ background: i % 2 === 1 ? C.greenPale2 : 'transparent' }}>
                 <td style={S.td}>{i + 1}</td>
-                <td style={S.td}>{isView ? item.description : <input style={{ ...S.inp, minWidth: 180 }} value={item.description} onChange={e => setItem(i, 'description', e.target.value)} placeholder="Item description" />}</td>
-                <td style={S.td}>{isView ? item.qty : <input style={{ ...S.inp, width: 70 }} type="number" value={item.qty} onChange={e => setItem(i, 'qty', e.target.value)} />}</td>
-                <td style={S.td}>{isView ? item.unit : <input style={{ ...S.inp, width: 80 }} value={item.unit} onChange={e => setItem(i, 'unit', e.target.value)} />}</td>
+                <td style={S.td}>{isLocked ? item.description : <input style={{ ...S.inp, minWidth: 180 }} value={item.description} onChange={e => setItem(i, 'description', e.target.value)} placeholder="Item description" />}</td>
+                <td style={S.td}>{isLocked ? item.qty : <input style={{ ...S.inp, width: 70 }} type="number" value={item.qty} onChange={e => setItem(i, 'qty', e.target.value)} />}</td>
+                <td style={S.td}>{isLocked ? item.unit : <input style={{ ...S.inp, width: 80 }} value={item.unit} onChange={e => setItem(i, 'unit', e.target.value)} />}</td>
                 {/* item 10: an unfilled price is '' — Number('')||0 used to print as
                     a currency-formatted "0" here and in the row total, which read as
                     "this item is free" rather than "no price entered yet". Show a
                     dash instead until a real number (including a real 0) is typed. */}
-                <td style={S.td}>{isView ? (item.estimatedPrice === '' || item.estimatedPrice == null ? '—' : fmtC(item.estimatedPrice, form.currency)) : <input style={{ ...S.inp, width: 120 }} type="number" value={item.estimatedPrice} onChange={e => setItem(i, 'estimatedPrice', e.target.value)} placeholder="Not yet priced" />}</td>
+                <td style={S.td}>{isLocked ? (item.estimatedPrice === '' || item.estimatedPrice == null ? '—' : fmtC(item.estimatedPrice, form.currency)) : <input style={{ ...S.inp, width: 120 }} type="number" value={item.estimatedPrice} onChange={e => setItem(i, 'estimatedPrice', e.target.value)} placeholder="Not yet priced" />}</td>
                 <td style={{ ...S.td, fontWeight: 600, color: C.green }}>{(item.estimatedPrice === '' || item.estimatedPrice == null) ? '—' : fmtC((Number(item.qty) || 0) * (Number(item.estimatedPrice) || 0), form.currency)}</td>
-                {!isView && <td style={S.td}><button onClick={() => removeItem(i)} style={{ background: C.danger, color: '#fff', border: 'none', borderRadius: 5, padding: '2px 8px', cursor: 'pointer', fontSize: 12 }}>✕</button></td>}
+                {!isLocked && <td style={S.td}><button onClick={() => removeItem(i)} style={{ background: C.danger, color: '#fff', border: 'none', borderRadius: 5, padding: '2px 8px', cursor: 'pointer', fontSize: 12 }}>✕</button></td>}
               </tr>
             ))}
           </tbody>
           <tfoot><tr style={{ background: C.greenPale, fontWeight: 700 }}>
             <td colSpan={5} style={{ ...S.td, textAlign: 'right' }}>Total Estimated Value</td>
             <td style={{ ...S.td, color: C.green, fontSize: 13 }}>{fmtC(totalEstimated, form.currency)}</td>
-            {!isView && <td style={S.td} />}
+            {!isLocked && <td style={S.td} />}
           </tr></tfoot>
         </table>
 
-        {!isView && (
+        {!isLocked && (
           <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
             <Btn variant="ghost" sm onClick={addItem}>+ Add Item</Btn>
           </div>
         )}
 
-        {!isView && (
+        {!isLocked && (
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', paddingTop: 14, borderTop: '1px solid ' + C.borderLight }}>
-            <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
-            <Btn onClick={() => onSave(form)}>Save RFQ</Btn>
+            <Btn variant="ghost" onClick={onClose}>{isView ? 'Close' : 'Cancel'}</Btn>
+            <Btn onClick={() => onSave(form)}>{isView ? 'Save Changes' : 'Save RFQ'}</Btn>
           </div>
         )}
       </Card>
@@ -905,6 +917,23 @@ function WaybillModal({ wb, po, onSave, onClose, onCreateInvoice, allWaybills = 
   const set = k => e => setForm(p => ({ ...p, [k]: e.target.value }));
   function setItem(i, k, v) { setForm(p => ({ ...p, items: p.items.map((x, j) => j === i ? { ...x, [k]: v } : x) })); }
 
+  // 2026-08-15: a saved waybill used to become permanently read-only the
+  // instant it had an id — including while still "Pending Inspection", the
+  // status that means "not decided yet." A waybill saved partway through
+  // inspection, with some item quantities still blank, had no way back in
+  // to finish it — the whole form locked immediately on first save. Now it
+  // stays editable until a decision is recorded (Accepted / Partially
+  // Accepted / Rejected), matching the same still-editable-while-Draft
+  // pattern POModal already uses for POs.
+  //
+  // Keyed off wb.status (the saved record), NOT form.status (the live,
+  // possibly-unsaved dropdown value). If this read form.status instead,
+  // flipping the Status dropdown to "Accepted" would lock the form and
+  // reveal "Create Invoice →" before Save was ever clicked — losing
+  // whatever item quantities were just typed, and handing Create Invoice
+  // a stale `wb` prop that doesn't have this session's edits at all.
+  const isLocked = isView && wb.status !== 'Pending Inspection';
+
   const totalDelivered = form.items.reduce((s, i) => s + (Number(i.deliveredQty) || 0), 0);
   const totalValue = form.items.reduce((s, i) => s + (Number(i.deliveredQty) || 0) * (Number(i.unitPrice) || 0), 0);
 
@@ -924,21 +953,25 @@ function WaybillModal({ wb, po, onSave, onClose, onCreateInvoice, allWaybills = 
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             {isView && <Btn variant="ghost" sm onClick={handlePrintWaybill}>🖨 Print Waybill</Btn>}
-            {isView && form.status === 'Accepted' && !existingInvoice && <Btn variant="amber" sm onClick={() => onCreateInvoice && onCreateInvoice(wb)}>Create Invoice →</Btn>}
-            {isView && form.status === 'Accepted' && existingInvoice && <span style={{ fontSize: 11, color: C.success, fontWeight: 600 }}>✓ Invoiced ({existingInvoice.invoiceNo})</span>}
+            {/* wb.status, not form.status — Create Invoice must only appear once
+                Accepted has actually been saved, not the instant it's picked in
+                the dropdown, or it would hand onCreateInvoice a stale wb with
+                none of this session's unsaved edits. */}
+            {isView && wb.status === 'Accepted' && !existingInvoice && <Btn variant="amber" sm onClick={() => onCreateInvoice && onCreateInvoice(wb)}>Create Invoice →</Btn>}
+            {isView && wb.status === 'Accepted' && existingInvoice && <span style={{ fontSize: 11, color: C.success, fontWeight: 600 }}>✓ Invoiced ({existingInvoice.invoiceNo})</span>}
             {isView && <Tag status={form.status} />}
             <button onClick={onClose} aria-label="Close dialog" style={{ background: 'none', border: 'none', fontSize: 22, color: C.textMuted, cursor: 'pointer' }}>×</button>
           </div>
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 16 }}>
-          <FG label="Waybill Number"><input style={S.inp} value={form.waybillNo} onChange={set('waybillNo')} placeholder="Auto-generated" readOnly={isView} /></FG>
-          <FG label="Date Received"><input style={S.inp} type="date" value={form.date} onChange={set('date')} readOnly={isView} /></FG>
-          <FG label="Received By"><input style={S.inp} value={form.receivedBy} onChange={set('receivedBy')} placeholder="Name of receiver" readOnly={isView} /></FG>
-          <FG label="Vehicle / Truck No"><input style={S.inp} value={form.vehicleNo} onChange={set('vehicleNo')} placeholder="e.g. PHC-234-GH" readOnly={isView} /></FG>
-          <FG label="Driver Name"><input style={S.inp} value={form.driverName} onChange={set('driverName')} placeholder="Driver name" readOnly={isView} /></FG>
-          <FG label="Status"><select style={S.sel} value={form.status} onChange={set('status')} disabled={isView}>{['Pending Inspection', 'Accepted', 'Partially Accepted', 'Rejected'].map(s => <option key={s}>{s}</option>)}</select></FG>
-          <FG label="Delivery Address" full><input style={S.inp} value={form.deliveryAddress} onChange={set('deliveryAddress')} readOnly={isView} /></FG>
+          <FG label="Waybill Number"><input style={S.inp} value={form.waybillNo} onChange={set('waybillNo')} placeholder="Auto-generated" readOnly={isLocked} /></FG>
+          <FG label="Date Received"><input style={S.inp} type="date" value={form.date} onChange={set('date')} readOnly={isLocked} /></FG>
+          <FG label="Received By"><input style={S.inp} value={form.receivedBy} onChange={set('receivedBy')} placeholder="Name of receiver" readOnly={isLocked} /></FG>
+          <FG label="Vehicle / Truck No"><input style={S.inp} value={form.vehicleNo} onChange={set('vehicleNo')} placeholder="e.g. PHC-234-GH" readOnly={isLocked} /></FG>
+          <FG label="Driver Name"><input style={S.inp} value={form.driverName} onChange={set('driverName')} placeholder="Driver name" readOnly={isLocked} /></FG>
+          <FG label="Status"><select style={S.sel} value={form.status} onChange={set('status')} disabled={isLocked}>{['Pending Inspection', 'Accepted', 'Partially Accepted', 'Rejected'].map(s => <option key={s}>{s}</option>)}</select></FG>
+          <FG label="Delivery Address" full><input style={S.inp} value={form.deliveryAddress} onChange={set('deliveryAddress')} readOnly={isLocked} /></FG>
         </div>
 
         <SectionLabel label="Items Delivered (Outstanding Only)" />
@@ -961,7 +994,7 @@ function WaybillModal({ wb, po, onSave, onClose, onCreateInvoice, allWaybills = 
                   <td style={S.td}>{item.description}</td>
                   <td style={{ ...S.td, fontWeight: 600 }}>{item.orderedQty}</td>
                   <td style={{ ...S.td, color: C.textMuted }}>{item.previouslyDelivered || 0}</td>
-                  <td style={S.td}>{isView ? <strong style={{ color: C.success }}>{item.deliveredQty}</strong> : <input style={{ ...S.inp, width: 80 }} type="number" value={item.deliveredQty} max={item.remaining} onChange={e => setItem(i, 'deliveredQty', e.target.value)} />}</td>
+                  <td style={S.td}>{isLocked ? <strong style={{ color: C.success }}>{item.deliveredQty}</strong> : <input style={{ ...S.inp, width: 80 }} type="number" value={item.deliveredQty} max={item.remaining} onChange={e => setItem(i, 'deliveredQty', e.target.value)} />}</td>
                   <td style={S.td}>{item.unit}</td>
                 </tr>
               ))}
@@ -976,11 +1009,11 @@ function WaybillModal({ wb, po, onSave, onClose, onCreateInvoice, allWaybills = 
           </table>
         </div>
 
-        {!isView && (
+        {!isLocked && (
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', paddingTop: 14, borderTop: '1px solid ' + C.borderLight }}>
-            <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
-            <Btn variant="ghost" onClick={handlePrintWaybill}>🖨 Print Draft</Btn>
-            <Btn onClick={() => onSave(form)}>Save Waybill</Btn>
+            <Btn variant="ghost" onClick={onClose}>{isView ? 'Close' : 'Cancel'}</Btn>
+            {!isView && <Btn variant="ghost" onClick={handlePrintWaybill}>🖨 Print Draft</Btn>}
+            <Btn onClick={() => onSave(form)}>{isView ? 'Save Changes' : 'Save Waybill'}</Btn>
           </div>
         )}
       </Card>
@@ -1000,8 +1033,14 @@ function InvoiceModal({ inv, po, wb, onSave, onClose }) {
     ...getClients().filter(c => c.status === 'Active'),
   ]);
 
-  // Pre-fill from waybill items
-  const initItems = wb?.items?.map(wi => ({ id: uid(), poItemId: wi.poItemId, waybillItemId: wi.id, description: wi.description, qty: Number(wi.deliveredQty) || 0, unit: wi.unit, unitPrice: Number(wi.unitPrice) || 0, totalPrice: (Number(wi.deliveredQty) || 0) * (Number(wi.unitPrice) || 0) })) || po?.items?.map(pi => ({ id: uid(), poItemId: pi.id, description: pi.description, qty: Number(pi.qty) || 0, unit: pi.unit, unitPrice: Number(pi.unitPrice) || 0, totalPrice: Number(pi.totalPrice) || 0 })) || [];
+  // Pre-fill from waybill items.
+  // 2026-08-15: was mapping every item in wb.items regardless of quantity, so
+  // a waybill left partially filled in (items with no "This Delivery" qty
+  // entered — see WaybillModal's Pending Inspection editing fix) put ₦0.00
+  // rows on the invoice for stuff that was never actually delivered. Only
+  // items with a real delivered qty belong on the invoice; the rest weren't
+  // "stated on the waybill" in any sense that should generate a bill line.
+  const initItems = wb?.items?.filter(wi => (Number(wi.deliveredQty) || 0) > 0).map(wi => ({ id: uid(), poItemId: wi.poItemId, waybillItemId: wi.id, description: wi.description, qty: Number(wi.deliveredQty) || 0, unit: wi.unit, unitPrice: Number(wi.unitPrice) || 0, totalPrice: (Number(wi.deliveredQty) || 0) * (Number(wi.unitPrice) || 0) })) || po?.items?.map(pi => ({ id: uid(), poItemId: pi.id, description: pi.description, qty: Number(pi.qty) || 0, unit: pi.unit, unitPrice: Number(pi.unitPrice) || 0, totalPrice: Number(pi.totalPrice) || 0 })) || [];
 
   const initSubtotal = initItems.reduce((s, i) => s + i.totalPrice, 0);
   const initVAT = Math.round(initSubtotal * 0.075);
