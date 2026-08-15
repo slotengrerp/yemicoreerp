@@ -226,8 +226,17 @@ export function openPrintWindow(html) {
 //
 // @param {object} opts
 //   landscape — wide tables (10+ columns) are unreadable on portrait A4
+//   pageSize  — 2026-08-15: override for non-A4 output (e.g. a CR80 ID badge).
+//               Any valid CSS @page size value, e.g. '53.98mm 85.6mm'. Falls
+//               back to the existing A4 portrait/landscape behaviour when omitted,
+//               so all ~40 existing call sites are unaffected.
+//   margin    — 2026-08-15: override for the printed-page margin. The 12mm
+//               default below was tuned for A4 reports; a card-sized pageSize
+//               needs a much smaller margin or the content won't fit.
 // ══════════════════════════════════════════════════════════════════════════════
-export function printBootstrap({ landscape = false } = {}) {
+export function printBootstrap({ landscape = false, pageSize = null, margin = null } = {}) {
+  const sizeRule = pageSize || `A4 ${landscape ? 'landscape' : 'portrait'}`;
+  const printMargin = margin || '12mm';
   return `
   <style>
     /* ── 2026-08-06, at the GM's request ──────────────────────────────────
@@ -244,7 +253,7 @@ export function printBootstrap({ landscape = false } = {}) {
 
        Trade-off accepted by the GM: page numbers belong to the same block
        and disappear along with it. */
-    @page { size: A4 ${landscape ? 'landscape' : 'portrait'}; margin: 0; }
+    @page { size: ${sizeRule}; margin: 0; }
     .print-toolbar{position:fixed;top:0;left:0;right:0;z-index:9999;display:flex;gap:10px;
       align-items:center;justify-content:flex-end;padding:10px 16px;background:#0F3A1A;
       box-shadow:0 2px 8px rgba(0,0,0,.25);font-family:'Segoe UI',Arial,sans-serif}
@@ -256,8 +265,10 @@ export function printBootstrap({ landscape = false } = {}) {
     body{padding-top:56px !important}
     /* Paper margin restored here, since @page no longer supplies one.
        12mm all round matches what the 10mm @page margin plus the old body
-       padding gave, so nothing shifts noticeably on the printed sheet. */
-    @media print{.print-toolbar{display:none !important}body{padding:12mm !important}}
+       padding gave, so nothing shifts noticeably on the printed sheet.
+       Overridable via the margin param for small pageSize output (e.g. an
+       ID card), where 12mm on every side would eat most of the card. */
+    @media print{.print-toolbar{display:none !important}body{padding:${printMargin} !important}}
   </style>
   <div class="print-toolbar no-print">
     <span>Use your browser's print dialog to change paper size, orientation or save as PDF.</span>

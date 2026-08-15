@@ -221,6 +221,60 @@ function printPayslip(s, period) {
   </body></html>`);
 }
 
+// ── Print: Staff ID Card ─────────────────────────────────────────────────────
+// 2026-08-15 — requested once staff cards started carrying a real photo: a
+// physical badge to laminate/put in a holder. CR80 badge size (53.98×85.6mm
+// portrait — a credit card turned upright), front only. Uses printBootstrap's
+// new pageSize/margin overrides instead of the app's usual A4 sheet, since a
+// full A4 margin would consume most of a card this small.
+function printStaffCard(s) {
+  const initials = (s.fullName||'U').split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
+  const photoBlock = s.photoUrl
+    ? `<img src="${s.photoUrl}" alt="" style="width:100%;height:100%;object-fit:cover" />`
+    : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:800;color:#fff">${initials}</div>`;
+  openPrintWindow(`<!DOCTYPE html><html><head><title>Staff ID — ${s.fullName}</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{font-family:'Segoe UI',Arial,sans-serif;color:#182A1C}
+    .card{width:53.98mm;height:85.6mm;border:1px solid #D4E0D6;border-radius:3mm;overflow:hidden;
+      display:flex;flex-direction:column;position:relative}
+    .band{background:linear-gradient(135deg,#0F3A1A,#1A5C2A);padding:3mm 3mm 2mm;text-align:center}
+    .band img{height:8mm;width:auto;display:block;margin:0 auto 1mm}
+    .band .co{color:#fff;font-size:6.2pt;font-weight:800;letter-spacing:.2px;line-height:1.15}
+    .band .tag{color:rgba(255,255,255,.7);font-size:4.8pt;margin-top:0.5mm}
+    .photo{width:22mm;height:22mm;border-radius:50%;overflow:hidden;background:#C97A0A;
+      border:0.6mm solid #fff;margin:3mm auto 2mm;flex-shrink:0;box-shadow:0 1mm 2mm rgba(0,0,0,.15)}
+    .name{text-align:center;font-size:9.5pt;font-weight:800;color:#182A1C;padding:0 2mm;line-height:1.2}
+    .title{text-align:center;font-size:6.5pt;color:#C97A0A;font-weight:700;margin-top:0.8mm}
+    .divider{border-top:0.3mm solid #EAF0EB;margin:2.5mm 4mm}
+    .field{padding:0 4mm;margin-bottom:1.8mm}
+    .field .lbl{font-size:4.6pt;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:#8FA894}
+    .field .val{font-size:6.8pt;font-weight:600;color:#182A1C;margin-top:0.3mm}
+    .idband{background:#F0F8F2;text-align:center;padding:2mm 2mm 3mm;margin-top:auto}
+    .idband .val{font-size:8pt;font-weight:800;color:#1A5C2A;font-family:'Courier New',monospace;letter-spacing:.5px}
+    .idband .val2{font-size:4.6pt;color:#8FA894;margin-top:1mm}
+  </style></head><body>
+  <div class="card">
+    <div class="band">
+      <img src="data:image/jpeg;base64,${SLOT_LOGO_B64}" alt="SLOT" />
+      <div class="co">SLOT ENGINEERING NIGERIA LTD</div>
+      <div class="tag">Staff Identification Card</div>
+    </div>
+    <div class="photo">${photoBlock}</div>
+    <div class="name">${s.fullName || '—'}</div>
+    <div class="title">${s.serviceTitle || '—'}</div>
+    <div class="divider"></div>
+    <div class="field"><div class="lbl">Department</div><div class="val">${s.department || '—'}</div></div>
+    <div class="field"><div class="lbl">Location</div><div class="val">${s.workLocation || '—'}</div></div>
+    <div class="idband">
+      <div class="val">${s.refId || '—'}</div>
+      <div class="val2">If found, please return to SLOT Engineering, Port Harcourt</div>
+    </div>
+  </div>
+  ${printBootstrap({ pageSize: '53.98mm 85.6mm', margin: '0mm' })}
+  </body></html>`);
+}
+
 // ── Shared UI ─────────────────────────────────────────────────────────────────
 function Tag({ status }) {
   const { C } = useTheme();
@@ -317,7 +371,11 @@ function StaffModal({ modal, onSave, onClose, projects }) {
             <div style={{ fontSize:16, fontWeight:700, color:C.text }}>{isEdit?'Edit Staff Record':'Add New Staff Member'}</div>
             <div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>SLOT Engineering Nigeria Limited · Internal Staff</div>
           </div>
-          <button onClick={onClose} aria-label="Close dialog" style={{ background:'none', border:'none', fontSize:22, color:C.textMuted, cursor:'pointer' }}>×</button>
+          <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+            {/* Only an already-saved record has a real Employee ID worth printing */}
+            {isEdit && <Btn variant="ghost" sm onClick={()=>printStaffCard(f)}>🖨 Print ID Card</Btn>}
+            <button onClick={onClose} aria-label="Close dialog" style={{ background:'none', border:'none', fontSize:22, color:C.textMuted, cursor:'pointer' }}>×</button>
+          </div>
         </div>
         <div style={{ padding:'0 24px 20px' }}>
           {/* item 2: photo slot — staff cards showed initials only, with no
@@ -714,6 +772,8 @@ export default function SlotStaff() {
                           <span style={{ fontSize:11, fontWeight:600, color:l==='Employee ID'?C.green:C.text, fontFamily:l==='Employee ID'?'monospace':'inherit' }}>{v||'—'}</span>
                         </div>
                       ))}
+                      {/* Staff ID card print — CR80 badge, front only (see printStaffCard) */}
+                      <button onClick={()=>printStaffCard(s)} style={{ width:'100%', marginTop:8, padding:'6px 10px', borderRadius:7, border:'1px solid '+C.border, background:'transparent', color:C.textMid, fontSize:11, fontWeight:600, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:5 }}>🖨 Print ID Card</button>
                     </div>
                   </div>
                 );
