@@ -2556,8 +2556,8 @@ function ImportTab({ setCoa, setJournals }) {
   ];
 
   const SAGE_SUPPLIERS = [
-    {id:"v001",code:"ACRIFA",               groupKey:"ACRIFA",        name:"Acrifa Energy Ltd",                          currency:"NGN",category:"Other",contact:"",phone:"",email:"",address:"",rc:"",tin:"",status:"Active",rating:0,notes:"Possible duplicate of ACRIFA ENERGY LTD",createdAt:"2026-05-29T00:00:00Z"},
-    {id:"v002",code:"ACRIFA ENERGY LTD",    groupKey:"ACRIFA",        name:"Acrifa Energy Limited",                      currency:"NGN",category:"Other",contact:"",phone:"",email:"",address:"",rc:"",tin:"",status:"Active",rating:0,notes:"Possible duplicate of ACRIFA",createdAt:"2026-05-29T00:00:00Z"},
+    {id:"v001",code:"ACRIFA",               groupKey:"ACRIFA",        name:"Acrifa Energy Ltd (USD)",                    currency:"USD",category:"Other",contact:"",phone:"",email:"",address:"",rc:"",tin:"",status:"Active",rating:0,notes:"Same corporate group as ACRIFA ENERGY LTD / ACRIFA GLOBAL SERVIC, trading in a different currency — confirmed by accountant, not a duplicate. Currency: USD (accountant confirmed 2026-08-17).",createdAt:"2026-05-29T00:00:00Z"},
+    {id:"v002",code:"ACRIFA ENERGY LTD",    groupKey:"ACRIFA",        name:"Acrifa Energy Limited (EUR)",                currency:"EUR",category:"Other",contact:"",phone:"",email:"",address:"",rc:"",tin:"",status:"Active",rating:0,notes:"Same corporate group as ACRIFA / ACRIFA GLOBAL SERVIC, trading in a different currency — confirmed by accountant, not a duplicate. Currency: EUR (accountant confirmed 2026-08-17).",createdAt:"2026-05-29T00:00:00Z"},
     {id:"v003",code:"ACRIFA GLOBAL SERVIC", groupKey:"ACRIFA GLOBAL", name:"Acrifa Global Services Ltd",                 currency:"NGN",category:"Services",contact:"",phone:"",email:"",address:"",rc:"",tin:"",status:"Active",rating:0,notes:"",createdAt:"2026-05-29T00:00:00Z"},
     {id:"v004",code:"BENNIC GLOBAL LINKS",  groupKey:"BENNIC",        name:"Bennic Global Links (Nig)",                  currency:"NGN",category:"Other",contact:"",phone:"",email:"",address:"",rc:"",tin:"",status:"Active",rating:0,notes:"",createdAt:"2026-05-29T00:00:00Z"},
     {id:"v005",code:"CATERING & FACILITIE", groupKey:"CATERING",      name:"Catering & Facilities",                      currency:"NGN",category:"Catering",contact:"",phone:"",email:"",address:"",rc:"",tin:"",status:"Active",rating:0,notes:"",createdAt:"2026-05-29T00:00:00Z"},
@@ -2635,22 +2635,29 @@ function ImportTab({ setCoa, setJournals }) {
     });
   }
 
+  // 2026-08-17: these three used to call saveX() directly with zero
+  // confirmation - one misclick could silently wipe out live, edited master
+  // data (e.g. the corrected Acrifa currency split) with no undo. Routed
+  // through the same confirmModal pattern loadSageCOA already used.
   function loadSageCustomers() {
-    saveClients(SAGE_CUSTOMERS);
-    setLoadStatus(s=>({...s, customers:true}));
-    setSageLog(`✓ ${SAGE_CUSTOMERS.length} customers loaded from Sage AR export (22 May 2026)\n  — NLNG: 4 accounts (NGN, USD, EUR, GBP)\n  — SPDC/Renaissance: 3 accounts (NGN, USD, EUR)\n  — ALPHADEN: 2 accounts (NGN, USD)\n  — Single-currency: GEOPLEX, SAIPEM, SHELL`);
+    setConfirmModal({
+      type:'customers',
+      message: `This will replace ALL Customer/AR accounts with the ${SAGE_CUSTOMERS.length} customers from the Sage export file dated 22 May 2026. Any manual additions or corrections made since will be lost. Continue?`,
+    });
   }
 
   function loadSageSuppliers() {
-    saveVendors(SAGE_SUPPLIERS);
-    setLoadStatus(s=>({...s, suppliers:true}));
-    setSageLog(`✓ ${SAGE_SUPPLIERS.length} suppliers loaded from Sage AP export (29 May 2026)\n  — CSPS: 3 accounts (EUR, GBP, USD)\n  — VONK: 2 accounts (NGN, USD)\n  ⚠ ACRIFA & ACRIFA ENERGY LTD: possible duplicate — confirm with accountant`);
+    setConfirmModal({
+      type:'suppliers',
+      message: `This will replace ALL Supplier/AP accounts with the ${SAGE_SUPPLIERS.length} suppliers from the Sage export file dated 29 May 2026. Any manual additions or corrections made since - including the confirmed Acrifa currency split - will be lost. Continue?`,
+    });
   }
 
   function loadSageProjects() {
-    saveProjects(SAGE_PROJECTS);
-    setLoadStatus(s=>({...s, projects:true}));
-    setSageLog(`✓ ${SAGE_PROJECTS.length} projects loaded from Sage export\n  ALETO · ASSA NORTH · BOWER · FLOPENG LOGISTICS · GBARAM\n  NLNG EXP · NLNG HRSS · NON-PROJECT · SAIPEM · SNG BOFO\n  SNG PROJECT · SPDC · SPDC CABLE PROJECT`);
+    setConfirmModal({
+      type:'projects',
+      message: `This will replace ALL Projects with the ${SAGE_PROJECTS.length} projects from the Sage export file. Any manual additions or corrections made since will be lost. Continue?`,
+    });
   }
 
   function loadAllSage() {
@@ -2718,6 +2725,21 @@ function ImportTab({ setCoa, setJournals }) {
       saveProjects(SAGE_PROJECTS);
       setLoadStatus({coa:true,customers:true,suppliers:true,projects:true});
       setSageLog(`✓ All Sage master data loaded:\n  ${SAGE_COA_ACCOUNTS.length} COA · ${SAGE_CUSTOMERS.length} customers · ${SAGE_SUPPLIERS.length} suppliers · ${SAGE_PROJECTS.length} projects`);
+    }
+    if(confirmModal.type==='customers') {
+      saveClients(SAGE_CUSTOMERS);
+      setLoadStatus(s=>({...s, customers:true}));
+      setSageLog(`✓ ${SAGE_CUSTOMERS.length} customers loaded from Sage AR export (22 May 2026)\n  — NLNG: 4 accounts (NGN, USD, EUR, GBP)\n  — SPDC/Renaissance: 3 accounts (NGN, USD, EUR)\n  — ALPHADEN: 2 accounts (NGN, USD)\n  — Single-currency: GEOPLEX, SAIPEM, SHELL`);
+    }
+    if(confirmModal.type==='suppliers') {
+      saveVendors(SAGE_SUPPLIERS);
+      setLoadStatus(s=>({...s, suppliers:true}));
+      setSageLog(`✓ ${SAGE_SUPPLIERS.length} suppliers loaded from Sage AP export (29 May 2026)\n  — CSPS: 3 accounts (EUR, GBP, USD)\n  — VONK: 2 accounts (NGN, USD)\n  — ACRIFA: 3 accounts (USD, EUR, NGN) — confirmed same corporate group by accountant, not duplicates`);
+    }
+    if(confirmModal.type==='projects') {
+      saveProjects(SAGE_PROJECTS);
+      setLoadStatus(s=>({...s, projects:true}));
+      setSageLog(`✓ ${SAGE_PROJECTS.length} projects loaded from Sage export\n  ALETO · ASSA NORTH · BOWER · FLOPENG LOGISTICS · GBARAM\n  NLNG EXP · NLNG HRSS · NON-PROJECT · SAIPEM · SNG BOFO\n  SNG PROJECT · SPDC · SPDC CABLE PROJECT`);
     }
     setConfirmModal(null);
   }
@@ -2792,7 +2814,7 @@ function ImportTab({ setCoa, setJournals }) {
         <MCard
           icon="🏭" title="Suppliers (AP)" count={SAGE_SUPPLIERS.length} loaded={loadStatus.suppliers}
           sub="Source: Accounts_Payable_Supplier_Listing_20260529.xlsx"
-          note="ACRIFA & ACRIFA ENERGY LTD appear as two separate codes — confirm if one should be retired."
+          note="ACRIFA, ACRIFA ENERGY LTD, ACRIFA GLOBAL SERVIC — same group, 3 currencies (USD/EUR/NGN), confirmed by accountant."
           onLoad={loadSageSuppliers}
         />
         <MCard

@@ -10,11 +10,18 @@
 // SAGE provided NO contact/phone/email/address data for any supplier — those
 // fields start blank rather than inventing placeholder data.
 //
-// DATA QUALITY — resolved by accountant review, July 2026:
+// DATA QUALITY — resolved by accountant review, July 2026, CURRENCY CORRECTED
+// 2026-08-17:
 //   - "ACRIFA" / "ACRIFA ENERGY LTD" / "ACRIFA GLOBAL SERVIC" are confirmed
-//     as the same corporate group trading in three currencies (Euro/USD/NGN
-//     respectively), not duplicates. "Acrifa" is the confirmed correct
-//     spelling.
+//     as the same corporate group trading in three currencies, not
+//     duplicates. "Acrifa" is the confirmed correct spelling.
+//   - The July 2026 review recorded ACRIFA as EUR and ACRIFA ENERGY LTD as
+//     USD — that was backwards. The Slot Accountant confirmed on 2026-08-17
+//     (in response to a direct question raised during a live QA pass) that
+//     it's the other way round: ACRIFA = USD, ACRIFA ENERGY LTD = EUR,
+//     ACRIFA GLOBAL SERVIC = NGN (already correct, untouched). See
+//     fixAcrifaCurrencySwap() below — this seed only fixes fresh installs;
+//     that function corrects data already sitting in localStorage/Supabase.
 //   - "VONK" / "VONK (USD)" are confirmed as the same entity trading in two
 //     currencies (Euro/USD respectively).
 // ══════════════════════════════════════════════════════════════════════════════
@@ -24,8 +31,8 @@ import { diffAndPush } from '../hooks/usePerRecordSync';
 const VENDOR_KEY = 'bc_vendors';
 
 const SEED_VENDORS = [
-  { id:'v001', code:'ACRIFA',                groupKey:'ACRIFA',         name:'Acrifa Energy Ltd (Euro)',                   currency:'EUR', category:'Other', contact:'', phone:'', email:'', address:'', rc:'', tin:'', status:'Active', rating:0, notes:'Confirmed same corporate group as ACRIFA ENERGY LTD / ACRIFA GLOBAL SERVIC — accountant reviewed 2026-07', createdAt:'2026-05-29T00:00:00Z' },
-  { id:'v002', code:'ACRIFA ENERGY LTD',     groupKey:'ACRIFA',         name:'Acrifa Energy Limited (USD)',                currency:'USD', category:'Other', contact:'', phone:'', email:'', address:'', rc:'', tin:'', status:'Active', rating:0, notes:'Confirmed same corporate group as ACRIFA / ACRIFA GLOBAL SERVIC — accountant reviewed 2026-07',          createdAt:'2026-05-29T00:00:00Z' },
+  { id:'v001', code:'ACRIFA',                groupKey:'ACRIFA',         name:'Acrifa Energy Ltd (USD)',                    currency:'USD', category:'Other', contact:'', phone:'', email:'', address:'', rc:'', tin:'', status:'Active', rating:0, notes:'Confirmed same corporate group as ACRIFA ENERGY LTD / ACRIFA GLOBAL SERVIC. Currency corrected to USD — accountant confirmed 2026-08-17 (the 2026-07 review had this and ACRIFA ENERGY LTD swapped).', createdAt:'2026-05-29T00:00:00Z' },
+  { id:'v002', code:'ACRIFA ENERGY LTD',     groupKey:'ACRIFA',         name:'Acrifa Energy Limited (EUR)',                currency:'EUR', category:'Other', contact:'', phone:'', email:'', address:'', rc:'', tin:'', status:'Active', rating:0, notes:'Confirmed same corporate group as ACRIFA / ACRIFA GLOBAL SERVIC. Currency corrected to EUR — accountant confirmed 2026-08-17 (the 2026-07 review had this and ACRIFA swapped).',          createdAt:'2026-05-29T00:00:00Z' },
   { id:'v003', code:'ACRIFA GLOBAL SERVIC',  groupKey:'ACRIFA',         name:'Acrifa Global Services Ltd (NGN)',           currency:'NGN', category:'Services', contact:'', phone:'', email:'', address:'', rc:'', tin:'', status:'Active', rating:0, notes:'', createdAt:'2026-05-29T00:00:00Z' },
   { id:'v004', code:'BENNIC GLOBAL LINKS',   groupKey:'BENNIC',         name:'Bennic Global Links (Nig)',                  currency:'NGN', category:'Other', contact:'', phone:'', email:'', address:'', rc:'', tin:'', status:'Active', rating:0, notes:'', createdAt:'2026-05-29T00:00:00Z' },
   { id:'v005', code:'CATERING & FACILITIE',  groupKey:'CATERING',       name:'Catering & Facilities',                      currency:'NGN', category:'Catering', contact:'', phone:'', email:'', address:'', rc:'', tin:'', status:'Active', rating:0, notes:'', createdAt:'2026-05-29T00:00:00Z' },
@@ -56,6 +63,39 @@ const SEED_VENDORS = [
 
 export const VENDOR_CATEGORIES = ['Materials', 'Equipment', 'Services', 'Fuel/Lube', 'Catering', 'Logistics', 'IT', 'Civil Works', 'Consulting', 'Other'];
 
+// 2026-08-17 — self-healing correction for the ACRIFA / ACRIFA ENERGY LTD
+// currency swap (see header comment). Fixing SEED_VENDORS only helps fresh
+// installs; every browser that already has 'bc_vendors' in localStorage (and
+// everything already pushed up to the Supabase 'vendors' table, which
+// App.jsx's mirrorMasterData() can pull back down and overwrite localStorage
+// with on a later reload) still carries the wrong values. Rather than a
+// once-only flag — which could leave things wrong again if a stale cloud
+// mirror re-overwrites localStorage after the flag's already been set — this
+// checks the specific known-wrong signature on every read. It's a no-op
+// (skips the write + Supabase push entirely) once both records are correct,
+// so it only ever does real work the first time it sees the bug.
+function fixAcrifaCurrencySwap(vendors) {
+  if (!Array.isArray(vendors)) return vendors;
+  let changed = false;
+  const fixed = vendors.map(v => {
+    if (v.code === 'ACRIFA' && v.currency === 'EUR') {
+      changed = true;
+      return { ...v, currency: 'USD', name: 'Acrifa Energy Ltd (USD)', notes: (v.notes || '').replace(/Currency corrected.*$/, '').trim() + ' Currency corrected to USD — accountant confirmed 2026-08-17.' };
+    }
+    if (v.code === 'ACRIFA ENERGY LTD' && v.currency === 'USD') {
+      changed = true;
+      return { ...v, currency: 'EUR', name: 'Acrifa Energy Limited (EUR)', notes: (v.notes || '').replace(/Currency corrected.*$/, '').trim() + ' Currency corrected to EUR — accountant confirmed 2026-08-17.' };
+    }
+    return v;
+  });
+  if (changed) {
+    try { localStorage.setItem(VENDOR_KEY, JSON.stringify(fixed)); } catch {}
+    try { window.dispatchEvent(new CustomEvent('slot:masterDataChanged', { detail: { mod: 'vendors', data: fixed } })); } catch {}
+    diffAndPush('vendors', vendors, fixed);
+  }
+  return fixed;
+}
+
 export function getVendors() {
   try {
     const raw = localStorage.getItem(VENDOR_KEY);
@@ -63,7 +103,7 @@ export function getVendors() {
       localStorage.setItem(VENDOR_KEY, JSON.stringify(SEED_VENDORS));
       return SEED_VENDORS;
     }
-    return JSON.parse(raw);
+    return fixAcrifaCurrencySwap(JSON.parse(raw));
   } catch {
     return SEED_VENDORS;
   }

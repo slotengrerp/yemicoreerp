@@ -219,8 +219,13 @@ function nextNo(prefix, list, field) {
 // importing this whole (lazy-loaded) module file — see that file's header
 // comment for why the two screens disagreed before.
 function getInvoicedQty(poItemId, invoices, poId) {
+  // 2026-08-17: a Cancelled/voided invoice used to still count toward "qty
+  // already invoiced" here, which would permanently block a corrected
+  // replacement invoice from ever being created after voiding a duplicate or
+  // bad one - the PO would look fully billed forever even with nothing valid
+  // on record. Voided invoices no longer hold a claim on the qty.
   return invoices
-    .filter(inv => inv.poId === poId)
+    .filter(inv => inv.poId === poId && inv.status !== 'Cancelled')
     .flatMap(inv => inv.items)
     .filter(ii => ii.poItemId === poItemId)
     .reduce((s, ii) => s + (Number(ii.qty) || 0), 0);
@@ -1022,10 +1027,20 @@ function WaybillModal({ wb, po, onSave, onClose, onCreateInvoice, allWaybills = 
 }
 
 // ── Supplier Invoice Create/View Modal ─────────────────────────────────────
-function InvoiceModal({ inv, po, wb, onSave, onClose }) {
+function InvoiceModal({ inv, po, wb, onSave, onClose, allWaybills = [], invoices = [] }) {
   const { C } = useTheme();
   const S = useStyles();
   const isView = !!inv?.id;
+  // 2026-08-17: every field on a saved invoice is locked (isView disables the
+  // whole form, no Save button renders) - by design, so a submitted invoice's
+  // numbers can't be quietly altered. But that left literally no way to void
+  // a bad one (e.g. a duplicate, or one that pulled undelivered stock before
+  // the poOnlyItems fix above existed) - the record just sits there forever.
+  // This adds one narrow, reason-required exception: flip status to
+  // Cancelled via the same onSave/saveInvoice path a normal edit would use,
+  // nothing else on the record changes.
+  const [voidOpen, setVoidOpen] = useState(false);
+  const [voidReason, setVoidReason] = useState('');
   // Suggestions for the Supplier box below — both masters, since an invoice can
   // sit against either a SLOT PO (supplier) or a Client PO (client).
   const [invParties] = useState(() => [
@@ -1040,7 +1055,31 @@ function InvoiceModal({ inv, po, wb, onSave, onClose }) {
   // rows on the invoice for stuff that was never actually delivered. Only
   // items with a real delivered qty belong on the invoice; the rest weren't
   // "stated on the waybill" in any sense that should generate a bill line.
-  const initItems = wb?.items?.filter(wi => (Number(wi.deliveredQty) || 0) > 0).map(wi => ({ id: uid(), poItemId: wi.poItemId, waybillItemId: wi.id, description: wi.description, qty: Number(wi.deliveredQty) || 0, unit: wi.unit, unitPrice: Number(wi.unitPrice) || 0, totalPrice: (Number(wi.deliveredQty) || 0) * (Number(wi.unitPrice) || 0) })) || po?.items?.map(pi => ({ id: uid(), poItemId: pi.id, description: pi.description, qty: Number(pi.qty) || 0, unit: pi.unit, unitPrice: Number(pi.unitPrice) || 0, totalPrice: Number(pi.totalPrice) || 0 })) || [];
+  //
+  // 2026-08-15 (same day, second half of the same bug report): the OTHER way
+  // to reach this modal — POModal's own "+ Invoice" button, which passes a
+  // `po` with no `wb` — still fell back to `po.items` at the PO's full
+  // ORDERED qty. That put every line on the bill at planned quantity
+  // regardless of whether it had shipped yet, which is the exact "capturing
+  // items not yet delivered" bug, just reached from the PO screen instead of
+  // a waybill. An invoice raised straight from the PO should reflect what's
+  // actually landed across ALL waybills recorded against it so far, net of
+  // whatever's already been invoiced (so re-opening "+ Invoice" after a
+  // partial billing run doesn't re-bill the same delivered stock) — never
+  // the plan.
+  const poOnlyItems = (po && !wb) ? (po.items || []).map(pi => {
+    const delivered = allWaybills
+      .filter(w => w.poId === po.id)
+      .flatMap(w => w.items || [])
+      .filter(wi => wi.poItemId === pi.id)
+      .reduce((s, wi) => s + (Number(wi.deliveredQty) || 0), 0);
+    const alreadyInvoiced = getInvoicedQty(pi.id, invoices, po.id);
+    const remaining = delivered - alreadyInvoiced;
+    if (remaining <= 0) return null;
+    return { id: uid(), poItemId: pi.id, description: pi.description, qty: remaining, unit: pi.unit, unitPrice: Number(pi.unitPrice) || 0, totalPrice: remaining * (Number(pi.unitPrice) || 0) };
+  }).filter(Boolean) : null;
+
+  const initItems = wb?.items?.filter(wi => (Number(wi.deliveredQty) || 0) > 0).map(wi => ({ id: uid(), poItemId: wi.poItemId, waybillItemId: wi.id, description: wi.description, qty: Number(wi.deliveredQty) || 0, unit: wi.unit, unitPrice: Number(wi.unitPrice) || 0, totalPrice: (Number(wi.deliveredQty) || 0) * (Number(wi.unitPrice) || 0) })) || poOnlyItems || [];
 
   const initSubtotal = initItems.reduce((s, i) => s + i.totalPrice, 0);
   const initVAT = Math.round(initSubtotal * 0.075);
@@ -1096,10 +1135,34 @@ function InvoiceModal({ inv, po, wb, onSave, onClose }) {
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             {isView && <Btn variant="ghost" sm onClick={() => printInvoice(form)}>🖨 Print Invoice</Btn>}
+            {isView && !['Paid', 'Cancelled'].includes(form.status) && (
+              <Btn variant="danger" sm onClick={() => setVoidOpen(v => !v)}>🚫 Void</Btn>
+            )}
             {isView && <Tag status={form.status} />}
             <button onClick={onClose} aria-label="Close dialog" style={{ background: 'none', border: 'none', fontSize: 22, color: C.textMuted, cursor: 'pointer' }}>×</button>
           </div>
         </div>
+
+        {voidOpen && (
+          <div style={{ background: 'rgba(192,57,43,.08)', border: '1px solid ' + C.danger, borderRadius: 8, padding: 12, marginBottom: 16 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 700, color: C.danger, marginBottom: 6 }}>Void this invoice</div>
+            <div style={{ fontSize: 11.5, color: C.textMuted, marginBottom: 8 }}>
+              Sets status to Cancelled and excludes it from "already invoiced" totals against this PO. The record itself is kept for the audit trail — it isn't deleted. Requires a reason.
+            </div>
+            <input
+              style={{ ...S.inp, marginBottom: 8 }}
+              value={voidReason}
+              onChange={e => setVoidReason(e.target.value)}
+              placeholder="e.g. Duplicate of SINV-2026-20260002 - same waybill billed twice"
+            />
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <Btn variant="ghost" sm onClick={() => { setVoidOpen(false); setVoidReason(''); }}>Cancel</Btn>
+              <Btn variant="danger" sm disabled={!voidReason.trim()} onClick={() => {
+                onSave({ ...form, status: 'Cancelled', notes: (form.notes ? form.notes + ' | ' : '') + `VOIDED ${new Date().toISOString().split('T')[0]}: ${voidReason.trim()}` }, { print: false });
+              }}>Confirm Void</Btn>
+            </div>
+          </div>
+        )}
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 16 }}>
           <FG label="System Invoice No"><input style={S.inp} value={form.invoiceNo} onChange={set('invoiceNo')} placeholder="Auto-generated" readOnly={isView} /></FG>
@@ -1122,7 +1185,7 @@ function InvoiceModal({ inv, po, wb, onSave, onClose }) {
                      placeholder="e.g. 2050" readOnly={isView} />
             </FG>
           )}
-          <FG label="Status"><select style={S.sel} value={form.status} onChange={set('status')} disabled={isView}>{['Pending', 'Approved', 'Paid', 'Overdue', 'Disputed'].map(s => <option key={s}>{s}</option>)}</select></FG>
+          <FG label="Status"><select style={S.sel} value={form.status} onChange={set('status')} disabled={isView}>{['Pending', 'Approved', 'Paid', 'Overdue', 'Disputed', 'Cancelled'].map(s => <option key={s}>{s}</option>)}</select></FG>
           {(isView && form.status === 'Paid') && <FG label="Payment Date"><input style={S.inp} value={form.paymentDate} readOnly /></FG>}
           {(isView && form.status === 'Paid') && <FG label="Payment Ref"><input style={S.inp} value={form.paymentRef} readOnly /></FG>}
         </div>
@@ -1492,7 +1555,15 @@ export default function Procurement({ onNav }) {
           {perms.add && tab === 'rfq'     && <Btn onClick={() => setModal({ type: 'rfq_create' })}>+ New RFQ</Btn>}
           {perms.add && tab === 'po'      && <Btn onClick={() => setModal({ type: 'po_create', poType: poTypeFilter })}>+ New {poTypeFilter} PO</Btn>}
           {perms.add && tab === 'waybill' && <Btn onClick={() => setModal({ type: 'wb_create' })}>+ New Waybill</Btn>}
-          {perms.add && tab === 'invoice' && <Btn onClick={() => setModal({ type: 'inv_create' })}>+ New Invoice</Btn>}
+          {/* 2026-08-15: removed the blank "+ New Invoice" button at Slot staff's
+              request, so every invoice traces back to a real delivery. It opened
+              InvoiceModal with no po/wb — an empty item table with no way to add
+              a line (InvoiceModal has no addItem, unlike RFQ/PO/Waybill), and
+              saveInvoice's own guard ("no delivered line items to bill... link a
+              PO with a waybill delivery") blocked submission anyway. It was a
+              dead end, not a real second path — invoices now only start from a
+              PO's "+ Invoice" or a waybill's "Create Invoice →". */}
+          {tab === 'invoice' && <div style={{ fontSize: 11.5, color: C.textMuted, alignSelf: 'center', marginLeft: 'auto' }}>Invoices are created from a Purchase Order or a Waybill delivery →</div>}
         </div>
 
         {/* Tables */}
@@ -1679,11 +1750,13 @@ export default function Procurement({ onNav }) {
           onCreateInvoice={wb => setModal({ type: 'inv_create', wb, po: pos.find(p => p.id === wb.poId) })} />
       )}
       {modal?.type === 'inv_create' && (
-        <InvoiceModal po={modal.po} wb={modal.wb} onSave={saveInvoice} onClose={() => setModal(null)} />
+        <InvoiceModal po={modal.po} wb={modal.wb} allWaybills={waybills} invoices={invoices}
+          onSave={saveInvoice} onClose={() => setModal(null)} />
       )}
       {modal?.type === 'inv_view' && (
         <InvoiceModal inv={modal.inv} po={pos.find(p => p.id === modal.inv.poId)}
           wb={waybills.find(w => w.id === modal.inv.waybillId)}
+          allWaybills={waybills} invoices={invoices}
           onSave={saveInvoice} onClose={() => setModal(null)} />
       )}
       {confirmDel && (
