@@ -16,12 +16,16 @@ const TAB_LABELS = { vehicles:'Vehicles Register', heavy:'Heavy Equipment Regist
 
 function printInventory(items, tab) {
   const label = TAB_LABELS[tab] || 'Inventory';
+  // 2026-08-18 QA fix: S/N used to print the stored x.sn field — see the
+  // same fix in renderRow() below for why that field drifts into duplicates
+  // (import batches, adds, and deletes each renumber it differently). Print
+  // now uses the live row position, matching what's on screen.
   const rows = items.map((x,i) => {
     let cells = '';
-    if (tab==='vehicles')  cells = `<td>${x.sn}</td><td><strong>${x.vehicleNumber}</strong></td><td>${x.make}</td><td>${x.yearOfPurchase||'—'}</td><td>${x.unitServing||'—'}</td>`;
-    if (tab==='heavy')     cells = `<td>${x.sn}</td><td><strong>${x.regNumber}</strong></td><td>${x.name||'—'}</td><td>${x.make||'—'}</td><td>${x.companyNumber||'—'}</td><td>${x.status||x.remark||'—'}</td>`;
-    if (tab==='materials') cells = `<td>${x.sn}</td><td><strong>${x.name}</strong></td><td>${x.quantity||'—'}</td><td>${x.position||'—'}</td><td>${x.status||'—'}</td>`;
-    if (tab==='office')    cells = `<td>${x.sn}</td><td><strong>${x.description}</strong></td><td>${x.officeId||'—'}</td><td>${x.location||'—'}</td><td>${x.status||'—'}</td>`;
+    if (tab==='vehicles')  cells = `<td>${i+1}</td><td><strong>${x.vehicleNumber}</strong></td><td>${x.make}</td><td>${x.yearOfPurchase||'—'}</td><td>${x.unitServing||'—'}</td>`;
+    if (tab==='heavy')     cells = `<td>${i+1}</td><td><strong>${x.regNumber}</strong></td><td>${x.name||'—'}</td><td>${x.make||'—'}</td><td>${x.companyNumber||'—'}</td><td>${x.status||x.remark||'—'}</td>`;
+    if (tab==='materials') cells = `<td>${i+1}</td><td><strong>${x.name}</strong></td><td>${x.quantity||'—'}</td><td>${x.position||'—'}</td><td>${x.status||'—'}</td>`;
+    if (tab==='office')    cells = `<td>${i+1}</td><td><strong>${x.description}</strong></td><td>${x.officeId||'—'}</td><td>${x.location||'—'}</td><td>${x.status||'—'}</td>`;
     return `<tr style="background:${i%2===1?'#f3faf5':'#fff'}">${cells}</tr>`;
   }).join('');
   const hdrMap = { vehicles:['S/N','Vehicle No.','Make / Model','Year','Unit Serving'], heavy:['S/N','Reg No.','Equipment / Vehicle Name','Make','Company No.','Status'], materials:['S/N','Material Name','Quantity','Position','Status'], office:['S/N','Description','Office ID','Location','Status'] };
@@ -224,6 +228,20 @@ export default function Inventory({ onNav }) {
   const thStyle = { padding: '9px 10px', textAlign: 'left', fontSize: 10.5, fontWeight: 700, color: C.textMid, textTransform: 'uppercase', letterSpacing: '0.4px', whiteSpace: 'nowrap', background: C.greenPale, borderBottom: '2px solid ' + C.border };
   const td = { padding: '9px 10px', borderBottom: '1px solid ' + C.borderLight, color: C.text, fontSize: 13 };
 
+  // 2026-08-18 QA fix — Slot staff flagged: S/N column showed duplicate and
+  // out-of-order numbers on the Materials tab (e.g. two rows both "3", two
+  // both "5"). Root cause: every row rendered the stored x.sn field, but
+  // three different code paths wrote to it independently — CSV import
+  // restarted numbering at 1 for every batch (line ~90), "+ Add Item" used
+  // items.length+1 (line ~205, wrong after any delete had already shrunk
+  // the array), and delete renumbered the whole tab 1..n (line ~218). Any
+  // import after existing rows already existed reliably produced
+  // collisions. Standard practice for a register/list S/N column (Excel,
+  // SAP ALV, NetSuite, Odoo tree views) is to compute it live from display
+  // position, never persist it — so renderRow now uses the row's live
+  // index `i` (already passed in from filtered.map below) instead of
+  // x.sn, and self-corrects immediately regardless of import/add/delete
+  // history or an active search filter.
   function renderRow(x, i) {
     const bg = { background: i % 2 === 1 ? C.greenPale2 : 'transparent' };
     const actions = (
@@ -236,7 +254,7 @@ export default function Inventory({ onNav }) {
     );
     if (tab === 'vehicles') return (
       <tr key={x.id} style={bg}>
-        <td style={td}>{x.sn}</td>
+        <td style={td}>{i+1}</td>
         <td style={{ ...td, color: C.green, fontFamily: 'Courier New', fontWeight: 700, fontSize: 12 }}>{x.vehicleNumber}</td>
         <td style={{ ...td, fontWeight: 600 }}>{x.make}</td>
         <td style={td}>{x.yearOfPurchase}</td>
@@ -246,7 +264,7 @@ export default function Inventory({ onNav }) {
     );
     if (tab === 'heavy') return (
       <tr key={x.id} style={bg}>
-        <td style={td}>{x.sn}</td>
+        <td style={td}>{i+1}</td>
         <td style={{ ...td, color: C.green, fontFamily: 'Courier New', fontSize: 12 }}>{x.regNumber}</td>
         <td style={{ ...td, fontWeight: 600 }}>{x.name || '—'}</td>
         <td style={{ ...td, color: C.textMuted }}>{x.make || '—'}</td>
@@ -257,7 +275,7 @@ export default function Inventory({ onNav }) {
     );
     if (tab === 'materials') return (
       <tr key={x.id} style={bg}>
-        <td style={td}>{x.sn}</td>
+        <td style={td}>{i+1}</td>
         <td style={{ ...td, fontWeight: 600 }}>{x.name}</td>
         <td style={{ ...td, color: C.amber, fontWeight: 700 }}>{x.quantity}</td>
         <td style={{ ...td, color: C.textMuted }}>{x.position}</td>
@@ -267,7 +285,7 @@ export default function Inventory({ onNav }) {
     );
     return (
       <tr key={x.id} style={bg}>
-        <td style={td}>{x.sn}</td>
+        <td style={td}>{i+1}</td>
         <td style={{ ...td, fontWeight: 600 }}>{x.description}</td>
         <td style={{ ...td, color: C.info, fontFamily: 'Courier New', fontSize: 11 }}>{x.officeId}</td>
         <td style={{ ...td, color: C.textMuted }}>{x.location}</td>
