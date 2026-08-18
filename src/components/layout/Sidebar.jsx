@@ -455,11 +455,23 @@ export default function Sidebar({ active, onNav, collapsed, onCollapse, mobileOp
     return () => { document.body.style.overflow = ''; };
   }, [mobileOpen]);
 
+  // 2026-08-18 QA fix: this badge count had drifted from what each module's
+  // real save flow actually sets — the same recurring "dead status" pattern
+  // fixed elsewhere this pass (Sales Orders, AR, Fixed Assets, Approvals.jsx
+  // itself). Concretely: (a) invoices — nothing sets `approvedBy` on an AR
+  // invoice (Approvals.jsx's old 'invoices' approve-by-click was removed as
+  // its own bug; see that file's comment), so this always undercounted to
+  // zero — now keyed on "large invoice still outstanding" instead, which
+  // clears naturally through AR's real receipt flow; (b) procurement —
+  // Procurement.jsx's submitForApproval() sets status:'Pending', never the
+  // 'Pending Approval' string this checked (already fixed once inside
+  // Approvals.jsx's own MODULE_CONFIGS — mirrored here); (c) request —
+  // Requests.jsx submits with status:'Submitted', which this never matched.
   const pendingApprovals = [
-    ...(db?.invoices    || []).filter(i => !i.approvedBy && (Number(i.amount)||Number(i.total)||0) >= 500000),
+    ...(db?.invoices    || []).filter(i => !i.voided && i.status !== 'Paid' && i.status !== 'Cancelled' && (Number(i.netPayable)||Number(i.total)||0) >= 500000),
     ...(db?.pettycash   || []).filter(p => !p.approvedBy && (Number(p.amount)||0) >= 100000),
-    ...(db?.procurement?.pos || []).filter(p => p.status === 'Pending Approval'),
-    ...(db?.request     || []).filter(r => r.status === 'Pending'),
+    ...(db?.procurement?.pos || []).filter(p => p.status === 'Pending'),
+    ...(db?.request     || []).filter(r => r.status === 'Submitted' || r.status === 'Pending'),
   ].length;
 
   function isVisible(item) {

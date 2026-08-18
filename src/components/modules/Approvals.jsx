@@ -10,12 +10,12 @@ import { showToast, formatDate } from '../../utils/helpers';
 import { saveDBLocal } from '../../utils/db';
 import { logActivity }  from '../../utils/audit';
 import { diffAndPush } from '../../hooks/usePerRecordSync';
-import { applyDecision } from '../../utils/approvalEngine';
+import { applyDecision, canApproveAtCurrentLevel } from '../../utils/approvalEngine';
 
 // Approvals mod key → RECORD_TABLES key. 'procurement' here only ever
 // touches .pos (see getModRecords/saveModRecords below), so it maps to
 // procurementPos specifically, not the whole procurement collection.
-const APPROVAL_TABLE_BY_MOD = { request: 'request', pettycash: 'pettycash', invoices: 'invoices', procurement: 'procurementPos' };
+const APPROVAL_TABLE_BY_MOD = { request: 'request', pettycash: 'pettycash', procurement: 'procurementPos' };
 
 const today = () => new Date().toISOString().split('T')[0];
 
@@ -124,18 +124,26 @@ const MODULE_CONFIGS = {
     },
     dispatchMod: 'pettycash',
   },
-  invoices: {
-    label:'Invoices', icon:'🧾',
-    pendingStatuses:['Pending'],
-    getTitle: r => `${r.invoiceNo} — ${r.client}`,
-    getSubtitle: r => `${r.category} · Due: ${formatDate(r.dueDate)} · ₦${(Number(r.netPayable)||0).toLocaleString('en-NG')}`,
-    getDate: r => r.date,
-    getPriority: r => 'Normal',
-    getRef: r => r.invoiceNo,
-    approve: (item, note, user) => ({ ...item, status:'Paid', approvedBy:user?.name||'Admin', approvalNote:note }),
-    reject:  (item, note, user) => ({ ...item, status:'Disputed', approvalNote:note }),
-    dispatchMod: 'invoices',
-  },
+  // 2026-08-18 QA fix: removed the 'invoices' tile. It pointed at db.invoices
+  // (AR's customer invoices), and its approve() set status:'Paid' directly —
+  // a single click with no receivedAmount, payment date, or bank reference.
+  // AccountsReceivable.jsx v2.0's own header comment explains this exact
+  // "mark as Paid" shortcut was deliberately replaced there with proper
+  // receipt vouchers (amount/date/ref, WHT/NCDF deductions, partial-payment
+  // support) — this queue still had the old shortcut wired to the same
+  // table, so it was a live backdoor that could fake a customer payment
+  // (inflating collected revenue and hiding true AR outstanding/aging,
+  // since those calcs key off receivedAmount, not just status). Every AR
+  // invoice is also created with status:'Pending' — that means "awaiting
+  // customer payment", not "awaiting internal sign-off" — so 100% of
+  // invoices ever raised were incorrectly surfaced here as pending approval.
+  // Standard ERP practice (SAP, NetSuite, Odoo) never lets a generic
+  // "approve" action record customer payment — that always goes through a
+  // dedicated receipt/cash-application screen, which AR already has. If a
+  // genuine pre-payment sign-off is wanted for vendor bills (AP), that
+  // belongs on Procurement's real invoices once AP is wired up (see the
+  // separate "wire Accounts Payable to real Procurement invoices" item),
+  // not on AR's customer invoices.
   procurement: {
     label:'Purchase Orders', icon:'🛒',
     // QA fix (2026-08-14): was ['Pending Approval','Submitted'] — those
@@ -180,7 +188,31 @@ export default function Approvals() {
   const { state, dispatch } = useApp();
   const { C } = useTheme();
   const { currentUser, db } = state;
-  const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'manager';
+  // 2026-08-18 QA fix: Sidebar.jsx grants the Approvals menu item itself to
+  // admin, manager, AND accountant (layout/Sidebar.jsx: `isAdmin || role ===
+  // 'manager' || isAccountant`), but this screen's own action-gating flag
+  // only checked admin/manager — so an accountant could open the queue but
+  // every approve/reject control was hidden and the "view-only" banner
+  // showed, even though accountants are exactly who normally signs off on
+  // petty cash, invoices, and vendor POs in practice. Matched to Sidebar's
+  // rule so visibility and action rights agree.
+  const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'manager' || currentUser?.role === 'accountant';
+
+  // 2026-08-18 QA fix: `isAdmin` above is a coarse "can see approval
+  // controls at all" flag. It was the ONLY gate on the ✓/✗ buttons and
+  // batch-approve here, meaning any manager (or now accountant) could click
+  // through EVERY level of a multi-level chain from this centralised
+  // screen — e.g. a >₦2M PO's Manager→Accountant→Admin band (see
+  // approvalEngine.js DEFAULT_APPROVAL_RULES) could be fully approved by a
+  // manager alone, since applyDecision() itself doesn't check who's acting,
+  // only the caller does. Procurement/Requests/PettyCash's own screens gate
+  // per-level via canApproveAtCurrentLevel(); this queue never did. That
+  // defeats the whole point of amount-banded chains (segregation of
+  // duties), matching SAP/NetSuite/Odoo's standard authorization-limit
+  // behavior where each level can only be actioned by its assigned role
+  // (or admin, which always bypasses). Items with no `.approval` chain
+  // (legacy flat status) fall back to the coarse isAdmin gate unchanged.
+  const canActOn = (item) => item?.approval ? canApproveAtCurrentLevel(item.approval, currentUser) : isAdmin;
 
   const inp = { padding:'7px 10px', borderRadius:7, border:'1px solid '+C.border, background:C.bgCard, color:C.text, fontSize:13, width:'100%', outline:'none', fontFamily:'inherit', boxSizing:'border-box' };
   const th  = { padding:'8px 10px', textAlign:'left', fontSize:10.5, fontWeight:700, color:C.tableHeaderText, textTransform:'uppercase', letterSpacing:'0.4px', whiteSpace:'nowrap', background:C.tableHeaderBg };
@@ -263,6 +295,14 @@ export default function Approvals() {
       showToast('Record no longer exists', 'error');
       return;
     }
+    // Defense in depth — the buttons that call this are already gated by
+    // canActOn(), but re-check here against the live record in case it
+    // advanced to a different level (e.g. someone else actioned it) between
+    // render and click.
+    if (!canActOn(before)) {
+      showToast('Your role cannot action this item at its current approval level', 'error');
+      return;
+    }
     const updated  = records.map(r => r.id === item.id ? cfg[action](r, actionNote, currentUser) : r);
     const after    = updated.find(r => r.id === item.id);
     saveModRecords(mod, updated);
@@ -301,6 +341,7 @@ export default function Approvals() {
       const records = mod === 'procurement' ? (db.procurement?.pos || []) : (db[mod] || []);
       const before = records.find(r => r.id === id);
       if (!before) return; // deleted between render and click — skip
+      if (!canActOn(before)) return; // not this user's level to action — skip
       const after = cfg.approve(before, '', currentUser);
       if (!byModule.has(mod)) byModule.set(mod, { cfg, records, updates: [] });
       byModule.get(mod).updates.push({ id, before, after });
@@ -325,7 +366,11 @@ export default function Approvals() {
       });
     });
 
-    showToast(`${batchSel.size} items approved`);
+    const approvedCount = Array.from(byModule.values()).reduce((s, m) => s + m.updates.length, 0);
+    const skipped = batchSel.size - approvedCount;
+    showToast(skipped > 0
+      ? `${approvedCount} item${approvedCount===1?'':'s'} approved — ${skipped} skipped (not your approval level)`
+      : `${approvedCount} item${approvedCount===1?'':'s'} approved`);
     setBatchSel(new Set());
   }
 
@@ -391,7 +436,7 @@ export default function Approvals() {
           <div style={{ overflowX:'auto' }}>
             <table style={{ width:'100%', borderCollapse:'collapse' }}>
               <thead><tr>
-                {isAdmin && <th style={{ ...th, width:36 }}><input type="checkbox" onChange={e=>{ if(e.target.checked) setBatchSel(new Set(filtered.map(x=>`${x.mod}::${x.item.id}`))); else setBatchSel(new Set()); }} /></th>}
+                {isAdmin && <th style={{ ...th, width:36 }}><input type="checkbox" onChange={e=>{ if(e.target.checked) setBatchSel(new Set(filtered.filter(x=>canActOn(x.item)).map(x=>`${x.mod}::${x.item.id}`))); else setBatchSel(new Set()); }} /></th>}
                 <th style={th}>Module</th>
                 <th style={th}>Ref No.</th>
                 <th style={th}>Subject / Description</th>
@@ -407,7 +452,7 @@ export default function Approvals() {
                   const isChecked = batchSel.has(key);
                   return (
                     <tr key={key} style={{ background:isChecked?C.greenPale2:'' }} onMouseEnter={e=>{ if(!isChecked) e.currentTarget.style.background=C.greenPale2; }} onMouseLeave={e=>{ if(!isChecked) e.currentTarget.style.background=''; }}>
-                      {isAdmin && <td style={td}><input type="checkbox" checked={isChecked} onChange={()=>toggleBatch(key)} /></td>}
+                      {isAdmin && <td style={td}><input type="checkbox" checked={isChecked} disabled={!canActOn(item)} title={!canActOn(item) ? 'Not your approval level yet' : undefined} onChange={()=>toggleBatch(key)} /></td>}
                       <td style={td}><span style={{ fontSize:11, fontWeight:600, padding:'2px 8px', borderRadius:20, background:C.greenPale, color:C.green, border:'1px solid '+C.borderLight }}>{cfg.icon} {cfg.label}</span></td>
                       <td style={td}><span style={{ fontFamily:'monospace', fontWeight:700, color:C.green, fontSize:12 }}>{cfg.getRef(item)}</span></td>
                       <td style={{ ...td, maxWidth:260 }}>
@@ -426,7 +471,7 @@ export default function Approvals() {
                       <td style={td}>
                         <div style={{ display:'flex', gap:5 }}>
                           <Btn sm variant="ghost" onClick={()=>{ setSel2({ item, mod, cfg }); setNote(''); setModal('view'); }}>View</Btn>
-                          {isAdmin && (
+                          {canActOn(item) && (
                             <>
                               <Btn sm variant="success" onClick={()=>{ setSel2({ item, mod, cfg }); setNote(''); setModal('approve'); }}>✓</Btn>
                               <Btn sm variant="danger" onClick={()=>{ setSel2({ item, mod, cfg }); setNote(''); setModal('reject'); }}>✗</Btn>
@@ -460,10 +505,14 @@ export default function Approvals() {
             </div>
             <div style={{ fontSize:13, color:C.textMid, lineHeight:1.8 }}>{sel2.cfg.getSubtitle(sel2.item)}</div>
             {sel2.item.description && <div style={{ marginTop:12, background:C.greenPale, borderRadius:8, padding:'10px 12px', fontSize:12, color:C.textMid, lineHeight:1.7 }}>{sel2.item.description}</div>}
-            {isAdmin && (
+            {canActOn(sel2.item) ? (
               <div style={{ display:'flex', justifyContent:'flex-end', gap:10, marginTop:20 }}>
                 <Btn variant="danger" onClick={()=>{ setModal('reject'); }}>Reject</Btn>
                 <Btn variant="success" onClick={()=>{ setModal('approve'); }}>Approve</Btn>
+              </div>
+            ) : sel2.item.approval && (
+              <div style={{ marginTop:16, padding:'8px 12px', background:'rgba(201,122,10,.08)', border:'1px solid rgba(201,122,10,.25)', borderLeft:'4px solid '+C.warning, borderRadius:8, fontSize:11.5, color:C.warning }}>
+                This item is waiting on level {sel2.item.approval.currentLevel+1} of {sel2.item.approval.requiredRoles.length} ({sel2.item.approval.requiredRoles[sel2.item.approval.currentLevel]}) — your role can't action it yet.
               </div>
             )}
           </Card>
