@@ -808,10 +808,32 @@ function JournalTab({journals,setJournals,coa,filter,setFilter,sourceFilter,setS
     setShowModal(false);
   };
 
-  const deleteJE=(j)=>{
+  // 2026-08-19: this used to be a hard delete — click ✕, the entry vanished
+  // from the array with no trace. That's a real gap against ERP standard:
+  // SAP/NetSuite/Odoo don't let you erase a posted journal entry, only
+  // reverse it, precisely so a live ledger always has a complete audit trail
+  // of every posting AND every correction. Every other void path in this app
+  // (AP bills, AR invoices, terminal advances, payroll runs) already follows
+  // that pattern — manual journal entries were the one place that didn't.
+  // Found while investigating a stray ₦1 test entry (QA-SYNC-TEST) that a
+  // hard delete would have erased without a trace of it ever existing.
+  const voidJE=(j)=>{
     const lockMsg=periodLockMessage(j.date);
     if(lockMsg){alert('⛔ '+lockMsg);return;}
-    if(window.confirm("Delete this journal entry?")) setJournals(js=>js.filter(x=>x.id!==j.id));
+    if(j.voided){alert('This entry has already been voided.');return;}
+    if(j.isReversal){alert('Reversal entries cannot themselves be voided.');return;}
+    if(!window.confirm(`Void journal entry ${j.ref||j.id}?\n\nThis posts a reversing entry to the ledger — the original stays visible for audit, offset by the reversal. This cannot be undone.`))return;
+    const rev={
+      ...j,
+      id:`${j.id}-REV`,
+      date:today(),
+      description:`REVERSAL — ${j.description}`,
+      isReversal:true,
+      lines:j.lines.map(l=>({...l,drCode:l.crCode,drName:l.crName,crCode:l.drCode,crName:l.drName})),
+    };
+    setJournals(js=>[...js.map(x=>x.id===j.id?{...x,voided:true}:x),rev]);
+    logActivity(dispatch,`Journal entry voided: ${j.ref||j.id} — ${j.description} — reversing entry ${rev.id} posted`,currentUser,{module:'accounting',action:'edit'});
+    showToast('Journal entry voided — reversing entry posted','error');
   };
   const editJE=(j)=>{setEditId(j.id);setJeDate(j.date);setJeRef(j.ref);setJeDesc(j.description);setLines(j.lines.map(l=>({drCode:l.drCode,crCode:l.crCode,currency:l.currency||"NGN",fxRate:l.fxRate||1,fcAmount:l.fcAmount??l.amount,memo:l.memo||""})));setShowModal(true);};
 
@@ -840,13 +862,15 @@ function JournalTab({journals,setJournals,coa,filter,setFilter,sourceFilter,setS
     {key:"source",label:"Source",render:r=><Pill label={r.source} color={{invoice:C.green,payroll:C.amber,procurement:C.info,manual:C.textMuted,pettycash:C.warning}[r.source]||C.textMuted} sm/>},
     {key:"actions",label:"",render:r=>{
       if(r.source!=="manual") return (<span title="Auto-posted from its source record — correct the invoice/bill/voucher/asset instead, and this entry updates itself." style={{fontSize:11,color:C.textMuted,cursor:"help"}}>🔒 auto-posted</span>);
+      if(r.isReversal) return (<span title="Reversal entry — posted automatically when the original was voided." style={{fontSize:11,color:C.textMuted,cursor:"help"}}>🔒 reversal</span>);
+      if(r.voided) return (<span title="Voided — see its reversal entry in the ledger for the offsetting posting." style={{fontSize:11,color:C.textMuted,cursor:"help"}}>🔒 voided</span>);
       // Live-verify QA fix (2026-08-18): same period-lock this component now
       // enforces on save/delete, surfaced here too so a closed-period entry
-      // doesn't show Edit/Delete buttons that would just fail with an alert
+      // doesn't show Edit/Void buttons that would just fail with an alert
       // on click — same treatment as the auto-posted 🔒 badge above.
       const lockMsg=periodLockMessage(r.date);
       if(lockMsg) return (<span title={lockMsg} style={{fontSize:11,color:C.textMuted,cursor:"help"}}>🔒 period closed</span>);
-      return (<div style={{display:"flex",gap:4}}><Btn sm variant="ghost" onClick={e=>{e.stopPropagation();editJE(r);}}>Edit</Btn><Btn sm variant="danger" onClick={e=>{e.stopPropagation();deleteJE(r);}}>✕</Btn></div>);
+      return (<div style={{display:"flex",gap:4}}><Btn sm variant="ghost" onClick={e=>{e.stopPropagation();editJE(r);}}>Edit</Btn><Btn sm variant="danger" onClick={e=>{e.stopPropagation();voidJE(r);}}>Void</Btn></div>);
     }},
   ];
 
