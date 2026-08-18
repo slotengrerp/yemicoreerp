@@ -511,26 +511,25 @@ export default function ContractStaff() {
 
   // Void-and-reverse (never delete): flips existingRun.voided = true, which
   // autoPostJournals.js's postReversalIfNeeded() picks up automatically and
-  // posts a mirror-image reversing entry (JE-PR-{run.id}-REV) against the
-  // original accrual — both stay visible in the GL for audit, matching the
-  // same void pattern already used for AP bills / AR invoices / terminal
-  // advances elsewhere in this app. Restricted to unpaid runs: if a run has
-  // already been marked paid, the payment-clearing leg (Dr Payable / Cr Bank)
-  // would be left unreversed and the ledger would go out of balance — that
-  // case needs a manual correcting entry, not this button.
+  // posts mirror-image reversing entries against the original accrual
+  // (JE-PR-{run.id}-REV) and, if the run was already marked paid, against
+  // the salary-payment leg too (JE-PR-PAY-{run.id}-REV) — restoring both the
+  // expense/payable side and the cash side. Everything stays visible in the
+  // GL for audit, matching the same void pattern already used for AP bills /
+  // AR invoices / terminal advances elsewhere in this app.
   function voidPayrollRun() {
     if (!existingRun) return;
-    if (existingRun.paymentDate) {
-      showToast('This run was already marked paid — voiding it would leave the payment entry unreversed. Post a manual correcting journal instead.', 'error');
-      return;
-    }
-    if (!window.confirm(`Void the ${period} payroll run for ${existingRun.lines?.length||0} staff (${formatCurrency(existingRun.totalGross)} gross)?\n\nThis posts a reversing entry to the GL and cannot be undone. The original entry and its reversal both stay visible for audit.`)) return;
+    const wasPaid = !!existingRun.paymentDate;
+    const msg = wasPaid
+      ? `Void the ${period} payroll run for ${existingRun.lines?.length||0} staff (${formatCurrency(existingRun.totalGross)} gross, already marked paid ${formatDate(existingRun.paymentDate)})?\n\nThis posts TWO reversing entries to the GL — one reversing the original accrual, one reversing the salary payment — so both the expense/payable and bank accounts are corrected. Cannot be undone; the original entries and their reversals all stay visible for audit.`
+      : `Void the ${period} payroll run for ${existingRun.lines?.length||0} staff (${formatCurrency(existingRun.totalGross)} gross)?\n\nThis posts a reversing entry to the GL and cannot be undone. The original entry and its reversal both stay visible for audit.`;
+    if (!window.confirm(msg)) return;
     const updatedRun = { ...existingRun, voided:true, voidedAt:new Date().toISOString(), voidedBy: currentUser?.name || '' };
     const next = payrollRuns.map(r => r.id===existingRun.id ? updatedRun : r);
     pushOne('payrollRuns', updatedRun);
     dispatch({ type:'UPDATE_MODULE', mod:'payrollRuns', data:next });
     saveDBLocal({ ...db, payrollRuns:next }, state.activity);
-    logActivity(dispatch, `Payroll run VOIDED: Contract Staff — ${period} (${existingRun.lines?.length||0} staff, ${formatCurrency(existingRun.totalGross)} gross) — reversing entry posts automatically to the GL`, currentUser);
+    logActivity(dispatch, `Payroll run VOIDED: Contract Staff — ${period} (${existingRun.lines?.length||0} staff, ${formatCurrency(existingRun.totalGross)} gross)${wasPaid ? ' — accrual AND payment reversing entries post automatically to the GL' : ' — reversing entry posts automatically to the GL'}`, currentUser);
     showToast('Payroll run voided — reversing entry posted to GL', 'error');
   }
 
@@ -675,7 +674,10 @@ export default function ContractStaff() {
                     </>
                   )}
                   {existingRun && existingRun.paymentDate && (
-                    <span style={{ fontSize:11, color:C.success, fontWeight:700 }}>✓ Paid {formatDate(existingRun.paymentDate)} — {formatCurrency(existingRun.totalNetPay)}</span>
+                    <>
+                      <span style={{ fontSize:11, color:C.success, fontWeight:700 }}>✓ Paid {formatDate(existingRun.paymentDate)} — {formatCurrency(existingRun.totalNetPay)}</span>
+                      {perms.del && <Btn variant="danger" sm onClick={voidPayrollRun}>Void Run</Btn>}
+                    </>
                   )}
                 </div>
               </div>

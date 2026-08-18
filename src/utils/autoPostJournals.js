@@ -264,6 +264,14 @@ export function computeAutoPostedJournals(existingJournals, db, appSettings) {
       } catch (e) { /* skip malformed records */ }
     }
     postReversalIfNeeded(run, accrualId);
+    // 2026-08-18: voiding a run that had already been marked paid used to
+    // leave the payment leg (Dr Net Salary Payable / Cr Bank — the entry
+    // saying cash actually left the bank) sitting in the ledger forever,
+    // with no accrual left to clear it against. Reverse that leg too,
+    // whenever it exists, so a voided-paid run nets to zero on both the
+    // expense/payable side AND the cash side — matches how SAP/NetSuite/
+    // Odoo handle voiding a disbursed payroll run.
+    postReversalIfNeeded(run, paymentId);
   });
 
   // ── Stock Issues ───────────────────────────────────────────────────────
