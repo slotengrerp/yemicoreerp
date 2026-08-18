@@ -17,6 +17,10 @@ import { logActivity }  from '../../utils/audit';
 import { getClients } from '../../utils/clientMaster';
 import { getProjects } from '../../utils/projectMaster';
 import { diffAndPush, pushOne } from '../../hooks/usePerRecordSync';
+// 2026-08-18: shared with Accounts Payable/Receivable's indicative FX
+// rates, instead of the fake "1" this form was defaulting to before —
+// see the fxRate fix in the Client/Currency selects below.
+import { DEFAULT_FX } from '../../utils/financeConstants';
 import { Btn, Tag, Card, FG, SearchBar, TabBar, EmptyState, Confirm, StatCard, AttachmentUploader } from '../ui';
 import { printHeader, PRINT_CSS } from '../../utils/logo';
 
@@ -433,7 +437,7 @@ function SOForm({ so: initial, setSo, onSave, onCancel, C, inp, currentUser }) {
           <FG label="Order Date"><input type="date" style={inp} value={f.date||''} onChange={e=>set('date', e.target.value)} /></FG>
           <FG label="Expected Delivery"><input type="date" style={inp} value={f.expectedDelivery||''} onChange={e=>set('expectedDelivery', e.target.value)} /></FG>
           <FG label="Client *">
-            <select style={inp} value={f.clientCode||''} onChange={e => { const c = clients.find(x => x.code === e.target.value); setF(p => ({ ...p, clientCode: e.target.value, client: c?.name || p.client, currency: c?.currency || p.currency, fxRate: c?.currency && c.currency !== 'NGN' ? (p.fxRate && p.fxRate !== 1 ? p.fxRate : '') : 1 })); }}>
+            <select style={inp} value={f.clientCode||''} onChange={e => { const c = clients.find(x => x.code === e.target.value); setF(p => ({ ...p, clientCode: e.target.value, client: c?.name || p.client, currency: c?.currency || p.currency, fxRate: c?.currency && c.currency !== 'NGN' ? (p.fxRate && p.fxRate !== 1 ? p.fxRate : (DEFAULT_FX[c.currency] || '')) : 1 })); }}>
               <option value="">— Select client —</option>
               {clients.map(c => <option key={c.id} value={c.code}>{c.name} — {c.code} ({c.currency})</option>)}
             </select>
@@ -456,9 +460,12 @@ function SOForm({ so: initial, setSo, onSave, onCancel, C, inp, currentUser }) {
                 foreign currency silently left fxRate at 1 with no prompt
                 to enter a real rate. A Sales Order's whole NGN total is
                 built on this number, so a forgotten "1" understates it by
-                ~1500x. Now clears it instead, matching Procurement.jsx's PO
-                form, which never pre-fills a guessed rate either. */}
-            <select style={inp} value={f.currency||'NGN'} onChange={e => { setF(p => ({ ...p, currency: e.target.value, fxRate: e.target.value === 'NGN' ? 1 : (p.fxRate && p.fxRate !== 1 ? p.fxRate : '') })); }}>
+                ~1500x. Now pulls from DEFAULT_FX, the same indicative-rate
+                table Accounts Payable/Receivable already use — a real,
+                editable rate instead of either a fake "1" or an empty
+                field the user has to fill from memory. handleSave still
+                blocks the save if it's ever left blank/zero. */}
+            <select style={inp} value={f.currency||'NGN'} onChange={e => { setF(p => ({ ...p, currency: e.target.value, fxRate: e.target.value === 'NGN' ? 1 : (p.fxRate && p.fxRate !== 1 ? p.fxRate : (DEFAULT_FX[e.target.value] || '')) })); }}>
               <option>NGN</option><option>USD</option><option>EUR</option><option>GBP</option>
             </select>
           </FG>

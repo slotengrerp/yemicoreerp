@@ -81,7 +81,14 @@ export default function ProjectPL() {
       return map[code];
     };
 
-    (db.invoices || []).filter(i => i.status !== 'Cancelled').forEach(inv => {
+    // 2026-08-18: was `i.status !== 'Cancelled'` only — AR voids an invoice
+    // by setting voided:true (AccountsReceivable.jsx's handleDelete), never
+    // by changing status to the literal string 'Cancelled' (nothing in the
+    // codebase ever sets that on an AR invoice — same dead-status pattern
+    // as the Overdue KPI fix). A voided invoice was still being counted as
+    // real revenue here. The bills-side filter below is unaffected since
+    // Procurement's own void flow does set status:'Cancelled'.
+    (db.invoices || []).filter(i => i.status !== 'Cancelled' && !i.voided).forEach(inv => {
       const code = inv.projectRef || 'UNALLOCATED';
       const row = ensure(code);
       const ngnRevenue = Number(inv.subtotal||0) * ((Number(inv.ngnEquivalent ?? inv.netPayable)||0) / (Number(inv.netPayable)||1));
@@ -112,19 +119,32 @@ export default function ProjectPL() {
     // Staff with no project tagged fall into UNALLOCATED, same as untagged
     // invoices/bills.
     const monthLabel = new Date().toLocaleString('en-US', { month:'long', year:'numeric' });
-    const payrollCost = (staffList, source) => {
+    // 2026-08-18: this used ONE shared gross formula (basic+housing+
+    // transport+medicalAllowance+otherAllowances+otherAddition) for BOTH
+    // staff types, but medicalAllowance/otherAllowances only exist on SLOT
+    // (Company) Staff records — Contract Staff's own gross (see
+    // ContractStaff.jsx's payslip/payroll-view/print, all consistent) is
+    // basic+housing+transport+bonnyAllowance+leaveAllowance+
+    // overtimeAllowance+eoyBonus+otherAddition instead. Every NLNG
+    // project's payroll cost here was silently missing all four of those
+    // allowance fields — often a large share of a contract staff member's
+    // real gross (e.g. EOY bonus, location/leave/overtime allowances).
+    const contractStaffGross = s => (Number(s.basicSalary)||0) + (Number(s.housing)||0) + (Number(s.transport)||0)
+      + (Number(s.bonnyAllowance)||0) + (Number(s.leaveAllowance)||0) + (Number(s.overtimeAllowance)||0) + (Number(s.eoyBonus)||0) + (Number(s.otherAddition)||0);
+    const slotStaffGross = s => (Number(s.basicSalary)||0) + (Number(s.housing)||0) + (Number(s.transport)||0)
+      + (Number(s.medicalAllowance)||0) + (Number(s.otherAllowances)||0) + (Number(s.otherAddition)||0);
+    const payrollCost = (staffList, source, grossFn) => {
       staffList.filter(s => s.status === 'Active').forEach(s => {
         const code = s.projectCode || 'UNALLOCATED';
         const row = ensure(code);
-        const gross = (Number(s.basicSalary)||0) + (Number(s.housing)||0) + (Number(s.transport)||0)
-                    + (Number(s.medicalAllowance)||0) + (Number(s.otherAllowances)||0) + (Number(s.otherAddition)||0);
+        const gross = grossFn(s);
         if (gross <= 0) return;
         row.cost += gross;
         row.costLines.push({ ref:s.refId||s.id, party:s.fullName, date:monthLabel, amount:gross, currency:'NGN', ngn:gross, status:`${source} payroll` });
       });
     };
-    payrollCost(db.nlng || [], 'Contract Staff');
-    payrollCost(db.slot || [], 'SLOT Staff');
+    payrollCost(db.nlng || [], 'Contract Staff', contractStaffGross);
+    payrollCost(db.slot || [], 'SLOT Staff', slotStaffGross);
 
     // Include active projects with zero activity too, so the accountant sees the full project list (gap #3 in their original list)
     projects.forEach(p => ensure(p.code));

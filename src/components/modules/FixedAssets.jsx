@@ -32,8 +32,14 @@ const LOCATIONS    = ['Port Harcourt HQ','Bonny Island Site','Warri Site','Abuja
 const DEPT_LIST    = ['Engineering','Operations','Admin','Finance','Procurement','HSE','IT','Logistics'];
 const COND_LIST    = ['Excellent','Good','Fair','Poor','Under Maintenance','Disposed'];
 const USEFUL_LIVES = { 'Plant & Equipment':10, 'Motor Vehicle':5, 'Office Equipment':5, 'Furniture & Fittings':10, 'Land & Building':40, 'IT Equipment':3, 'Tools & Machinery':7 };
+const DISPOSAL_METHODS = ['Sale','Scrap / Write-off','Total Loss / Insurance Claim','Other'];
 
-function calcDepreciation(cost, residual, usefulLife, purchaseDate) {
+// 2026-08-18: added asOfDate (5th arg). Depreciation used to always run to
+// today's date even for assets that had been disposed, so a disposed asset's
+// NBV kept drifting downward on the register forever. Standard ERP practice
+// (SAP AA, NetSuite FAM, Odoo Assets) is to freeze the depreciation clock at
+// the disposal date and compute gain/loss against the NBV frozen there.
+function calcDepreciation(cost, residual, usefulLife, purchaseDate, asOfDate) {
   const cost_ = Number(cost)||0;
   const res_  = Number(residual)||0;
   const ul_   = Number(usefulLife)||5;
@@ -41,7 +47,7 @@ function calcDepreciation(cost, residual, usefulLife, purchaseDate) {
   let months = 0;
   if (purchaseDate) {
     const start = new Date(purchaseDate);
-    const now   = new Date();
+    const now   = asOfDate ? new Date(asOfDate) : new Date();
     months = (now.getFullYear() - start.getFullYear()) * 12 + (now.getMonth() - start.getMonth());
   }
   const accDep = Math.min(annualDep * (months / 12), cost_ - res_);
@@ -102,9 +108,9 @@ function Card({ children, style }) {
 
 function printRegister(assets) {
   const totalCost = assets.reduce((a,x)=>a+(Number(x.cost)||0),0);
-  const totalNBV  = assets.reduce((a,x)=>{ const d=calcDepreciation(x.cost,x.residualValue,x.usefulLifeYrs,x.purchaseDate); return a+d.nbv; },0);
+  const totalNBV  = assets.reduce((a,x)=>{ const d=calcDepreciation(x.cost,x.residualValue,x.usefulLifeYrs,x.purchaseDate,x.disposalDate); return a+d.nbv; },0);
   const rows = assets.map((a,i)=>{
-    const d = calcDepreciation(a.cost,a.residualValue,a.usefulLifeYrs,a.purchaseDate);
+    const d = calcDepreciation(a.cost,a.residualValue,a.usefulLifeYrs,a.purchaseDate,a.disposalDate);
     return `<tr style="background:${i%2===1?'#f3faf5':'#fff'}">
       <td>${a.assetTag}</td><td>${a.description}</td><td>${a.category}</td>
       <td>${formatDate(a.purchaseDate)}</td><td style="text-align:right">₦${(Number(a.cost)||0).toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
@@ -148,6 +154,9 @@ export default function FixedAssets() {
   const [modal, setModal]     = useState(null);
   const [sel2, setSel2]       = useState(null);
   const [delId, setDelId]     = useState(null);
+  const [disposeAsset, setDisposeAsset] = useState(null);
+  const DISPOSE_EMPTY = { disposalDate: today(), disposalMethod: DISPOSAL_METHODS[0], disposalProceeds: '', disposalNotes: '' };
+  const [disposeForm, setDisposeForm] = useState(DISPOSE_EMPTY);
   // Depreciation posting — period picker state
   const [depPost, setDepPost] = useState(() => ({
     year:  new Date().getFullYear(),
@@ -158,7 +167,7 @@ export default function FixedAssets() {
   const [form, setForm] = useState(EMPTY);
 
   const withDepreciation = useMemo(() => assets.filter(a=>!a.voided).map(a => {
-    const d = calcDepreciation(a.cost, a.residualValue, a.usefulLifeYrs, a.purchaseDate);
+    const d = calcDepreciation(a.cost, a.residualValue, a.usefulLifeYrs, a.purchaseDate, a.disposalDate);
     return { ...a, ...d };
   }), [assets]);
 
@@ -187,6 +196,37 @@ export default function FixedAssets() {
     save([...assets, rec]);
     logActivity(dispatch, `Asset ${rec.assetTag} (${rec.description}) registered`, currentUser);
     showToast('Asset registered'); setModal(null); setForm(EMPTY);
+  }
+
+  // 2026-08-18: disposal was advertised in this module's header comment and
+  // the status Tag already had colors for 'Disposed', but there was no actual
+  // way to dispose an asset — status was only ever set to 'Active' at
+  // registration. Standard ERP practice (SAP AA, NetSuite FAM, Odoo Assets):
+  // capture disposal date + proceeds, freeze depreciation at that date, and
+  // post gain/loss = proceeds − NBV at disposal. The asset stays in the
+  // register (audit trail) rather than being voided/removed.
+  function handleDispose() {
+    const a = disposeAsset;
+    if (!disposeForm.disposalDate) { showToast('Disposal date is required','error'); return; }
+    if (disposeForm.disposalDate < a.purchaseDate) { showToast('Disposal date cannot be before the purchase date','error'); return; }
+    const d = calcDepreciation(a.cost, a.residualValue, a.usefulLifeYrs, a.purchaseDate, disposeForm.disposalDate);
+    const proceeds = Number(disposeForm.disposalProceeds) || 0;
+    const gainLoss = proceeds - d.nbv;
+    const next = assets.map(x => x.id === a.id ? {
+      ...x,
+      status: 'Disposed',
+      disposalDate: disposeForm.disposalDate,
+      disposalMethod: disposeForm.disposalMethod,
+      disposalProceeds: proceeds,
+      nbvAtDisposal: d.nbv,
+      gainLossOnDisposal: gainLoss,
+      disposalNotes: disposeForm.disposalNotes,
+      disposedBy: currentUser?.name || 'system',
+    } : x);
+    save(next);
+    logActivity(dispatch, `Asset ${a.assetTag} (${a.description}) disposed — ${disposeForm.disposalMethod}, proceeds ${fmt(proceeds)}, ${gainLoss>=0?'gain':'loss'} of ${fmt(Math.abs(gainLoss))}`, currentUser, { module:'fixedassets', action:'edit' });
+    showToast(`Asset disposed — ${gainLoss>=0?'gain':'loss'} of ${fmt(Math.abs(gainLoss))} recorded`, 'success');
+    setDisposeAsset(null); setDisposeForm(DISPOSE_EMPTY);
   }
 
   const TABS = [{ key:'register', label:'Asset Register' }, { key:'depreciation', label:'Depreciation Schedule' }];
@@ -261,6 +301,7 @@ export default function FixedAssets() {
                     <td style={td}>
                       <div style={{ display:'flex', gap:5 }}>
                         <Btn sm variant="ghost" onClick={()=>{ setSel2(a); setModal('view'); }}>View</Btn>
+                        {perms.del && a.status === 'Active' && <Btn sm variant="amber" onClick={()=>{ setDisposeForm(DISPOSE_EMPTY); setDisposeAsset(a); }}>Dispose</Btn>}
                         {perms.del && <Btn sm variant="danger" onClick={()=>setDelId(a.id)}>✕</Btn>}
                       </div>
                     </td>
@@ -537,14 +578,67 @@ export default function FixedAssets() {
               <button onClick={()=>setModal(null)} style={{ background:'none', border:'none', fontSize:22, color:C.textMuted, cursor:'pointer' }}>&times;</button>
             </div>
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:14, marginBottom:16 }}>
-              {[['Serial No.',sel2.serialNo||'—'],['Purchase Date',formatDate(sel2.purchaseDate)],['Cost',fmt(sel2.cost)],['Residual Value',fmt(sel2.residualValue)],['Useful Life',`${sel2.usefulLifeYrs} years`],['Annual Dep.',fmt(sel2.annualDep)],['Acc. Depreciation',fmt(sel2.accDep)],['Net Book Value',fmt(sel2.nbv)],['Condition',sel2.condition],['Location',sel2.location],['Department',sel2.department],['Assigned To',sel2.assignedTo||'—']].map(([k,v])=>(
+              {[['Serial No.',sel2.serialNo||'—'],['Purchase Date',formatDate(sel2.purchaseDate)],['Cost',fmt(sel2.cost)],['Residual Value',fmt(sel2.residualValue)],['Useful Life',`${sel2.usefulLifeYrs} years`],['Annual Dep.',fmt(sel2.annualDep)],['Acc. Depreciation',fmt(sel2.accDep)],['Net Book Value',fmt(sel2.nbv)],['Condition',sel2.condition],['Location',sel2.location],['Department',sel2.department],['Assigned To',sel2.assignedTo||'—'],['Status',sel2.status]].map(([k,v])=>(
                 <div key={k}><div style={{ fontSize:10, fontWeight:600, color:C.textMuted, textTransform:'uppercase', letterSpacing:'0.4px', marginBottom:2 }}>{k}</div><div style={{ fontSize:13, fontWeight:500, color:k==='Net Book Value'?C.success:k.includes('Dep')?C.amber:C.text }}>{v}</div></div>
               ))}
             </div>
+            {sel2.status === 'Disposed' && (
+              <div style={{ padding:'12px 14px', background:'rgba(107,114,128,.1)', borderLeft:'4px solid #6B7280', borderRadius:8, marginBottom:sel2.notes?12:0 }}>
+                <div style={{ fontSize:12, fontWeight:700, color:C.text, marginBottom:6 }}>Disposal Record</div>
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10, fontSize:12, color:C.textMid }}>
+                  <div><strong>Date:</strong> {formatDate(sel2.disposalDate)}</div>
+                  <div><strong>Method:</strong> {sel2.disposalMethod||'—'}</div>
+                  <div><strong>Proceeds:</strong> {fmt(sel2.disposalProceeds)}</div>
+                  <div><strong>NBV at disposal:</strong> {fmt(sel2.nbvAtDisposal)}</div>
+                  <div style={{ color:(sel2.gainLossOnDisposal||0)>=0?C.success:C.danger, fontWeight:600 }}>
+                    {(sel2.gainLossOnDisposal||0)>=0?'Gain':'Loss'}: {fmt(Math.abs(sel2.gainLossOnDisposal||0))}
+                  </div>
+                  <div><strong>By:</strong> {sel2.disposedBy||'—'}</div>
+                </div>
+                {sel2.disposalNotes && <div style={{ fontSize:12, color:C.textMuted, marginTop:6 }}>{sel2.disposalNotes}</div>}
+              </div>
+            )}
             {sel2.notes && <div style={{ fontSize:12, color:C.textMuted, marginTop:8 }}><strong>Notes:</strong> {sel2.notes}</div>}
           </Card>
         </Overlay>
       )}
+
+      {disposeAsset && (() => {
+        const a = disposeAsset;
+        const preview = calcDepreciation(a.cost, a.residualValue, a.usefulLifeYrs, a.purchaseDate, disposeForm.disposalDate || undefined);
+        const proceeds = Number(disposeForm.disposalProceeds) || 0;
+        const gainLoss = proceeds - preview.nbv;
+        return (
+          <Overlay onClose={()=>setDisposeAsset(null)}>
+            <Card>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16, paddingBottom:14, borderBottom:'1px solid '+C.borderLight }}>
+                <div>
+                  <div style={{ fontSize:16, fontWeight:700, color:C.text }}>Dispose Asset</div>
+                  <div style={{ fontSize:12, color:C.textMuted, marginTop:2 }}>{a.assetTag} · {a.description}</div>
+                </div>
+                <button onClick={()=>setDisposeAsset(null)} style={{ background:'none', border:'none', fontSize:22, color:C.textMuted, cursor:'pointer' }}>&times;</button>
+              </div>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
+                <FG label="Disposal Date *"><input type="date" style={inp} value={disposeForm.disposalDate} min={a.purchaseDate} onChange={e=>setDisposeForm(f=>({...f,disposalDate:e.target.value}))} /></FG>
+                <FG label="Disposal Method"><select style={inp} value={disposeForm.disposalMethod} onChange={e=>setDisposeForm(f=>({...f,disposalMethod:e.target.value}))}>{DISPOSAL_METHODS.map(m=><option key={m}>{m}</option>)}</select></FG>
+                <FG label="Disposal Proceeds (₦)"><input type="number" style={inp} value={disposeForm.disposalProceeds} onChange={e=>setDisposeForm(f=>({...f,disposalProceeds:e.target.value}))} placeholder="Sale price, if any — 0 for scrap/write-off" /></FG>
+                <FG label="Notes"><input style={inp} value={disposeForm.disposalNotes} onChange={e=>setDisposeForm(f=>({...f,disposalNotes:e.target.value}))} placeholder="Optional" /></FG>
+              </div>
+              <div style={{ marginTop:14, padding:'10px 14px', background:C.greenPale, borderRadius:8, fontSize:12, color:C.textMid, lineHeight:1.8 }}>
+                NBV at disposal date: <strong>{fmt(preview.nbv)}</strong><br/>
+                Disposal proceeds: <strong>{fmt(proceeds)}</strong><br/>
+                {disposeForm.disposalDate
+                  ? <>{gainLoss>=0?'Gain':'Loss'} on disposal: <strong style={{ color:gainLoss>=0?C.success:C.danger }}>{fmt(Math.abs(gainLoss))}</strong></>
+                  : 'Set a disposal date to preview the gain/loss on disposal.'}
+              </div>
+              <div style={{ display:'flex', justifyContent:'flex-end', gap:10, marginTop:20, paddingTop:14, borderTop:'1px solid '+C.borderLight }}>
+                <Btn variant="ghost" onClick={()=>setDisposeAsset(null)}>Cancel</Btn>
+                <Btn variant="danger" onClick={handleDispose}>Confirm Disposal</Btn>
+              </div>
+            </Card>
+          </Overlay>
+        );
+      })()}
 
       {delId && (
         <div style={{ position:'fixed', inset:0, background:'rgba(10,35,15,0.62)', backdropFilter:'blur(3px)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:9999 }}>

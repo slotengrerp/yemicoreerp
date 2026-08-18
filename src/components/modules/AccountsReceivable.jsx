@@ -356,7 +356,14 @@ export default function AccountsReceivable() {
     const total = active.reduce((a,i) => a+ngnEq(i), 0);
     const paid  = active.filter(i=>i.status==='Paid').reduce((a,i) => a+ngnEq(i), 0);
     const outstanding = active.filter(i=>i.status!=='Paid'&&i.status!=='Cancelled').reduce((a,i) => a+ngnEq(i)*(1-(Number(i.receivedAmount)||0)/(Number(i.netPayable)||1)), 0);
-    const overdue = active.filter(i=>i.status==='Overdue').length;
+    // 2026-08-18: was `i.status==='Overdue'` — nothing in this file (or
+    // anywhere else) ever sets that literal status string, so this KPI's
+    // count — and its red alert styling — was permanently 0/off regardless
+    // of how many invoices were actually past due. Standard AR practice
+    // (and what the invoice list's own Aging column and the Aging tab
+    // already do correctly) is to derive overdue from due date vs today,
+    // not from a stored status. Reuses the same getAgingClass() helper.
+    const overdue = active.filter(i => i.status!=='Paid' && i.status!=='Cancelled' && getAgingClass(i) != null).length;
     return { total, paid, outstanding, overdue };
   }, [invoices]);
 
