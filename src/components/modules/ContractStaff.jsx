@@ -28,61 +28,149 @@ const EMPTY = {
   bonnyAllowance:'', leaveAllowance:'', eoyBonus:'', overtimeAllowance:'', otherAddition:'',
   paye:'',
   voluntaryPension:'', salaryAdvance:'', loan:'',
+  // 2026-08-18: Slot staff compared the app against their own payroll format
+  // (Payroll Format.xlsx — 23 columns, "SUMMARY PAY SHEET") and found two
+  // heads with nowhere to go at all: Gift Card Recovery (a deduction — see
+  // sample data, e.g. staff with 250,000 recovered against gross) and
+  // Remarks (a free-text note per staff per pay period, e.g. "GIFT CARD
+  // RECOVERY" or "2026 LEAVE ALLOWANCE" explaining an unusual line). Every
+  // other head Slot compared against (Designation, Ref Ind, Job Location,
+  // Leave/Location/Overtime Allowance, EOY Bonus, Salary Advance, Loan,
+  // Voluntary Pension) already existed as data — it just wasn't shown as its
+  // own column anywhere, see printPayroll() and the Payroll View table below.
+  giftCardRecovery:'', remarks:'',
   status:'Active',
 };
 const TABS = [{ key:'list', label:'Staff Records' }, { key:'payroll', label:'Payroll View' }];
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
 // ── Print helpers ──────────────────────────────────────────────────────────
+// 2026-08-18: rebuilt to match Slot's own Payroll Format.xlsx ("SUMMARY PAY
+// SHEET") field-for-field — 23 columns there vs. the 13 this print used to
+// have. Everything captured on the staff form now has its own column here
+// instead of being folded silently into Gross/Other Addition, which was the
+// actual complaint: the numbers weren't wrong, they just weren't visible as
+// separate line items once printed. Bank/Account No are kept even though the
+// Excel format doesn't have them — SLOT already relied on having them here.
+// 2026-08-18: rebuilt after live A4 preview showed columns clipped past
+// "Overtime Allow." — PRINT_CSS's th{white-space:nowrap} plus browser
+// auto-layout meant 26 columns' natural width vastly exceeded the ~273mm
+// printable landscape width no matter how small the font got. Font-size
+// alone never fixes overflow caused by nowrap + auto layout.
+// Fix: table-layout:fixed with percentage column widths (these always sum
+// to exactly 100% of the printable box, so the table CANNOT exceed the
+// page regardless of content) + white-space:normal so long text wraps
+// instead of forcing the column wider. Split into two page-broken tables
+// (13 identification/earnings cols, then 15 deduction/net-pay/status cols)
+// since 26 columns of currency data is unreadable on one page even fixed.
 function printPayroll(staff, period, filtered) {
-  const rows = filtered.map((s, i) => {
-    const otherAdd = Number(s.otherAddition)||0;
-    const gross = (Number(s.basicSalary)||0)+(Number(s.housing)||0)+(Number(s.transport)||0)+otherAdd;
+  const n = v => Number(v)||0;
+  const fmt2 = v => v.toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const dash = v => v>0 ? '₦'+fmt2(v) : '-';
+  const calc = filtered.map((s, i) => {
+    const basic=n(s.basicSalary), housing=n(s.housing), transport=n(s.transport);
+    const location=n(s.bonnyAllowance), leave=n(s.leaveAllowance), overtime=n(s.overtimeAllowance), eoy=n(s.eoyBonus), otherAdd=n(s.otherAddition);
+    const gross = basic+housing+transport+location+leave+overtime+eoy+otherAdd;
+    const paye=n(s.paye);
+    const pension=Math.round((basic+housing+transport)*0.08);
+    const voluntaryPension=n(s.voluntaryPension), salaryAdvance=n(s.salaryAdvance), loan=n(s.loan), giftCard=n(s.giftCardRecovery);
+    const netPay = gross - paye - pension - voluntaryPension - salaryAdvance - loan - giftCard;
     const empDate = s.employmentDate ? new Date(s.employmentDate).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' }) : '—';
-    return `<tr style="background:${i%2===1?'#f3faf5':'#fff'}">
-      <td>${s.sn}</td><td><strong>${s.fullName}</strong></td><td style="font-family:monospace;font-size:11px">${s.refId}</td>
-      <td>${empDate}</td>
-      <td>${s.department}</td><td>${s.bank}</td><td style="font-family:monospace">${s.accountNo}</td>
-      <td style="text-align:right">₦${(Number(s.basicSalary)||0).toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
-      <td style="text-align:right">₦${(Number(s.housing)||0).toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
-      <td style="text-align:right">₦${(Number(s.transport)||0).toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
-      <td style="text-align:right">₦${otherAdd.toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
-      <td style="text-align:right;font-weight:700;color:#1A5C2A">₦${gross.toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
-      <td style="text-align:center"><span style="padding:2px 8px;border-radius:20px;font-size:10px;background:${s.status==='Active'?'#d4edda':'#f8d7da'};color:${s.status==='Active'?'#155724':'#721c24'}">${s.status}</span></td>
-    </tr>`;
-  }).join('');
-  const totalOtherAdd = filtered.reduce((a,s)=>a+(Number(s.otherAddition)||0),0);
-  const total = filtered.reduce((a,s)=>a+(Number(s.basicSalary)||0)+(Number(s.housing)||0)+(Number(s.transport)||0),0) + totalOtherAdd;
-  const totalBasic = filtered.reduce((a,s)=>a+(Number(s.basicSalary)||0),0);
-  const totalHousing = filtered.reduce((a,s)=>a+(Number(s.housing)||0),0);
-  const totalTransport = filtered.reduce((a,s)=>a+(Number(s.transport)||0),0);
+    return { s, i, basic, housing, transport, gross, paye, leave, salaryAdvance, loan, location, overtime, eoy, giftCard, voluntaryPension, pension, netPay, empDate };
+  });
+
+  const rows1 = calc.map(({s,i,basic,housing,transport,gross,empDate}) => `<tr style="background:${i%2===1?'#f3faf5':'#fff'}">
+      <td>${s.sn}</td><td><strong>${s.fullName}</strong></td><td>${s.role||'—'}</td>
+      <td>${s.refIndicator||'—'}</td><td>${s.workLocation||'—'}</td>
+      <td style="font-family:monospace">${s.refId}</td><td>${empDate}</td>
+      <td>${s.bank||'—'}</td><td style="font-family:monospace">${s.accountNo||'—'}</td>
+      <td style="text-align:right">₦${fmt2(basic)}</td>
+      <td style="text-align:right">₦${fmt2(housing)}</td>
+      <td style="text-align:right">₦${fmt2(transport)}</td>
+      <td style="text-align:right;font-weight:700;color:#1A5C2A">₦${fmt2(gross)}</td>
+    </tr>`).join('');
+
+  const rows2 = calc.map(({s,i,paye,leave,salaryAdvance,loan,location,overtime,eoy,giftCard,voluntaryPension,pension,netPay}) => `<tr style="background:${i%2===1?'#f3faf5':'#fff'}">
+      <td>${s.sn}</td><td><strong>${s.fullName}</strong></td>
+      <td style="text-align:right">${dash(paye)}</td>
+      <td style="text-align:right">${dash(leave)}</td>
+      <td style="text-align:right">${dash(salaryAdvance)}</td>
+      <td style="text-align:right">${dash(loan)}</td>
+      <td style="text-align:right">${dash(location)}</td>
+      <td style="text-align:right">${dash(overtime)}</td>
+      <td style="text-align:right">${dash(eoy)}</td>
+      <td style="text-align:right">${dash(giftCard)}</td>
+      <td style="text-align:right">${dash(voluntaryPension)}</td>
+      <td style="text-align:right">${dash(pension)}</td>
+      <td style="text-align:right;font-weight:700;color:#1A5C2A">₦${fmt2(netPay)}</td>
+      <td>${s.remarks||''}</td>
+      <td style="text-align:center"><span style="padding:2px 5px;border-radius:20px;font-size:7px;background:${s.status==='Active'?'#d4edda':'#f8d7da'};color:${s.status==='Active'?'#155724':'#721c24'}">${s.status}</span></td>
+    </tr>`).join('');
+
+  const tot = key => filtered.reduce((a,s)=>a+n(s[key]),0);
+  const totalBasic=tot('basicSalary'), totalHousing=tot('housing'), totalTransport=tot('transport');
+  const totalLocation=tot('bonnyAllowance'), totalLeave=tot('leaveAllowance'), totalOvertime=tot('overtimeAllowance'), totalEoy=tot('eoyBonus'), totalOtherAdd=tot('otherAddition');
+  const totalGross = totalBasic+totalHousing+totalTransport+totalLocation+totalLeave+totalOvertime+totalEoy+totalOtherAdd;
+  const totalPaye=tot('paye'), totalAdvance=tot('salaryAdvance'), totalLoan=tot('loan'), totalGiftCard=tot('giftCardRecovery'), totalVolPension=tot('voluntaryPension');
+  const totalPension = filtered.reduce((a,s)=>a+Math.round((n(s.basicSalary)+n(s.housing)+n(s.transport))*0.08),0);
+  const totalNetPay = totalGross - totalPaye - totalPension - totalVolPension - totalAdvance - totalLoan - totalGiftCard;
+
+  const wideCss = `table{table-layout:fixed;font-size:8.5px} th{white-space:normal;font-size:7.5px;padding:4px 3px;line-height:1.2} td{padding:4px 3px;overflow-wrap:anywhere;line-height:1.25} .pg-title{font-size:10px;font-weight:700;color:#1A5C2A;margin-bottom:5px;text-transform:uppercase;letter-spacing:.5px} .pg2{page-break-before:always}`;
 
   openPrintWindow(`<!DOCTYPE html><html><head><title>NLNG Contract Staff Payroll — ${period}</title>
-  <style>${PRINT_CSS}</style></head><body>
+  <style>${PRINT_CSS} ${wideCss}</style></head><body>
 ${printHeader('NLNG CONTRACT STAFF — MONTHLY PAYROLL REGISTER', period)}
+  <div class="pg-title">Page 1 of 2 — Identification &amp; Earnings</div>
   <table>
     <thead><tr>
-      <th>S/N</th><th>Full Name</th><th>Employee ID</th><th>Employment Date</th><th>Department</th><th>Bank</th><th>Account No.</th>
-      <th style="text-align:right">Basic (₦)</th><th style="text-align:right">Housing (₦)</th><th style="text-align:right">Transport (₦)</th>
-      <th style="text-align:right">Other Addition (₦)</th><th style="text-align:right">Gross (₦)</th><th style="text-align:center">Status</th>
+      <th style="width:3%">S/N</th><th style="width:12%">Name</th><th style="width:10%">Designation</th><th style="width:6%">Ref Ind</th><th style="width:9%">Job Location</th><th style="width:7%">Employee ID</th><th style="width:8%">Employment Date</th><th style="width:8%">Bank</th><th style="width:9%">Account No.</th>
+      <th style="width:8%;text-align:right">Basic (₦)</th><th style="width:7%;text-align:right">Housing (₦)</th><th style="width:6%;text-align:right">Transport (₦)</th>
+      <th style="width:7%;text-align:right">Gross (₦)</th>
     </tr></thead>
-    <tbody>${rows}</tbody>
+    <tbody>${rows1}</tbody>
     <tfoot><tr class="total-row">
-      <td colspan="7" style="text-align:right;text-transform:uppercase;font-size:10px;letter-spacing:.5px">Total — ${filtered.length} Staff Members</td>
-      <td style="text-align:right">₦${totalBasic.toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
-      <td style="text-align:right">₦${totalHousing.toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
-      <td style="text-align:right">₦${totalTransport.toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
-      <td style="text-align:right">₦${totalOtherAdd.toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
-      <td style="text-align:right;font-size:14px">₦${total.toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
-      <td></td>
+      <td colspan="9" style="text-align:right;text-transform:uppercase;font-size:8px;letter-spacing:.5px">Total — ${filtered.length} Staff Members</td>
+      <td style="text-align:right">₦${fmt2(totalBasic)}</td>
+      <td style="text-align:right">₦${fmt2(totalHousing)}</td>
+      <td style="text-align:right">₦${fmt2(totalTransport)}</td>
+      <td style="text-align:right;font-size:9.5px">₦${fmt2(totalGross)}</td>
     </tr></tfoot>
   </table>
+  <div class="pg2">
+    <div class="pg-title">Page 2 of 2 — Deductions, Net Pay &amp; Status</div>
+    <table>
+      <thead><tr>
+        <th style="width:3%">S/N</th><th style="width:10%">Name</th>
+        <th style="width:7%;text-align:right">PAYE (₦)</th><th style="width:7%;text-align:right">Leave Allow. (₦)</th>
+        <th style="width:7%;text-align:right">Salary Adv. (₦)</th><th style="width:6%;text-align:right">Loan Ded. (₦)</th><th style="width:7%;text-align:right">Location Allow. (₦)</th>
+        <th style="width:7%;text-align:right">Overtime Allow. (₦)</th><th style="width:7%;text-align:right">EOY Bonus (₦)</th><th style="width:7%;text-align:right">Gift Card Rec. (₦)</th>
+        <th style="width:7%;text-align:right">Voluntary Pension (₦)</th><th style="width:6%;text-align:right">Pension (₦)</th><th style="width:8%;text-align:right">Net Pay (₦)</th>
+        <th style="width:7%">Remarks</th><th style="width:4%;text-align:center">Status</th>
+      </tr></thead>
+      <tbody>${rows2}</tbody>
+      <tfoot><tr class="total-row">
+        <td colspan="2" style="text-align:right;text-transform:uppercase;font-size:8px;letter-spacing:.5px">Total</td>
+        <td style="text-align:right">₦${fmt2(totalPaye)}</td>
+        <td style="text-align:right">₦${fmt2(totalLeave)}</td>
+        <td style="text-align:right">₦${fmt2(totalAdvance)}</td>
+        <td style="text-align:right">₦${fmt2(totalLoan)}</td>
+        <td style="text-align:right">₦${fmt2(totalLocation)}</td>
+        <td style="text-align:right">₦${fmt2(totalOvertime)}</td>
+        <td style="text-align:right">₦${fmt2(totalEoy)}</td>
+        <td style="text-align:right">₦${fmt2(totalGiftCard)}</td>
+        <td style="text-align:right">₦${fmt2(totalVolPension)}</td>
+        <td style="text-align:right">₦${fmt2(totalPension)}</td>
+        <td style="text-align:right;font-size:9.5px">₦${fmt2(totalNetPay)}</td>
+        <td colspan="2"></td>
+      </tr></tfoot>
+    </table>
+  </div>
   <div class="footer">
     <div><div class="sig">Prepared By / Date</div></div>
     <div><div class="sig">Reviewed By / Date</div></div>
     <div><div class="sig">Approved By / Date</div></div>
   </div>
-  ${printBootstrap({landscape:false})}
+  ${printBootstrap({landscape:true})}
   </body></html>`);
 }
 
@@ -104,11 +192,12 @@ function printPayslip(s, period, company) {
   const paye             = Number(s.paye)||0;
   const voluntaryPension = Number(s.voluntaryPension)||0;
   const salaryAdvance    = Number(s.salaryAdvance)||0;
-  const loan             = Number(s.loan)||0;
+  const loan              = Number(s.loan)||0;
+  const giftCardRecovery  = Number(s.giftCardRecovery)||0;
   // NOTE: WHT (Withholding Tax) does NOT apply to employee payroll — it is a
   // deduction on payments to VENDORS/CONTRACTORS for goods & services (see
   // Procurement/Invoices module), never on staff salaries. Removed from payslip.
-  const totalDeduct = paye + employeePension + voluntaryPension + salaryAdvance + loan;
+  const totalDeduct = paye + employeePension + voluntaryPension + salaryAdvance + loan + giftCardRecovery;
   const netPay       = gross - totalDeduct;
 
   const fmtN = n => n > 0 ? n.toLocaleString('en-NG', { minimumFractionDigits:2, maximumFractionDigits:2 }) : '-';
@@ -189,10 +278,12 @@ function printPayslip(s, period, company) {
         <tr><td>Voluntary Pension</td><td class="amt">${fmtN(voluntaryPension)}</td></tr>
         <tr><td>Salary Advance</td><td class="amt">${fmtN(salaryAdvance)}</td></tr>
         <tr><td>Loan</td><td class="amt">${fmtN(loan)}</td></tr>
+        <tr><td>Gift Card Recovery</td><td class="amt">${fmtN(giftCardRecovery)}</td></tr>
         <tr class="section"><td>TOTAL DEDUCTIONS</td><td class="amt">${fmtN(totalDeduct)}</td></tr>
         <tr class="net"><td>NET SALARY (TAKE HOME)</td><td class="amt">${fmtN(netPay)}</td></tr>
       </tbody>
     </table>
+    ${s.remarks ? `<div style="margin-top:10px;font-size:11.5px"><span style="font-weight:700">Remarks:</span> ${s.remarks}</div>` : ''}
 
     <div class="sigblock">
       <div class="for">For: SLOT ENGINEERING NIG LIMITED</div>
@@ -317,10 +408,14 @@ function StaffModal({ modal, onSave, onClose, projects }) {
             <FG label="Voluntary Pension (₦)"><input style={inp} type="number" value={f.voluntaryPension} onChange={set('voluntaryPension')} placeholder="0" /></FG>
             <FG label="Salary Advance (₦)"><input style={inp} type="number" value={f.salaryAdvance} onChange={set('salaryAdvance')} placeholder="0" /></FG>
             <FG label="Loan (₦)"><input style={inp} type="number" value={f.loan} onChange={set('loan')} placeholder="0" /></FG>
+            <FG label="Gift Card Recovery (₦)"><input style={inp} type="number" value={f.giftCardRecovery} onChange={set('giftCardRecovery')} placeholder="0" /></FG>
           </div>
           <div style={{ fontSize:10.5, color:C.textMuted, marginTop:6, lineHeight:1.5 }}>
             Employee Pension (8%) is calculated automatically on the payslip. PAYE is entered above per staff member — leave it blank if it does not apply.
           </div>
+
+          <SecLabel label="Notes" />
+          <FG label="Remarks" full><input style={inp} value={f.remarks} onChange={set('remarks')} placeholder="e.g. GIFT CARD RECOVERY, 2026 LEAVE ALLOWANCE — shows on the payroll register and payslip" /></FG>
         </div>
         <div style={{ display:'flex', gap:8, justifyContent:'flex-end', padding:'14px 24px', borderTop:'1px solid '+C.borderLight }}>
           <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
@@ -406,7 +501,7 @@ export default function ContractStaff() {
       const gross=basic+housing+transport+extraEarnings+otherAdd;
       const pension=Math.round((basic+housing+transport)*0.08);
       const paye=Number(s.paye)||0;   // entered per staff member, not calculated
-      const otherDeductions=(Number(s.voluntaryPension)||0)+(Number(s.salaryAdvance)||0)+(Number(s.loan)||0);
+      const otherDeductions=(Number(s.voluntaryPension)||0)+(Number(s.salaryAdvance)||0)+(Number(s.loan)||0)+(Number(s.giftCardRecovery)||0);
       const netPay = gross - pension - paye - otherDeductions;
       return { staffId:s.id, refId:s.refId, fullName:s.fullName, department:s.department, projectCode:s.projectCode||'', employmentDate:s.employmentDate||'',
         basic, housing, transport, allowances:extraEarnings+otherAdd, gross, paye, pension, nhf:0, otherDeductions, netPay };
@@ -584,41 +679,61 @@ export default function ContractStaff() {
                 </div>
               </div>
 
-              <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12, minWidth:900 }}>
+              {/* 2026-08-18: expanded from 17 to match all 23 heads on Slot's own
+                  Payroll Format.xlsx (plus Bank/Account No, which the app already
+                  had beyond the Excel). Every allowance/deduction that used to be
+                  folded silently into Gross/Deductions now has its own column —
+                  same numbers as before, just no longer hidden. Wide table by
+                  necessity; same overflowX:auto scroll the page container already had. */}
+              <table style={{ width:'100%', borderCollapse:'collapse', fontSize:11.5, minWidth:2400 }}>
                 <thead><tr>
-                  {['S/N','Full Name','Employee ID','Employment Date','Department','Bank','Account No.','Basic (₦)','Housing (₦)','Transport (₦)','Other Addition (₦)','Gross (₦)','PAYE (₦)','Pension (₦)','Deductions (₦)','Net Pay (₦)','Status','Payslip'].map(h=><th key={h} style={th}>{h}</th>)}
+                  {['S/N','Full Name','Designation','Ref Ind','Job Location','Employee ID','Employment Date','Bank','Account No.',
+                    'Basic (₦)','Housing (₦)','Transport (₦)','Gross (₦)','PAYE (₦)','Leave Allow. (₦)','Salary Adv. (₦)','Loan Ded. (₦)',
+                    'Location Allow. (₦)','Overtime Allow. (₦)','EOY Bonus (₦)','Other Add. (₦)','Gift Card Rec. (₦)','Voluntary Pension (₦)',
+                    'Pension (₦)','Net Pay (₦)','Status','Remarks','Payslip'].map(h=><th key={h} style={th}>{h}</th>)}
                 </tr></thead>
                 <tbody>
-                  {filtered.length===0 && <tr><td colSpan={18} style={{ textAlign:'center', padding:32, color:C.textMuted }}>No records found</td></tr>}
+                  {filtered.length===0 && <tr><td colSpan={28} style={{ textAlign:'center', padding:32, color:C.textMuted }}>No records found</td></tr>}
                   {filtered.map((s,i)=>{
                     const basic=(Number(s.basicSalary)||0), housing=(Number(s.housing)||0), transport=(Number(s.transport)||0);
-                    const extraEarnings=(Number(s.bonnyAllowance)||0)+(Number(s.leaveAllowance)||0)+(Number(s.eoyBonus)||0)+(Number(s.overtimeAllowance)||0);
+                    const location=(Number(s.bonnyAllowance)||0), leave=(Number(s.leaveAllowance)||0), overtime=(Number(s.overtimeAllowance)||0), eoy=(Number(s.eoyBonus)||0);
                     const otherAdd=(Number(s.otherAddition)||0);
-                    const gross=basic+housing+transport+extraEarnings+otherAdd;
+                    const gross=basic+housing+transport+location+leave+overtime+eoy+otherAdd;
                     const pension=Math.round((basic+housing+transport)*0.08);
                     const paye=Number(s.paye)||0;   // entered per staff member, not calculated
-                    const otherDeductions=(Number(s.voluntaryPension)||0)+(Number(s.salaryAdvance)||0)+(Number(s.loan)||0);
-                    const totalDeduct=pension+paye+otherDeductions;
+                    const voluntaryPension=Number(s.voluntaryPension)||0, salaryAdvance=Number(s.salaryAdvance)||0, loan=Number(s.loan)||0, giftCard=Number(s.giftCardRecovery)||0;
+                    const totalDeduct=pension+paye+voluntaryPension+salaryAdvance+loan+giftCard;
                     const netPay=gross-totalDeduct;
+                    const dash = v => v>0 ? formatCurrency(v) : '—';
                     return (
                       <tr key={s.id}>
                         <td style={td(i)}>{s.sn}</td>
                         <td style={{ ...td(i), fontWeight:700 }}>{s.fullName}</td>
+                        <td style={{ ...td(i), color:C.textMuted, fontSize:11 }}>{s.role||'—'}</td>
+                        <td style={{ ...td(i), fontSize:11 }}>{s.refIndicator||'—'}</td>
+                        <td style={{ ...td(i), fontSize:11 }}>{s.workLocation||'—'}</td>
                         <td style={{ ...td(i), color:C.amber, fontFamily:'monospace', fontSize:11 }}>{s.refId}</td>
                         <td style={{ ...td(i), fontSize:11 }}>{formatDate(s.employmentDate)}</td>
-                        <td style={td(i)}>{s.department}</td>
                         <td style={{ ...td(i), color:C.textMuted }}>{s.bank}</td>
                         <td style={{ ...td(i), fontFamily:'monospace', fontSize:11 }}>{s.accountNo}</td>
                         <td style={{ ...td(i), color:C.green, fontWeight:600 }}>{formatCurrency(basic)}</td>
                         <td style={td(i)}>{formatCurrency(housing)}</td>
                         <td style={td(i)}>{formatCurrency(transport)}</td>
-                        <td style={td(i)}>{formatCurrency(otherAdd)}</td>
                         <td style={{ ...td(i), color:C.amber, fontWeight:800 }}>{formatCurrency(gross)}</td>
-                        <td style={{ ...td(i), color:C.danger, fontSize:11 }}>{formatCurrency(paye)}</td>
-                        <td style={{ ...td(i), color:C.danger, fontSize:11 }}>{formatCurrency(pension)}</td>
-                        <td style={{ ...td(i), color:C.danger, fontWeight:700 }}>{formatCurrency(totalDeduct)}</td>
+                        <td style={{ ...td(i), color:C.danger, fontSize:11 }}>{dash(paye)}</td>
+                        <td style={{ ...td(i), fontSize:11 }}>{dash(leave)}</td>
+                        <td style={{ ...td(i), color:C.danger, fontSize:11 }}>{dash(salaryAdvance)}</td>
+                        <td style={{ ...td(i), color:C.danger, fontSize:11 }}>{dash(loan)}</td>
+                        <td style={{ ...td(i), fontSize:11 }}>{dash(location)}</td>
+                        <td style={{ ...td(i), fontSize:11 }}>{dash(overtime)}</td>
+                        <td style={{ ...td(i), fontSize:11 }}>{dash(eoy)}</td>
+                        <td style={{ ...td(i), fontSize:11 }}>{dash(otherAdd)}</td>
+                        <td style={{ ...td(i), color:C.danger, fontSize:11 }}>{dash(giftCard)}</td>
+                        <td style={{ ...td(i), color:C.danger, fontSize:11 }}>{dash(voluntaryPension)}</td>
+                        <td style={{ ...td(i), color:C.danger, fontSize:11 }}>{dash(pension)}</td>
                         <td style={{ ...td(i), color:C.success, fontWeight:800, fontSize:13 }}>{formatCurrency(netPay)}</td>
                         <td style={td(i)}><Tag status={s.status} /></td>
+                        <td style={{ ...td(i), fontSize:10.5, color:C.textMuted, maxWidth:140 }}>{s.remarks||'—'}</td>
                         <td style={td(i)}>
                           <Btn variant="ghost" sm onClick={()=>printPayslip(s, period)} style={{ fontSize:11 }}>🖨 Payslip</Btn>
                         </td>
@@ -629,15 +744,32 @@ export default function ContractStaff() {
                 {filtered.length>0 && (
                   <tfoot>
                     <tr style={{ background:C.amberPale, fontWeight:700 }}>
-                      <td colSpan={7} style={{ ...td(0), textAlign:'right', color:C.textMid, fontSize:11, textTransform:'uppercase', letterSpacing:'.5px' }}>
+                      <td colSpan={9} style={{ ...td(0), textAlign:'right', color:C.textMid, fontSize:11, textTransform:'uppercase', letterSpacing:'.5px' }}>
                         Total — {filtered.length} Staff
                       </td>
                       <td style={{ ...td(0), color:C.green, fontWeight:700 }}>{formatCurrency(filtered.reduce((a,s)=>a+(Number(s.basicSalary)||0),0))}</td>
                       <td style={td(0)}>{formatCurrency(filtered.reduce((a,s)=>a+(Number(s.housing)||0),0))}</td>
                       <td style={td(0)}>{formatCurrency(filtered.reduce((a,s)=>a+(Number(s.transport)||0),0))}</td>
+                      <td style={{ ...td(0), color:C.amber, fontSize:13, fontWeight:800 }}>{formatCurrency(filtered.reduce((a,s)=>a+(Number(s.basicSalary)||0)+(Number(s.housing)||0)+(Number(s.transport)||0)+(Number(s.bonnyAllowance)||0)+(Number(s.leaveAllowance)||0)+(Number(s.eoyBonus)||0)+(Number(s.overtimeAllowance)||0)+(Number(s.otherAddition)||0),0))}</td>
+                      <td style={td(0)}>{formatCurrency(filtered.reduce((a,s)=>a+(Number(s.paye)||0),0))}</td>
+                      <td style={td(0)}>{formatCurrency(filtered.reduce((a,s)=>a+(Number(s.leaveAllowance)||0),0))}</td>
+                      <td style={td(0)}>{formatCurrency(filtered.reduce((a,s)=>a+(Number(s.salaryAdvance)||0),0))}</td>
+                      <td style={td(0)}>{formatCurrency(filtered.reduce((a,s)=>a+(Number(s.loan)||0),0))}</td>
+                      <td style={td(0)}>{formatCurrency(filtered.reduce((a,s)=>a+(Number(s.bonnyAllowance)||0),0))}</td>
+                      <td style={td(0)}>{formatCurrency(filtered.reduce((a,s)=>a+(Number(s.overtimeAllowance)||0),0))}</td>
+                      <td style={td(0)}>{formatCurrency(filtered.reduce((a,s)=>a+(Number(s.eoyBonus)||0),0))}</td>
                       <td style={td(0)}>{formatCurrency(filtered.reduce((a,s)=>a+(Number(s.otherAddition)||0),0))}</td>
-                      <td style={{ ...td(0), color:C.amber, fontSize:14, fontWeight:800 }}>{formatCurrency(filtered.reduce((a,s)=>a+(Number(s.basicSalary)||0)+(Number(s.housing)||0)+(Number(s.transport)||0)+(Number(s.bonnyAllowance)||0)+(Number(s.leaveAllowance)||0)+(Number(s.eoyBonus)||0)+(Number(s.overtimeAllowance)||0)+(Number(s.otherAddition)||0),0))}</td>
-                      <td colSpan={6} style={td(0)} />
+                      <td style={td(0)}>{formatCurrency(filtered.reduce((a,s)=>a+(Number(s.giftCardRecovery)||0),0))}</td>
+                      <td style={td(0)}>{formatCurrency(filtered.reduce((a,s)=>a+(Number(s.voluntaryPension)||0),0))}</td>
+                      <td style={td(0)}>{formatCurrency(filtered.reduce((a,s)=>a+Math.round(((Number(s.basicSalary)||0)+(Number(s.housing)||0)+(Number(s.transport)||0))*0.08),0))}</td>
+                      <td style={{ ...td(0), color:C.success, fontSize:13, fontWeight:800 }}>{formatCurrency(filtered.reduce((a,s)=>{
+                        const basic=(Number(s.basicSalary)||0), housing=(Number(s.housing)||0), transport=(Number(s.transport)||0);
+                        const gross=basic+housing+transport+(Number(s.bonnyAllowance)||0)+(Number(s.leaveAllowance)||0)+(Number(s.eoyBonus)||0)+(Number(s.overtimeAllowance)||0)+(Number(s.otherAddition)||0);
+                        const pension=Math.round((basic+housing+transport)*0.08);
+                        const deduct=(Number(s.paye)||0)+pension+(Number(s.voluntaryPension)||0)+(Number(s.salaryAdvance)||0)+(Number(s.loan)||0)+(Number(s.giftCardRecovery)||0);
+                        return a+(gross-deduct);
+                      },0))}</td>
+                      <td colSpan={3} style={td(0)} />
                     </tr>
                   </tfoot>
                 )}

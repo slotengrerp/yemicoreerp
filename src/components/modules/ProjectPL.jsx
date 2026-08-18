@@ -27,6 +27,7 @@ import { useApp }   from '../../context/AppContext';
 import { useTheme } from '../../context/ThemeContext';
 import { formatDate } from '../../utils/helpers';
 import { getProjects } from '../../utils/projectMaster';
+import { getApSource } from '../../utils/apBridge';
 
 const SYM = { NGN:'₦', USD:'$', EUR:'€', GBP:'£' };
 const fmt = (n, cur = 'NGN') =>
@@ -88,7 +89,14 @@ export default function ProjectPL() {
       row.revenueLines.push({ ref:inv.invoiceNo, party:inv.client, date:inv.date, amount:inv.subtotal, currency:inv.currency||'NGN', ngn:ngnRevenue, status:inv.status });
     });
 
-    (db.ap?.bills || []).filter(b => b.status !== 'Cancelled').forEach(bill => {
+    // 2026-08-17: was db.ap?.bills directly — the same "empty manual ledger"
+    // gap found in AccountsPayable.jsx (see utils/apBridge.js). Real supplier
+    // invoice cost from Procurement was invisible here too. Bills bridged in
+    // from Procurement don't carry a projectCode yet (POs don't have a
+    // project field), so they land in UNALLOCATED same as any other untagged
+    // bill — consistent with this module's own stated "nothing silently
+    // disappears" design, not a new gap.
+    (getApSource(db).bills || []).filter(b => b.status !== 'Cancelled').forEach(bill => {
       const code = bill.projectCode || 'UNALLOCATED';
       const row = ensure(code);
       const ngnCost = Number(bill.amount||0) * ((Number(bill.ngnEquivalent ?? bill.netPayable)||0) / (Number(bill.netPayable)||1));
@@ -126,7 +134,7 @@ export default function ProjectPL() {
       margin: r.revenue - r.cost,
       marginPct: r.revenue > 0 ? ((r.revenue - r.cost) / r.revenue) * 100 : null,
     })).sort((a,b) => b.revenue - a.revenue);
-  }, [db.invoices, db.ap, db.nlng, db.slot, projects]);
+  }, [db.invoices, db.ap, db.procurement, db.nlng, db.slot, projects]);
 
   const totals = useMemo(() => {
     const withActivity = projectPL.filter(p => p.revenue > 0 || p.cost > 0);

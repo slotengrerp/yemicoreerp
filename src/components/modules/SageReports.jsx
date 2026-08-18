@@ -32,6 +32,7 @@ import { getClients, getClientByCode } from '../../utils/clientMaster';
 import { getVendors, getVendorByCode } from '../../utils/vendorMaster';
 import { BANK_ACCOUNTS } from '../../utils/financeConstants';
 import { diffAndPush, pushOne } from '../../hooks/usePerRecordSync';
+import { getApSource } from '../../utils/apBridge';
 
 // Tier 2 features (6 additional tabs)
 import {
@@ -464,93 +465,16 @@ function CustomerStatementTab({ state, dispatch, inp }) {
   );
 }
 
-// ── AP Bills adapter — QA fix (2026-08-14) ──────────────────────────────────
-// Supplier Statement, Aged Payables, Batch Payment Run and WHT Certificates
-// all read exclusively from db.ap.bills / db.ap.payments — a manual bill
-// ledger that has zero real entries anywhere in the system. Every actual
-// supplier invoice is created in Procurement -> Supplier Invoices
-// (db.procurement.invoices) instead, so all four reports showed ₦0.00 / "no
-// records" for every vendor despite real pending invoices. Confirmed live:
-// ACRIFA GLOBAL SERVIC has 2 pending procurement invoices totalling
-// ₦9,829,800, but Supplier Statement / Aged Payables / Batch Payment Run all
-// showed nothing for that vendor.
+// ── AP Bills adapter ─────────────────────────────────────────────────────────
+// Originally added here 2026-08-14 to fix Supplier Statement, Aged Payables,
+// Batch Payment Run and WHT Certificates, which all read exclusively from
+// db.ap.bills / db.ap.payments — a manual bill ledger that has zero real
+// entries anywhere in the system, instead of the real supplier invoices
+// created in Procurement -> Supplier Invoices (db.procurement.invoices).
+// Moved to utils/apBridge.js 2026-08-17 and now shared with
+// AccountsPayable.jsx, which had the exact same gap — see that file's import
+// of getApSource for the fix on the AP module side.
 //
-// This maps db.procurement.invoices into the exact "bill" shape the four
-// tabs below already expect, so none of their rendering/aging/print logic
-// needs to change — only where each one sources `bills`/`payments` from.
-// Real db.ap.bills entries (if any are ever entered manually) are still
-// included, appended after the procurement-derived ones.
-//
-// FX SAFETY: mirrors the rule utils/glPosting.js's journalFromPurchaseInvoice
-// already applies for the GL — a foreign-currency invoice with no captured
-// exchange rate is never guessed into NGN (that would silently misstate what
-// SLOT owes on a document that can go out to a real vendor). Its
-// ngnEquivalent is left at 0 (so it can't corrupt a total) and
-// needsFxRate:true is set so callers can surface the gap instead of quietly
-// dropping it. At the time of writing 9 of the 11 real procurement invoices
-// (all supplier "CSPS (POUNDS)") have no fxRate captured and will not appear
-// in these reports' totals until Procurement records a rate on them.
-function procurementInvoicesAsBills(procurement) {
-  const invoices = procurement?.invoices || [];
-  return invoices.map(inv => {
-    const currency  = inv.currency || 'NGN';
-    const rate      = Number(inv.fxRate);
-    const needsRate = currency !== 'NGN';
-    const hasRate   = !needsRate || (Number.isFinite(rate) && rate > 0);
-    const fx        = needsRate ? rate : 1;
-    const native    = Number(inv.netPayable ?? inv.total) || 0;
-    const ngn       = hasRate ? Math.round(native * fx) : 0;
-    return {
-      id:            inv.id,
-      vendor:        inv.supplier,
-      vendorName:    inv.supplier,
-      date:          inv.date,
-      billNo:        inv.invoiceNo,
-      invoiceNo:     inv.invoiceNo,
-      description:   inv.items?.[0]?.description || `PO ${inv.poNo || '—'}`,
-      status:        inv.status,
-      dueDate:       inv.dueDate,
-      currency,
-      needsFxRate:   needsRate && !hasRate,
-      nativeAmount:  native,
-      ngnEquivalent: ngn,
-      netPayable:    ngn,
-      paidAmount:    inv.status === 'Paid' ? ngn : 0,
-      whtRate:       inv.whtRate,
-      whtAmount:     hasRate ? Math.round((Number(inv.whtAmount) || 0) * fx) : 0,
-      source:        'procurement',
-    };
-  });
-}
-
-// A Paid procurement invoice IS the payment leg (Procurement doesn't track a
-// separate payment record) — one synthetic payment per Paid invoice with a
-// resolved NGN amount.
-function procurementInvoicesAsPayments(procurement) {
-  return procurementInvoicesAsBills(procurement)
-    .filter(b => b.status === 'Paid' && !b.needsFxRate)
-    .map(b => ({
-      id:            `pay-${b.id}`,
-      billId:        b.id,
-      vendor:        b.vendor,
-      vendorName:    b.vendorName,
-      date:          b.date,
-      paymentNo:     `PAY-${b.invoiceNo}`,
-      reference:     b.invoiceNo,
-      ngnEquivalent: b.ngnEquivalent,
-      amount:        b.ngnEquivalent,
-      source:        'procurement',
-    }));
-}
-
-function getApSource(db) {
-  const manual = db.ap || { bills: [], payments: [] };
-  return {
-    bills:    [...procurementInvoicesAsBills(db.procurement), ...(manual.bills || [])],
-    payments: [...procurementInvoicesAsPayments(db.procurement), ...(manual.payments || [])],
-  };
-}
-
 // ════════════════════════════════════════════════════════════════════════════
 // FEATURE 2 — SUPPLIER STATEMENT + REMITTANCE ADVICE
 // Same pattern as Customer Statement but on db.ap.bills / db.ap.payments,

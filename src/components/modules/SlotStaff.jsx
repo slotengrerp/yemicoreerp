@@ -21,76 +21,129 @@ const BANKS = ['Access Bank','Citibank','Ecobank','Fidelity Bank','First Bank','
 const STATUSES = ['Active','Inactive','Suspended','On Leave'];
 const SERVICE_TITLES = ['Managing Director','Director','General Manager','Deputy General Manager','Assistant General Manager','Senior Manager','Manager','Assistant Manager','Senior Officer','Officer','Assistant Officer','Coordinator','Executive','Analyst','Supervisor','Technician','Assistant'];
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-const EMPTY = { fullName:'', refId:'', department:'', serviceTitle:'', workLocation:'Port Harcourt HQ', employmentDate:'', projectCode:'', phone:'', email:'', bank:'', accountNo:'', basicSalary:'', housing:'', transport:'', otherAddition:'', paye:'', status:'Active', photoUrl:'', photoPosY:50 };
+// 2026-08-18: added medicalAllowance, otherAllowances, pensionPin — these
+// were already computed into gross/net pay in printPayslip() and
+// runPayroll(), and printPayslip even rendered a "Pension PIN" field, but
+// none of the three had a home in EMPTY or an input in the form, so they
+// were permanently blank/zero on every real record. Same class of bug
+// flagged on ContractStaff.jsx's Gift Card Recovery/Remarks fields.
+const EMPTY = { fullName:'', refId:'', department:'', serviceTitle:'', workLocation:'Port Harcourt HQ', employmentDate:'', projectCode:'', phone:'', email:'', bank:'', accountNo:'', pensionPin:'', basicSalary:'', housing:'', transport:'', medicalAllowance:'', otherAllowances:'', otherAddition:'', paye:'', status:'Active', photoUrl:'', photoPosY:50 };
 // item 2: staff photo uploads reuse the same Supabase Storage bucket/helper
 // as DocScanner rather than standing up a new bucket — uploadDocument()
 // already falls back to inline base64 if Supabase Storage is unavailable.
 const PHOTO_COMPANY_ID = import.meta.env.VITE_COMPANY_DOC || 'slot-engineering-nigeria';
 
 // ── Print helpers ──────────────────────────────────────────────────────────
+// 2026-08-18: rebuilt for two reasons flagged together —
+//   (1) this register was missing PAYE/Pension/NHF/Net Pay entirely (the
+//       on-screen Payroll View has always had them) and had no columns for
+//       Medical Allowance / Other Allowances even though those are real,
+//       now-enterable fields — same "captured in calc, invisible on paper"
+//       bug class as ContractStaff.jsx's Gift Card Recovery.
+//   (2) the wide-table page-overflow bug found on ContractStaff.jsx's print
+//       (fixed by table-layout:fixed + % column widths + white-space:normal,
+//       split across page-broken tables) applies here too once this register
+//       carries a realistic column count — fixed the same way pre-emptively
+//       rather than waiting for it to clip in production.
 function printPayroll(filtered, period) {
-  const rows = filtered.map((s,i)=>{
-    const otherAdd = Number(s.otherAddition)||0;
-    const gross=(Number(s.basicSalary)||0)+(Number(s.housing)||0)+(Number(s.transport)||0)+otherAdd;
+  const n = v => Number(v)||0;
+  const fmt2 = v => v.toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const calc = filtered.map((s,i) => {
+    const basic=n(s.basicSalary), housing=n(s.housing), transport=n(s.transport);
+    const medical=n(s.medicalAllowance), other=n(s.otherAllowances), otherAdd=n(s.otherAddition);
+    const gross = basic+housing+transport+medical+other+otherAdd;
+    const pension=Math.round((basic+housing+transport)*0.08);
+    const paye=n(s.paye);
+    const nhf=Math.round(basic*0.025);
+    const totalDeduct = pension+paye+nhf;
+    const netPay = gross - totalDeduct;
     const empDate = s.employmentDate ? new Date(s.employmentDate).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' }) : '—';
-    return `<tr style="background:${i%2===1?'#f3faf5':'#fff'}">
-      <td>${s.sn}</td><td><strong>${s.fullName}</strong></td><td style="font-family:monospace;font-size:11px">${s.refId}</td>
-      <td>${empDate}</td>
-      <td>${s.department}</td><td>${s.serviceTitle||'—'}</td><td>${s.bank}</td>
-      <td style="font-family:monospace">${s.accountNo}</td>
-      <td style="text-align:right">₦${(Number(s.basicSalary)||0).toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
-      <td style="text-align:right">₦${(Number(s.housing)||0).toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
-      <td style="text-align:right">₦${(Number(s.transport)||0).toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
-      <td style="text-align:right">₦${otherAdd.toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
-      <td style="text-align:right;font-weight:700;color:#1A5C2A">₦${gross.toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
-      <td style="text-align:center"><span style="padding:2px 8px;border-radius:20px;font-size:10px;background:${s.status==='Active'?'#d4edda':'#f8d7da'};color:${s.status==='Active'?'#155724':'#721c24'}">${s.status}</span></td>
-    </tr>`;
-  }).join('');
-  const totalOtherAdd = filtered.reduce((a,s)=>a+(Number(s.otherAddition)||0),0);
-  const total     = filtered.reduce((a,s)=>a+(Number(s.basicSalary)||0)+(Number(s.housing)||0)+(Number(s.transport)||0),0) + totalOtherAdd;
-  const totalB    = filtered.reduce((a,s)=>a+(Number(s.basicSalary)||0),0);
-  const totalH    = filtered.reduce((a,s)=>a+(Number(s.housing)||0),0);
-  const totalT    = filtered.reduce((a,s)=>a+(Number(s.transport)||0),0);
+    return { s, i, basic, housing, transport, medical, other, otherAdd, gross, pension, paye, nhf, totalDeduct, netPay, empDate };
+  });
+
+  const rows1 = calc.map(({s,i,basic,housing,transport,medical,other,otherAdd,gross,empDate}) => `<tr style="background:${i%2===1?'#f3faf5':'#fff'}">
+      <td>${s.sn}</td><td><strong>${s.fullName}</strong></td><td style="font-family:monospace">${s.refId}</td>
+      <td>${empDate}</td><td>${s.department}</td><td>${s.serviceTitle||'—'}</td><td>${s.bank||'—'}</td>
+      <td style="font-family:monospace">${s.accountNo||'—'}</td>
+      <td style="text-align:right">₦${fmt2(basic)}</td>
+      <td style="text-align:right">₦${fmt2(housing)}</td>
+      <td style="text-align:right">₦${fmt2(transport)}</td>
+      <td style="text-align:right">₦${fmt2(medical)}</td>
+      <td style="text-align:right">₦${fmt2(other)}</td>
+      <td style="text-align:right">₦${fmt2(otherAdd)}</td>
+      <td style="text-align:right;font-weight:700;color:#1A5C2A">₦${fmt2(gross)}</td>
+    </tr>`).join('');
+
+  const rows2 = calc.map(({s,i,paye,pension,nhf,totalDeduct,netPay}) => `<tr style="background:${i%2===1?'#f3faf5':'#fff'}">
+      <td>${s.sn}</td><td><strong>${s.fullName}</strong></td>
+      <td style="text-align:right">₦${fmt2(paye)}</td>
+      <td style="text-align:right">₦${fmt2(pension)}</td>
+      <td style="text-align:right">₦${fmt2(nhf)}</td>
+      <td style="text-align:right">₦${fmt2(totalDeduct)}</td>
+      <td style="text-align:right;font-weight:700;color:#1A5C2A">₦${fmt2(netPay)}</td>
+      <td style="text-align:center"><span style="padding:2px 6px;border-radius:20px;font-size:8px;background:${s.status==='Active'?'#d4edda':'#f8d7da'};color:${s.status==='Active'?'#155724':'#721c24'}">${s.status}</span></td>
+    </tr>`).join('');
+
+  const tot = key => filtered.reduce((a,s)=>a+n(s[key]),0);
+  const totalB=tot('basicSalary'), totalH=tot('housing'), totalT=tot('transport');
+  const totalMed=tot('medicalAllowance'), totalOther=tot('otherAllowances'), totalOtherAdd=tot('otherAddition');
+  const totalGross = totalB+totalH+totalT+totalMed+totalOther+totalOtherAdd;
+  const totalPension = calc.reduce((a,c)=>a+c.pension,0);
+  const totalPaye = tot('paye');
+  const totalNhf = calc.reduce((a,c)=>a+c.nhf,0);
+  const totalDeduct = totalPension+totalPaye+totalNhf;
+  const totalNetPay = totalGross - totalDeduct;
+
+  const wideCss = `table{table-layout:fixed;font-size:8.5px} th{white-space:normal;font-size:7.5px;padding:4px 3px;line-height:1.2} td{padding:4px 3px;overflow-wrap:anywhere;line-height:1.25} .pg-title{font-size:10px;font-weight:700;color:#1A5C2A;margin-bottom:5px;text-transform:uppercase;letter-spacing:.5px} .pg2{page-break-before:always}`;
+
   openPrintWindow(`<!DOCTYPE html><html><head><title>SLOT Staff Payroll — ${period}</title>
-  <style>
-    *{margin:0;padding:0;box-sizing:border-box}
-    body{font-family:'Segoe UI',Arial,sans-serif;font-size:12px;color:#182A1C;padding:24px}
-    .header{border-bottom:3px solid #1A5C2A;padding-bottom:14px;margin-bottom:20px;display:flex;justify-content:space-between;align-items:flex-end}
-    .co{font-size:18px;font-weight:800;color:#1A5C2A}
-    .sub{font-size:13px;color:#3A5040;font-weight:600;margin-top:4px}
-    .meta{font-size:11px;font-weight:600;color:#182A1C;margin-top:3px}
-    .badge{background:#1A5C2A;color:#fff;padding:6px 16px;border-radius:8px;font-weight:700;font-size:13px}
-    table{width:100%;border-collapse:collapse;margin-bottom:16px}
-    th{background:#1A5C2A;color:#fff;padding:8px 7px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.4px;white-space:nowrap}
-    td{padding:7px;border-bottom:1px solid #EAF0EB;font-size:11px}
-    .tot td{background:#EAF4EC;font-weight:700;color:#1A5C2A;border-top:2px solid #1A5C2A}
-    .footer{margin-top:40px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:40px}
-    .sig{border-top:1px solid #ccc;padding-top:6px;font-size:10px;font-weight:600;color:#182A1C}
-    @media print{body{padding:12px}}
-  </style></head><body>
+  <style>${PRINT_CSS} ${wideCss}</style></head><body>
 ${printHeader('COMPANY STAFF — MONTHLY PAYROLL REGISTER', period)}
+  <div class="pg-title">Page 1 of 2 — Identification &amp; Earnings</div>
   <table>
     <thead><tr>
-      <th>S/N</th><th>Full Name</th><th>Employee ID</th><th>Employment Date</th><th>Department</th><th>Service Title</th><th>Bank</th><th>Account No.</th>
-      <th style="text-align:right">Basic (₦)</th><th style="text-align:right">Housing (₦)</th><th style="text-align:right">Transport (₦)</th>
-      <th style="text-align:right">Other Addition (₦)</th><th style="text-align:right">Gross (₦)</th><th style="text-align:center">Status</th>
+      <th style="width:3%">S/N</th><th style="width:9%">Full Name</th><th style="width:7%">Employee ID</th><th style="width:7%">Employment Date</th><th style="width:7%">Department</th><th style="width:9%">Service Title</th><th style="width:7%">Bank</th><th style="width:8%">Account No.</th>
+      <th style="width:7%;text-align:right">Basic (₦)</th><th style="width:6%;text-align:right">Housing (₦)</th><th style="width:6%;text-align:right">Transport (₦)</th>
+      <th style="width:6%;text-align:right">Medical Allow. (₦)</th><th style="width:6%;text-align:right">Other Allow. (₦)</th><th style="width:6%;text-align:right">Other Addition (₦)</th><th style="width:6%;text-align:right">Gross (₦)</th>
     </tr></thead>
-    <tbody>${rows}</tbody>
-    <tfoot><tr class="tot">
-      <td colspan="8" style="text-align:right;text-transform:uppercase;font-size:10px;letter-spacing:.5px">Total — ${filtered.length} Staff</td>
-      <td style="text-align:right">₦${totalB.toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
-      <td style="text-align:right">₦${totalH.toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
-      <td style="text-align:right">₦${totalT.toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
-      <td style="text-align:right">₦${totalOtherAdd.toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
-      <td style="text-align:right;font-size:14px">₦${total.toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2})}</td><td></td>
+    <tbody>${rows1}</tbody>
+    <tfoot><tr class="total-row">
+      <td colspan="8" style="text-align:right;text-transform:uppercase;font-size:8px;letter-spacing:.5px">Total — ${filtered.length} Staff</td>
+      <td style="text-align:right">₦${fmt2(totalB)}</td>
+      <td style="text-align:right">₦${fmt2(totalH)}</td>
+      <td style="text-align:right">₦${fmt2(totalT)}</td>
+      <td style="text-align:right">₦${fmt2(totalMed)}</td>
+      <td style="text-align:right">₦${fmt2(totalOther)}</td>
+      <td style="text-align:right">₦${fmt2(totalOtherAdd)}</td>
+      <td style="text-align:right;font-size:9.5px">₦${fmt2(totalGross)}</td>
     </tr></tfoot>
   </table>
+  <div class="pg2">
+    <div class="pg-title">Page 2 of 2 — Deductions, Net Pay &amp; Status</div>
+    <table>
+      <thead><tr>
+        <th style="width:5%">S/N</th><th style="width:20%">Full Name</th>
+        <th style="width:13%;text-align:right">PAYE (₦)</th><th style="width:13%;text-align:right">Pension (₦)</th><th style="width:12%;text-align:right">NHF (₦)</th>
+        <th style="width:13%;text-align:right">Deductions (₦)</th><th style="width:15%;text-align:right">Net Pay (₦)</th><th style="width:9%;text-align:center">Status</th>
+      </tr></thead>
+      <tbody>${rows2}</tbody>
+      <tfoot><tr class="total-row">
+        <td colspan="2" style="text-align:right;text-transform:uppercase;font-size:8px;letter-spacing:.5px">Total</td>
+        <td style="text-align:right">₦${fmt2(totalPaye)}</td>
+        <td style="text-align:right">₦${fmt2(totalPension)}</td>
+        <td style="text-align:right">₦${fmt2(totalNhf)}</td>
+        <td style="text-align:right">₦${fmt2(totalDeduct)}</td>
+        <td style="text-align:right;font-size:9.5px">₦${fmt2(totalNetPay)}</td>
+        <td></td>
+      </tr></tfoot>
+    </table>
+  </div>
   <div class="footer">
     <div><div class="sig">Prepared By / Date</div></div>
     <div><div class="sig">Reviewed By / Date</div></div>
     <div><div class="sig">Approved By / Date</div></div>
   </div>
-  ${printBootstrap({landscape:false})}
+  ${printBootstrap({landscape:true})}
   </body></html>`);
 }
 
@@ -323,7 +376,7 @@ function StaffModal({ modal, onSave, onClose, projects }) {
   const [f, setF] = useState(modal.data);
   const [photoBusy, setPhotoBusy] = useState(false);
   const set = k => e => setF(p=>({...p,[k]:e.target.value}));
-  const gross=(Number(f.basicSalary)||0)+(Number(f.housing)||0)+(Number(f.transport)||0)+(Number(f.otherAddition)||0);
+  const gross=(Number(f.basicSalary)||0)+(Number(f.housing)||0)+(Number(f.transport)||0)+(Number(f.medicalAllowance)||0)+(Number(f.otherAllowances)||0)+(Number(f.otherAddition)||0);
   const inp={ padding:'7px 10px', borderRadius:7, border:'1px solid '+C.border, background:C.bgCard, color:C.text, fontSize:13, width:'100%', outline:'none', fontFamily:'inherit', boxSizing:'border-box' };
   const initials=(f.fullName||'U').split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
 
@@ -432,9 +485,12 @@ function StaffModal({ modal, onSave, onClose, projects }) {
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
             <FG label="Bank"><select style={inp} value={f.bank} onChange={set('bank')}><option value="">— Bank —</option>{BANKS.map(b=><option key={b}>{b}</option>)}</select></FG>
             <FG label="Account Number"><input style={inp} value={f.accountNo} onChange={set('accountNo')} placeholder="10-digit account no." /></FG>
+            <FG label="Pension PIN"><input style={inp} value={f.pensionPin} onChange={set('pensionPin')} placeholder="PEN..." /></FG>
             <FG label="Basic Salary (₦)"><input style={inp} type="number" value={f.basicSalary} onChange={set('basicSalary')} placeholder="0" /></FG>
             <FG label="Housing Allowance (₦)"><input style={inp} type="number" value={f.housing} onChange={set('housing')} placeholder="0" /></FG>
             <FG label="Transport Allowance (₦)"><input style={inp} type="number" value={f.transport} onChange={set('transport')} placeholder="0" /></FG>
+            <FG label="Medical Allowance (₦)"><input style={inp} type="number" value={f.medicalAllowance} onChange={set('medicalAllowance')} placeholder="0" /></FG>
+            <FG label="Other Allowances (₦)"><input style={inp} type="number" value={f.otherAllowances} onChange={set('otherAllowances')} placeholder="0" /></FG>
             <FG label="Other Addition (₦)"><input style={inp} type="number" value={f.otherAddition} onChange={set('otherAddition')} placeholder="0" /></FG>
             <FG label="PAYE (₦)"><input style={inp} type="number" value={f.paye} onChange={set('paye')} placeholder="Leave blank if not applicable" /></FG>
             <FG label="Gross Salary (Auto)">
@@ -698,9 +754,9 @@ export default function SlotStaff() {
                 </div>
               </div>
               <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12, minWidth:1300 }}>
-                <thead><tr>{['S/N','Full Name','Employee ID','Employment Date','Department','Service Title','Bank','Account No.','Basic (₦)','Housing (₦)','Transport (₦)','Other Addition (₦)','Gross (₦)','PAYE (₦)','Pension (₦)','NHF (₦)','Deductions (₦)','Net Pay (₦)','Status','Payslip'].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
+                <thead><tr>{['S/N','Full Name','Employee ID','Employment Date','Department','Service Title','Bank','Account No.','Basic (₦)','Housing (₦)','Transport (₦)','Medical Allow. (₦)','Other Allow. (₦)','Other Addition (₦)','Gross (₦)','PAYE (₦)','Pension (₦)','NHF (₦)','Deductions (₦)','Net Pay (₦)','Status','Payslip'].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
                 <tbody>
-                  {filtered.length===0&&<tr><td colSpan={20} style={{ textAlign:'center', padding:32, color:C.textMuted }}>No records found</td></tr>}
+                  {filtered.length===0&&<tr><td colSpan={22} style={{ textAlign:'center', padding:32, color:C.textMuted }}>No records found</td></tr>}
                   {filtered.map((s,i)=>{
                     const basic=(Number(s.basicSalary)||0), housing=(Number(s.housing)||0), transport=(Number(s.transport)||0);
                     const medical=(Number(s.medicalAllowance)||0), other=(Number(s.otherAllowances)||0);
@@ -724,6 +780,8 @@ export default function SlotStaff() {
                         <td style={{ ...td(i), color:C.green, fontWeight:600 }}>{formatCurrency(basic)}</td>
                         <td style={td(i)}>{formatCurrency(housing)}</td>
                         <td style={td(i)}>{formatCurrency(transport)}</td>
+                        <td style={td(i)}>{formatCurrency(medical)}</td>
+                        <td style={td(i)}>{formatCurrency(other)}</td>
                         <td style={td(i)}>{formatCurrency(otherAdd)}</td>
                         <td style={{ ...td(i), color:C.amber, fontWeight:800 }}>{formatCurrency(gross)}</td>
                         <td style={{ ...td(i), color:C.danger, fontSize:11 }}>{formatCurrency(paye)}</td>
@@ -746,6 +804,8 @@ export default function SlotStaff() {
                       <td style={{ ...td(0), color:C.green, fontWeight:700 }}>{formatCurrency(filtered.reduce((a,s)=>a+(Number(s.basicSalary)||0),0))}</td>
                       <td style={td(0)}>{formatCurrency(filtered.reduce((a,s)=>a+(Number(s.housing)||0),0))}</td>
                       <td style={td(0)}>{formatCurrency(filtered.reduce((a,s)=>a+(Number(s.transport)||0),0))}</td>
+                      <td style={td(0)}>{formatCurrency(filtered.reduce((a,s)=>a+(Number(s.medicalAllowance)||0),0))}</td>
+                      <td style={td(0)}>{formatCurrency(filtered.reduce((a,s)=>a+(Number(s.otherAllowances)||0),0))}</td>
                       <td style={td(0)}>{formatCurrency(filtered.reduce((a,s)=>a+(Number(s.otherAddition)||0),0))}</td>
                       <td style={{ ...td(0), color:C.amber, fontSize:14, fontWeight:800 }}>{formatCurrency(filtered.reduce((a,s)=>a+(Number(s.basicSalary)||0)+(Number(s.housing)||0)+(Number(s.transport)||0)+(Number(s.medicalAllowance)||0)+(Number(s.otherAllowances)||0)+(Number(s.otherAddition)||0),0))}</td>
                       <td colSpan={7} style={td(0)} />

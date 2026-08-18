@@ -15,6 +15,7 @@ import { BANK_ACCOUNTS, DEFAULT_FX } from '../../utils/financeConstants';
 import { matchBill, decideOnVariance } from '../../utils/threeWayMatch';
 import { diffAndPush } from '../../hooks/usePerRecordSync';
 import { printHeader, printBootstrap, openPrintWindow} from '../../utils/logo';
+import { getApSource } from '../../utils/apBridge';
 
 const uid   = () => generateId();
 const today = () => new Date().toISOString().split('T')[0];
@@ -100,8 +101,19 @@ export default function AccountsPayable() {
   const perms = { add: canDo(currentUser,'canAdd'), edit: canDo(currentUser,'canEdit'), del: canDo(currentUser,'canDelete') };
 
   const apData  = db.ap || { bills: [], payments: [] };
-  const [bills,    setBills]    = useState(apData.bills    || []);
-  const [payments, setPayments] = useState(apData.payments || []);
+  // 2026-08-17 fix: this module used to read ONLY the manual ledger below,
+  // which a 2026-08-14 code comment already found has "zero real entries
+  // anywhere in the system" — every actual supplier invoice is created in
+  // Procurement -> Supplier Invoices instead, so AP showed nothing for real
+  // payables and there was no way to record a payment against a real
+  // invoice. manualBills/manualPayments below are the true db.ap ledger
+  // (only what's entered directly in this module — that's what gets written
+  // back on save). bills/payments are the real, merged view every READ in
+  // this file should use — see utils/apBridge.js.
+  const [manualBills,    setManualBills]    = useState(apData.bills    || []);
+  const [manualPayments, setManualPayments] = useState(apData.payments || []);
+  const bills    = useMemo(() => getApSource(db).bills,    [db.procurement, db.ap]);
+  const payments = useMemo(() => getApSource(db).payments, [db.procurement, db.ap]);
   const [tab,    setTab]    = useState('overview');
   const [modal,  setModal]  = useState(null);
   const [ledgerCode, setLedgerCode] = useState(null); // supplier code currently shown in the Supplier Ledger modal
@@ -127,25 +139,44 @@ export default function AccountsPayable() {
   ];
 
   // ── Helpers ───────────────────────────────────────────────────────────────
-  function saveBills(newBills, newPayments = payments) {
+  function saveBills(newBills, newPayments = manualPayments) {
     // Per-record push — 2026-07-29, part of the full-app sync sweep. See
     // ContractStaff.jsx's updateDB for the original pattern this reuses via
     // diffAndPush. apBills/apPayments already had tables (pre-existing) but
     // nothing ever pushed to them — see syncPerRecord.js's getRecordList fix.
-    diffAndPush('apBills', bills, newBills);
-    diffAndPush('apPayments', payments, newPayments);
-    setBills(newBills);
+    // Operates on the manual ledger only — newBills/newPayments must never
+    // include the procurement-derived rows from the merged `bills`/`payments`
+    // above, or they'd get written into db.ap.bills as duplicate real records.
+    diffAndPush('apBills', manualBills, newBills);
+    diffAndPush('apPayments', manualPayments, newPayments);
+    setManualBills(newBills);
     const newAp = { bills: newBills, payments: newPayments };
     dispatch({ type:'UPDATE_MODULE', mod:'ap', data: newAp });
     saveDBLocal({ ...db, ap: newAp }, state.activity);
   }
   function saveAll(newBills, newPayments) {
-    diffAndPush('apBills', bills, newBills);
-    diffAndPush('apPayments', payments, newPayments);
-    setBills(newBills); setPayments(newPayments);
+    diffAndPush('apBills', manualBills, newBills);
+    diffAndPush('apPayments', manualPayments, newPayments);
+    setManualBills(newBills); setManualPayments(newPayments);
     const newAp = { bills: newBills, payments: newPayments };
     dispatch({ type:'UPDATE_MODULE', mod:'ap', data: newAp });
     saveDBLocal({ ...db, ap: newAp }, state.activity);
+  }
+  // Pays a REAL Procurement supplier invoice. A `source:'procurement'` bill
+  // is a computed view over db.procurement.invoices (see utils/apBridge.js) —
+  // there's no matching db.ap.bills record to update, so this writes the
+  // status straight to the source invoice instead, using the same
+  // dispatch+diffAndPush persistence Procurement.jsx's own save() uses for
+  // this table so Supabase sync stays consistent no matter which module made
+  // the edit.
+  function payProcurementInvoice(invoiceId, newStatus) {
+    const proc = db.procurement || { rfqs: [], pos: [], waybills: [], invoices: [] };
+    const prevInvoices = proc.invoices || [];
+    const newInvoices = prevInvoices.map(inv => inv.id === invoiceId ? { ...inv, status: newStatus } : inv);
+    diffAndPush('procurementInvoices', prevInvoices, newInvoices);
+    const newProc = { ...proc, invoices: newInvoices };
+    dispatch({ type: 'UPDATE_MODULE', mod: 'procurement', data: newProc });
+    saveDBLocal({ ...db, procurement: newProc }, state.activity);
   }
 
   const outstanding = useMemo(() =>
@@ -204,8 +235,8 @@ export default function AccountsPayable() {
     if (!form.description.trim()) { showToast('Description required','error'); return; }
     if (!Number(form.amount)) { showToast('Enter bill amount','error'); return; }
     const computed = recomputeBill(form);
-    const rec = { id: uid(), billNo: nextBillNo(bills), ...computed, status:'Unpaid', paidAmount:0, createdAt: new Date().toISOString() };
-    const updated = [...bills, rec];
+    const rec = { id: uid(), billNo: nextBillNo(manualBills), ...computed, status:'Unpaid', paidAmount:0, createdAt: new Date().toISOString() };
+    const updated = [...manualBills, rec];
     saveBills(updated);
     logActivity(dispatch, `AP Bill ${rec.billNo} created — ${rec.vendorName} ${fmt(rec.netPayable, rec.currency)}`, currentUser);
     showToast('Bill saved'); setModal(null); setForm(EMPTY_BILL);
@@ -236,6 +267,19 @@ export default function AccountsPayable() {
     if (!selBill) return;
     if (!payForm.date) { showToast('Enter payment date','error'); return; }
     if (!Number(payForm.amount)) { showToast('Enter payment amount','error'); return; }
+
+    // Real Procurement invoices don't have a "Partial" status to move to
+    // (see InvoiceModal's status list in Procurement.jsx) and don't track a
+    // running paidAmount the way a manual AP bill does — paying one here
+    // only makes sense as a single full payment. The amount field is
+    // read-only for these in the modal below; this is the actual guard.
+    if (selBill.source === 'procurement') {
+      const balance = (Number(selBill.netPayable)||0) - (Number(selBill.paidAmount)||0);
+      if (Math.abs(Number(payForm.amount) - balance) > 0.5) {
+        showToast('This is a real Procurement invoice — it can only be paid in full from here. Partial payments on Procurement invoices aren’t tracked yet.', 'error');
+        return;
+      }
+    }
 
     // ── 3-WAY MATCH CHECK ──────────────────────────────────────────────────
     // Tier 3 fix: previously the AP module paid any bill without verifying
@@ -280,9 +324,24 @@ export default function AccountsPayable() {
     const newStatus = newPaid >= Number(selBill.netPayable) - 0.01 ? 'Paid' : 'Partial';
     const bank = BANK_ACCOUNTS.find(b => b.code === payForm.bankCode);
     const pay = { id:uid(), paymentNo:nextPayNo(payments), billId:selBill.id, billNo:selBill.billNo, vendor:selBill.vendor, vendorName:selBill.vendorName, currency:selBill.currency, fxRate:payFx, date:payForm.date, amount:payAmt, ngnEquivalent:Math.round(payAmt*payFx), bankCode:payForm.bankCode, bankName:bank?.name||'', reference:payForm.reference, notes:payForm.notes, createdAt:new Date().toISOString() };
-    const newBills = bills.map(b => b.id === selBill.id ? { ...b, status:newStatus, paidAmount:newPaid } : b);
-    const newPayments = [...payments, pay];
-    saveAll(newBills, newPayments);
+
+    if (selBill.source === 'procurement') {
+      // The bill IS the Procurement invoice — update the real record (always
+      // 'Paid', since partial was already blocked above), and still log the
+      // payment itself in the manual ledger's payments list so it shows up
+      // in the Payments tab / supplier ledger like any other payment.
+      payProcurementInvoice(selBill.id, 'Paid');
+      const newPayments = [...manualPayments, pay];
+      diffAndPush('apPayments', manualPayments, newPayments);
+      setManualPayments(newPayments);
+      const newAp = { bills: manualBills, payments: newPayments };
+      dispatch({ type:'UPDATE_MODULE', mod:'ap', data: newAp });
+      saveDBLocal({ ...db, ap: newAp }, state.activity);
+    } else {
+      const newBills = manualBills.map(b => b.id === selBill.id ? { ...b, status:newStatus, paidAmount:newPaid } : b);
+      const newPayments = [...manualPayments, pay];
+      saveAll(newBills, newPayments);
+    }
     logActivity(dispatch, `AP Payment ${pay.paymentNo} — ${selBill.vendorName} ${fmt(payAmt, selBill.currency)}`, currentUser);
     showToast('Payment recorded'); setModal(null); setPayForm(EMPTY_PAY); setSelBill(null);
   }
@@ -450,7 +509,11 @@ export default function AccountsPayable() {
                         <div style={{ display:'flex', gap:5 }}>
                           <Btn sm variant="ghost" onClick={()=>{ setSelBill(b); setModal('view-bill'); }}>View</Btn>
                           {b.status !== 'Paid' && b.status !== 'Cancelled' && perms.edit && <Btn sm variant="outline" onClick={()=>openPayModal(b)}>Pay</Btn>}
-                          {perms.del && <Btn sm variant="danger" onClick={()=>{ saveBills(bills.filter(x=>x.id!==b.id)); showToast('Bill deleted'); }}>✕</Btn>}
+                          {/* A source:'procurement' row is a real supplier invoice, not a
+                              db.ap.bills record — deleting it here would have nothing to
+                              delete. Removing a real invoice is Procurement's job (it has
+                              its own audited delete flow); void it there instead. */}
+                          {perms.del && b.source !== 'procurement' && <Btn sm variant="danger" onClick={()=>{ saveBills(manualBills.filter(x=>x.id!==b.id)); showToast('Bill deleted'); }}>✕</Btn>}
                         </div>
                       </td>
                     </tr>
@@ -695,7 +758,12 @@ export default function AccountsPayable() {
             <div style={{ fontSize:13, fontWeight:600, color:C.amber, marginBottom:20 }}>Balance due: {fmt((Number(selBill.netPayable)||0)-(Number(selBill.paidAmount)||0), selBill.currency)}</div>
             <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
               <FG label="Payment Date *"><input type="date" style={inp} value={payForm.date} onChange={e=>setPayForm(f=>({...f,date:e.target.value}))} /></FG>
-              <FG label={`Amount Paid (${selBill.currency}) *`}><input type="number" style={inp} value={payForm.amount} onChange={e=>setPayForm(f=>({...f,amount:e.target.value}))} /></FG>
+              <FG label={`Amount Paid (${selBill.currency}) *`}>
+                <input type="number" style={inp} value={payForm.amount} onChange={e=>setPayForm(f=>({...f,amount:e.target.value}))} readOnly={selBill.source==='procurement'} />
+              </FG>
+              {selBill.source === 'procurement' && (
+                <div style={{ fontSize:11, color:C.textMuted, marginTop:-8 }}>This is a real Procurement invoice — full balance only, partial payments aren't tracked on it yet.</div>
+              )}
               {selBill.currency !== 'NGN' && (
                 <FG label={`Exchange Rate Today (1 ${selBill.currency} = ₦)`}><input type="number" style={inp} value={payForm.fxRate} onChange={e=>setPayForm(f=>({...f,fxRate:e.target.value}))} /></FG>
               )}
