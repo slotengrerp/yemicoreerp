@@ -19,10 +19,23 @@ const uid   = () => generateId();
 const today = () => new Date().toISOString().split('T')[0];
 const year  = () => new Date().getFullYear();
 
+// Live-verify QA fix (2026-08-18): used to strip every non-digit from the
+// WHOLE requestNo before parsing, swallowing the embedded year into the
+// sequence — confirmed live on production: first request came out clean as
+// MRQ-2026-0001, but the very next Material request came out as
+// MRQ-2026-20260002 (0001 parsed as 20260001, +1, re-inserted whole). Same
+// defect already found and fixed in Procurement.jsx's own nextNo() — see
+// that file's header comment for the full writeup ("SINV-2026-0001" →
+// 20260001 → "SINV-2026-20260002" → 202620260002 → ... forever). Now
+// anchored to PREFIX-YEAR-(1-5 digits); the already-corrupted 8-digit
+// MRQ-2026-20260002 test record simply stops matching, so the counter
+// self-heals without a data migration.
 function nextNo(list, type) {
   const prefix = { Material:'MRQ', Service:'SRQ', Leave:'LRQ', IT:'ITQ', Travel:'TRQ', Other:'ORQ' }[type] || 'RQS';
-  const nums = list.filter(r => r.requestNo?.startsWith(prefix)).map(r => parseInt((r.requestNo||'0').replace(/\D/g,''),10)).filter(Boolean);
-  return `${prefix}-${year()}-${String(nums.length ? Math.max(...nums)+1 : 1).padStart(4,'0')}`;
+  const y = year();
+  const re = new RegExp('^' + prefix + '-' + y + '-(\\d{1,5})$');
+  const nums = list.map(r => { const m = re.exec(String(r.requestNo||'')); return m ? parseInt(m[1],10) : 0; }).filter(Boolean);
+  return `${prefix}-${y}-${String(nums.length ? Math.max(...nums)+1 : 1).padStart(4,'0')}`;
 }
 
 const REQUEST_TYPES  = ['Material','Service','Leave','IT','Travel','Other'];
@@ -240,7 +253,14 @@ export default function Requests({ onNav }) {
     let proc = state.db.procurement || { rfqs:[], pos:[], waybills:[], invoices:[] };
 
     const year = new Date().getFullYear();
-    const poNums = (proc.pos||[]).map(p => parseInt((p.poNo||'0').replace(/\D/g,''),10)).filter(Boolean);
+    // Live-verify QA fix (2026-08-18): same year-swallowing numbering defect
+    // as this file's own nextNo() (see that function's comment) — stripping
+    // every non-digit from the whole poNo let the embedded year compound
+    // into the sequence. Now anchored to PO-YEAR-(1-5 digits), matching
+    // Procurement.jsx's own nextNo() convention so PO numbers created from
+    // either entry point stay in the same clean, non-colliding sequence.
+    const poRe = new RegExp('^PO-' + year + '-(\\d{1,5})$');
+    const poNums = (proc.pos||[]).map(p => { const m = poRe.exec(String(p.poNo||'')); return m ? parseInt(m[1],10) : 0; }).filter(Boolean);
     const nextNum = poNums.length ? Math.max(...poNums)+1 : 1;
     const poNo = `PO-${year}-${String(nextNum).padStart(4,'0')}`;
 

@@ -30,13 +30,28 @@ const SYM = { NGN:'₦', USD:'$', EUR:'€', GBP:'£' };
 const fmt = (n, cur = 'NGN') =>
   (SYM[cur] || cur + ' ') + (Number(n)||0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+// Live-verify QA fix (2026-08-18): both of these used to strip every
+// non-digit from the WHOLE number before parsing, so the embedded year got
+// swallowed into the sequence and each new document grew by four digits
+// ("SLOT-INV-2026-0001" → parsed as 20260001 → next number
+// "SLOT-INV-2026-20260002" → parsed as 202620260002 → next
+// "SLOT-INV-2026-202620260003" → and so on, forever). Same defect already
+// found and fixed in Procurement.jsx's own nextNo() — see that file's header
+// comment for the full writeup. Now anchored to PREFIX-YEAR-(1-5 digits) so
+// only a genuine trailing sequence counts; any already-corrupted 8+ digit
+// number simply stops matching and can't drag the counter up again
+// (self-healing, no data migration needed).
 function nextInvNo(list) {
-  const nums = list.map(x => parseInt((x.invoiceNo||'0').replace(/\D/g,''),10)).filter(Boolean);
-  return `SLOT-INV-${year()}-${String(nums.length ? Math.max(...nums)+1 : 1).padStart(4,'0')}`;
+  const y = year();
+  const re = new RegExp('^SLOT-INV-' + y + '-(\\d{1,5})$');
+  const nums = list.map(x => { const m = re.exec(String(x.invoiceNo||'')); return m ? parseInt(m[1],10) : 0; }).filter(Boolean);
+  return `SLOT-INV-${y}-${String(nums.length ? Math.max(...nums)+1 : 1).padStart(4,'0')}`;
 }
 function nextReceiptNo(list) {
-  const nums = list.map(x => parseInt((x.receiptNo||'0').replace(/\D/g,''),10)).filter(Boolean);
-  return `SLOT-ARV-${year()}-${String(nums.length ? Math.max(...nums)+1 : 1).padStart(4,'0')}`;
+  const y = year();
+  const re = new RegExp('^SLOT-ARV-' + y + '-(\\d{1,5})$');
+  const nums = list.map(x => { const m = re.exec(String(x.receiptNo||'')); return m ? parseInt(m[1],10) : 0; }).filter(Boolean);
+  return `SLOT-ARV-${y}-${String(nums.length ? Math.max(...nums)+1 : 1).padStart(4,'0')}`;
 }
 
 const PAYMENT_TERMS = ['Net 7','Net 14','Net 30','Net 45','Net 60','50% Advance, 50% on Delivery','100% Advance','Due on Receipt'];

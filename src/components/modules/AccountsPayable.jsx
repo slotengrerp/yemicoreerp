@@ -25,13 +25,25 @@ const SYM = { NGN:'₦', USD:'$', EUR:'€', GBP:'£' };
 const fmt = (n, cur = 'NGN') =>
   (SYM[cur] || cur + ' ') + (Number(n)||0).toLocaleString('en-NG',{ minimumFractionDigits:2, maximumFractionDigits:2 });
 
+// Live-verify QA fix (2026-08-18): both used to strip every non-digit from
+// the WHOLE number before parsing, swallowing the embedded year into the
+// sequence so each new document grew by four digits ("SLOT-APB-2026-0001" →
+// 20260001 → next "SLOT-APB-2026-20260002" → 202620260002 → ...). Same
+// defect already found and fixed in Procurement.jsx's nextNo() — see that
+// file's header comment. Now anchored to PREFIX-YEAR-(1-5 digits); an
+// already-corrupted 8+ digit number simply stops matching, so the counter
+// self-heals without needing a data migration.
 function nextBillNo(bills) {
-  const nums = bills.map(b => parseInt((b.billNo||'0').replace(/\D/g,''),10)).filter(Boolean);
-  return `SLOT-APB-${yr()}-${String(nums.length ? Math.max(...nums)+1 : 1).padStart(4,'0')}`;
+  const y = yr();
+  const re = new RegExp('^SLOT-APB-' + y + '-(\\d{1,5})$');
+  const nums = bills.map(b => { const m = re.exec(String(b.billNo||'')); return m ? parseInt(m[1],10) : 0; }).filter(Boolean);
+  return `SLOT-APB-${y}-${String(nums.length ? Math.max(...nums)+1 : 1).padStart(4,'0')}`;
 }
 function nextPayNo(payments) {
-  const nums = payments.map(p => parseInt((p.paymentNo||'0').replace(/\D/g,''),10)).filter(Boolean);
-  return `SLOT-APV-${yr()}-${String(nums.length ? Math.max(...nums)+1 : 1).padStart(4,'0')}`;
+  const y = yr();
+  const re = new RegExp('^SLOT-APV-' + y + '-(\\d{1,5})$');
+  const nums = payments.map(p => { const m = re.exec(String(p.paymentNo||'')); return m ? parseInt(m[1],10) : 0; }).filter(Boolean);
+  return `SLOT-APV-${y}-${String(nums.length ? Math.max(...nums)+1 : 1).padStart(4,'0')}`;
 }
 
 // 2026-07-29 — seed fallback removed permanently (was already emptied

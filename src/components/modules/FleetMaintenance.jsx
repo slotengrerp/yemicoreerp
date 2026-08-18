@@ -66,9 +66,19 @@ const today = () => new Date().toISOString().split('T')[0];
 // module's fmt(). Pinned to 2 decimals to match.
 const fmt  = n  => '₦' + (Number(n)||0).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const daysUntil = d => d ? Math.round((new Date(d) - new Date()) / 86400000) : null;
+// Live-verify QA fix (2026-08-18): used to strip every non-digit from the
+// WHOLE number before parsing, swallowing the embedded year into the
+// sequence so each new document grew by four digits ("FLT-2026-0001" →
+// 20260001 → next "FLT-2026-20260002" → 202620260002 → ...). Same defect
+// already found and fixed in Procurement.jsx's nextNo() — see that file's
+// header comment. Now anchored to PREFIX-YEAR-(1-5 digits); an
+// already-corrupted 8+ digit number simply stops matching, so the counter
+// self-heals without needing a data migration.
 const nextNo = (prefix, list, field) => {
-  const nums = list.map(x => parseInt((x[field]||'0').replace(/\D/g,''),10)).filter(Boolean);
-  return `${prefix}-${new Date().getFullYear()}-${String(nums.length ? Math.max(...nums)+1 : 1).padStart(4,'0')}`;
+  const y = new Date().getFullYear();
+  const re = new RegExp('^' + prefix + '-' + y + '-(\\d{1,5})$');
+  const nums = list.map(x => { const m = re.exec(String(x[field]||'')); return m ? parseInt(m[1],10) : 0; }).filter(Boolean);
+  return `${prefix}-${y}-${String(nums.length ? Math.max(...nums)+1 : 1).padStart(4,'0')}`;
 };
 
 // ── Expiry badge ──────────────────────────────────────────────────────────────

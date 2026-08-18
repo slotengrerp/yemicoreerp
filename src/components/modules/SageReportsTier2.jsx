@@ -140,8 +140,15 @@ export function RecurringInvoicesTab({ state, dispatch, inp }) {
     const total = subtotal + vatAmount;
     const netPayable = total - whtAmount;
     // Generate next invoice number
-    const existingNums = invoices.map(x => parseInt((x.invoiceNo||'0').replace(/\D/g,''),10)).filter(Boolean);
-    const invNo = `SLOT-INV-${year()}-${String(existingNums.length ? Math.max(...existingNums)+1 : 1).padStart(4,'0')}`;
+    // Live-verify QA fix (2026-08-18): same year-swallowing numbering defect
+    // as AccountsReceivable.jsx's nextInvNo() (see that file's comment) —
+    // this generator writes into the same `invoices` array/prefix, so it
+    // needs the identical anchored-regex fix to stay numerically consistent
+    // with invoices created from the AR screen itself.
+    const invYear = year();
+    const invNoRe = new RegExp('^SLOT-INV-' + invYear + '-(\\d{1,5})$');
+    const existingNums = invoices.map(x => { const m = invNoRe.exec(String(x.invoiceNo||'')); return m ? parseInt(m[1],10) : 0; }).filter(Boolean);
+    const invNo = `SLOT-INV-${invYear}-${String(existingNums.length ? Math.max(...existingNums)+1 : 1).padStart(4,'0')}`;
     const inv = {
       id: uid(),
       invoiceNo: invNo,
