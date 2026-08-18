@@ -177,9 +177,23 @@ const EMPTY_FLEET_DATA = {
 // MODALS
 // ══════════════════════════════════════════════════════════════════════════════
 
-function FleetModal({ vehicle, onSave, onClose }) {
+function FleetModal({ vehicle, onSave, onClose, canEdit }) {
   const { C } = useTheme();
-  const isView = !!vehicle?.id;
+  // 2026-08-18 QA fix — Fleet had a "Register" form and a permanently
+  // read-only "View" with no way to ever edit a vehicle afterward: no save
+  // button existed once a record had an id, full stop. Real fleet data is
+  // never static — drivers get reassigned, vehicles change status (Active
+  // ⇄ In Maintenance ⇄ Breakdown), odometer readings need updating (the
+  // Service form even asks for "next service km", which depends on
+  // knowing the current one), and — critically — the document-expiry
+  // badges this module is built around become permanently useless once a
+  // license/insurance/permit is actually renewed, since there was no way
+  // to update the expiry date that produced them. isView now means
+  // "this user lacks edit rights", not "this record already exists" —
+  // matching how every other module in the app (and any real fleet/asset
+  // system) treats vehicle master data as editable, not write-once.
+  const isExisting = !!vehicle?.id;
+  const isView = isExisting && !canEdit;
   const inpS = { padding:'7px 10px', borderRadius:7, border:'1px solid '+C.border, background:C.bgCard, color:C.text, fontSize:12.5, width:'100%', outline:'none', fontFamily:'inherit', boxSizing:'border-box' };
   const TYPES = ['Pickup','SUV','Station Wagon','Bus/Coaster','Truck','Tanker','Crane','Flatbed','Ambulance','Generator','Compressor'];
   const STATUSES = ['Active','In Maintenance','Breakdown','Decommissioned'];
@@ -192,17 +206,21 @@ function FleetModal({ vehicle, onSave, onClose }) {
       <Card>
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16, paddingBottom:12, borderBottom:'1px solid '+C.borderLight }}>
           <div>
-            <div style={{ fontSize:16, fontWeight:700, color:C.text }}>🚗 {isView ? f.vehicleNo + ' — ' + f.make : 'Register New Vehicle'}</div>
-            <div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>SLOT-FMA-002 · Vehicle Particulars Tracker</div>
+            <div style={{ fontSize:16, fontWeight:700, color:C.text }}>🚗 {isExisting ? f.vehicleNo + ' — ' + f.make : 'Register New Vehicle'}</div>
+            <div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>SLOT-FMA-002 · Vehicle Particulars Tracker{isExisting && !isView ? ' · Editing' : ''}</div>
           </div>
           <div style={{ display:'flex', gap:8 }}>
-            {isView && <STag status={f.status} />}
+            {isExisting && <STag status={f.status} />}
             <button onClick={onClose} aria-label="Close dialog" style={{ background:'none', border:'none', fontSize:22, color:C.textMuted, cursor:'pointer' }}>×</button>
           </div>
         </div>
 
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10, marginBottom:14 }}>
-          <FG label="Vehicle Number *"><input style={inpS} value={f.vehicleNo} onChange={set('vehicleNo')} placeholder="e.g. PH-458-AHZ" readOnly={isView} /></FG>
+          {/* Vehicle Number is the natural key other records (e.g. Service
+              History) reference by denormalized text — locked once
+              registered so renaming it here can't silently orphan those
+              references, regardless of edit permission. */}
+          <FG label="Vehicle Number *"><input style={inpS} value={f.vehicleNo} onChange={set('vehicleNo')} placeholder="e.g. PH-458-AHZ" readOnly={isExisting} /></FG>
           <FG label="Vehicle Type"><select style={inpS} value={f.vehicleType} onChange={set('vehicleType')} disabled={isView}>{TYPES.map(t=><option key={t}>{t}</option>)}</select></FG>
           <FG label="Make / Model"><input style={inpS} value={f.make} onChange={set('make')} placeholder="e.g. Toyota Hilux D4D" readOnly={isView} /></FG>
           <FG label="Year"><input style={inpS} value={f.year} onChange={set('year')} type="number" placeholder="e.g. 2022" readOnly={isView} /></FG>
@@ -226,7 +244,7 @@ function FleetModal({ vehicle, onSave, onClose }) {
 
         {!isView && <div style={{ display:'flex', gap:8, justifyContent:'flex-end', paddingTop:14, borderTop:'1px solid '+C.borderLight }}>
           <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
-          <Btn onClick={() => onSave(f)}>Register Vehicle</Btn>
+          <Btn onClick={() => onSave(f)}>{isExisting ? 'Save Changes' : 'Register Vehicle'}</Btn>
         </div>}
       </Card>
     </Overlay>
@@ -342,10 +360,21 @@ function RepairModal({ rec, fleet, onSave, onClose, onPostToAccounting }) {
   );
 }
 
-function BreakdownModal({ rec, fleet, onSave, onClose }) {
+function BreakdownModal({ rec, fleet, onSave, onClose, canEdit }) {
   const { C } = useTheme();
   const inpS = { padding:'7px 10px', borderRadius:7, border:'1px solid '+C.border, background:C.bgCard, color:C.text, fontSize:12.5, width:'100%', outline:'none', fontFamily:'inherit', boxSizing:'border-box' };
-  const isView = !!rec?.id;
+  // 2026-08-18 QA fix — same gap as the Fleet vehicle register: STATUSES
+  // below is a real 5-stage lifecycle (Reported → Being Attended → Recovery
+  // Sent → Fixed → Certified) and Section B exists specifically to record
+  // the repair once it happens, but isView locked the ENTIRE form the
+  // moment a report had an id — nothing could ever progress past
+  // 'Reported', and repairDetails/repairedBy/certifiedBy could never be
+  // filled in. The two quick-status buttons below only patched part of
+  // this (Being Attended / Fixed only — Recovery Sent and Certified were
+  // unreachable, and neither button touched Section B at all), so they're
+  // superseded by real edit access rather than kept alongside it.
+  const isExisting = !!rec?.id;
+  const isView = isExisting && !canEdit;
   const STATUSES = ['Reported','Being Attended','Recovery Sent','Fixed','Certified'];
   const [f, setF] = useState(rec || { date:today(), driverName:'', vehicleNo:'', vehicleMake:'', detailOfFault:'', status:'Reported', repairDetails:'', repairedBy:'', certifiedBy:'' });
   const set = k => e => setF(p => ({ ...p, [k]:e.target.value }));
@@ -355,11 +384,11 @@ function BreakdownModal({ rec, fleet, onSave, onClose }) {
       <Card>
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14, paddingBottom:12, borderBottom:'1px solid '+C.borderLight }}>
           <div>
-            <div style={{ fontSize:16, fontWeight:700, color:C.text }}>🚨 {isView ? 'Breakdown Report — '+f.vehicleNo : 'New Breakdown Report'}</div>
+            <div style={{ fontSize:16, fontWeight:700, color:C.text }}>🚨 {isExisting ? 'Breakdown Report — '+f.vehicleNo : 'New Breakdown Report'}</div>
             <div style={{ fontSize:11, color:C.textMuted }}>SLOT-FMA-004 · Vehicle/Equipment Breakdown Report</div>
           </div>
           <div style={{ display:'flex', gap:8 }}>
-            {isView && <STag status={f.status} />}
+            {isExisting && <STag status={f.status} />}
             <button onClick={onClose} aria-label="Close dialog" style={{ background:'none', border:'none', fontSize:22, color:C.textMuted, cursor:'pointer' }}>×</button>
           </div>
         </div>
@@ -383,23 +412,26 @@ function BreakdownModal({ rec, fleet, onSave, onClose }) {
 
         {!isView && <div style={{ display:'flex', gap:8, justifyContent:'flex-end', paddingTop:14, borderTop:'1px solid '+C.borderLight }}>
           <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
-          <Btn variant="danger" onClick={() => onSave(f)}>Submit Breakdown Report</Btn>
+          <Btn variant="danger" onClick={() => onSave(f)}>{isExisting ? 'Save Changes' : 'Submit Breakdown Report'}</Btn>
         </div>}
-        {isView && f.status !== 'Fixed' && f.status !== 'Certified' && (
-          <div style={{ display:'flex', gap:8, justifyContent:'flex-end', paddingTop:14, borderTop:'1px solid '+C.borderLight }}>
-            <Btn variant="amber" onClick={() => onSave({ ...f, status:'Being Attended' })}>Mark: Being Attended</Btn>
-            <Btn onClick={() => onSave({ ...f, status:'Fixed' })}>Mark: Fixed ✓</Btn>
-          </div>
-        )}
       </Card>
     </Overlay>
   );
 }
 
-function RequestModal({ rec, onSave, onClose }) {
+function RequestModal({ rec, onSave, onClose, canEdit }) {
   const { C } = useTheme();
   const inpS = { padding:'7px 10px', borderRadius:7, border:'1px solid '+C.border, background:C.bgCard, color:C.text, fontSize:12.5, width:'100%', outline:'none', fontFamily:'inherit', boxSizing:'border-box' };
-  const isView = !!rec?.id;
+  // 2026-08-18 QA fix — same gap as Fleet vehicles/Breakdown reports: this
+  // is explicitly a two-part form — (A) the request, filled in at
+  // submission, and (B) the maintenance report (workDone/attendedBy/
+  // workDate/certifiedBy/certDate), which by definition can't be known
+  // until later — plus a 4-stage status (Pending → Approved → In Progress
+  // → Completed). isView locked the whole thing, including Section B and
+  // Status, the moment a request had an id, so no request could ever be
+  // approved, worked on, or completed through this screen.
+  const isExisting = !!rec?.id;
+  const isView = isExisting && !canEdit;
   const STATUSES = ['Pending','Approved','In Progress','Completed'];
   const [f, setF] = useState(rec || { type:'vehicle', requestNo:'', assetName:'', assetNo:'', location:'', faultType:'', requestedBy:'', requestDate:today(), approvedBy:'', approvalDate:'', workDone:'', attendedBy:'', workDate:'', certifiedBy:'', certDate:'', status:'Pending' });
   const set = k => e => setF(p => ({ ...p, [k]:e.target.value }));
@@ -409,11 +441,11 @@ function RequestModal({ rec, onSave, onClose }) {
       <Card>
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14, paddingBottom:12, borderBottom:'1px solid '+C.borderLight }}>
           <div>
-            <div style={{ fontSize:16, fontWeight:700, color:C.text }}>📋 {isView ? 'Maintenance Request — '+f.requestNo : 'New Maintenance Request'}</div>
+            <div style={{ fontSize:16, fontWeight:700, color:C.text }}>📋 {isExisting ? 'Maintenance Request — '+f.requestNo : 'New Maintenance Request'}</div>
             <div style={{ fontSize:11, color:C.textMuted }}>{f.type==='vehicle' ? 'SLOT-FMA-008 · Vehicle Maintenance Request/Report' : 'SLOT-FMA-007 · Equipment Maintenance Request/Report'}</div>
           </div>
           <div style={{ display:'flex', gap:8 }}>
-            {isView && <STag status={f.status} />}
+            {isExisting && <STag status={f.status} />}
             <button onClick={onClose} aria-label="Close dialog" style={{ background:'none', border:'none', fontSize:22, color:C.textMuted, cursor:'pointer' }}>×</button>
           </div>
         </div>
@@ -450,7 +482,7 @@ function RequestModal({ rec, onSave, onClose }) {
 
         {!isView && <div style={{ display:'flex', gap:8, justifyContent:'flex-end', paddingTop:14, borderTop:'1px solid '+C.borderLight }}>
           <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
-          <Btn onClick={() => onSave(f)}>Submit Request</Btn>
+          <Btn onClick={() => onSave(f)}>{isExisting ? 'Save Changes' : 'Submit Request'}</Btn>
         </div>}
       </Card>
     </Overlay>
@@ -1079,15 +1111,15 @@ export default function FleetMaintenance({ onNav }) {
 
       {/* ── MODALS ────────────────────────────────────────────────────────── */}
       {(modal?.type==='fleet_create')   && <FleetModal onSave={f=>crud(fleet,setFleet,'fleet',f)} onClose={()=>setModal(null)} />}
-      {(modal?.type==='fleet_view')     && <FleetModal vehicle={modal.vehicle} onSave={f=>crud(fleet,setFleet,'fleet',f)} onClose={()=>setModal(null)} />}
+      {(modal?.type==='fleet_view')     && <FleetModal vehicle={modal.vehicle} canEdit={perms.edit} onSave={f=>crud(fleet,setFleet,'fleet',f)} onClose={()=>setModal(null)} />}
       {(modal?.type==='service_create') && <ServiceModal fleet={fleet} onSave={f=>{f.requestNo=f.requestNo||nextNo('SVC',services,'requestNo');crud(services,setServices,'services',f);}} onClose={()=>setModal(null)} />}
       {(modal?.type==='service_view')   && <ServiceModal rec={modal.rec} fleet={fleet} onSave={f=>crud(services,setServices,'services',f)} onClose={()=>setModal(null)} />}
       {(modal?.type==='repair_create')  && <RepairModal fleet={fleet} onSave={f=>crud(repairs,setRepairs,'repairs',f)} onClose={()=>setModal(null)} />}
       {(modal?.type==='repair_view')    && <RepairModal rec={modal.rec} fleet={fleet} onSave={f=>crud(repairs,setRepairs,'repairs',f)} onClose={()=>setModal(null)} onPostToAccounting={postRepairToAccounting} />}
       {(modal?.type==='bd_create')      && <BreakdownModal fleet={fleet} onSave={f=>crud(breakdowns,setBreakdowns,'breakdowns',f)} onClose={()=>setModal(null)} />}
-      {(modal?.type==='bd_view')        && <BreakdownModal rec={modal.rec} fleet={fleet} onSave={f=>crud(breakdowns,setBreakdowns,'breakdowns',f)} onClose={()=>setModal(null)} />}
+      {(modal?.type==='bd_view')        && <BreakdownModal rec={modal.rec} fleet={fleet} canEdit={perms.edit} onSave={f=>crud(breakdowns,setBreakdowns,'breakdowns',f)} onClose={()=>setModal(null)} />}
       {(modal?.type==='req_create')     && <RequestModal onSave={f=>{f.requestNo=f.requestNo||nextNo(f.type==='vehicle'?'VMR':'EMR',requests,'requestNo');crud(requests,setRequests,'requests',f);}} onClose={()=>setModal(null)} />}
-      {(modal?.type==='req_view')       && <RequestModal rec={modal.rec} onSave={f=>crud(requests,setRequests,'requests',f)} onClose={()=>setModal(null)} />}
+      {(modal?.type==='req_view')       && <RequestModal rec={modal.rec} canEdit={perms.edit} onSave={f=>crud(requests,setRequests,'requests',f)} onClose={()=>setModal(null)} />}
       {(modal?.type==='ho_create')      && <HandoverModal fleet={fleet} onSave={f=>crud(handovers,setHandovers,'handovers',f)} onClose={()=>setModal(null)} />}
       {(modal?.type==='ho_view')        && <HandoverModal rec={modal.rec} fleet={fleet} onSave={f=>crud(handovers,setHandovers,'handovers',f)} onClose={()=>setModal(null)} />}
       {(modal?.type==='cal_create')     && <CalibrationModal fleet={fleet} onSave={f=>crud(calibration,setCalibration,'calibration',f)} onClose={()=>setModal(null)} />}

@@ -15,7 +15,24 @@ export function exportToCSV(filename, data, options = {}) {
   if (!data || data.length === 0) throw new Error('No data to export');
   const { title } = options;
   const headers = Object.keys(data[0]);
-  const escape  = v => { const s = String(v ?? '').replace(/"/g, '""'); return s.includes(',') || s.includes('\n') || s.includes('"') ? `"${s}"` : s; };
+  // 2026-08-18 QA fix — CSV/formula injection (OWASP-documented risk for
+  // any app that exports free-text user input to CSV). Every value here
+  // ultimately comes from user-entered fields — vendor names, notes,
+  // descriptions — with no control over what a client or staff member
+  // types. A cell that starts with =, +, -, @, or a tab/CR is interpreted
+  // as a formula by Excel/Sheets/LibreOffice the moment the file is
+  // opened, e.g. a vendor named "=cmd|'/c calc'!A1" or a note starting
+  // with "=HYPERLINK(...)" would execute rather than display as text.
+  // Standard mitigation: prefix a leading apostrophe, which every
+  // spreadsheet app treats as "force this cell to text" and does not
+  // itself become visible in the rendered cell.
+  const FORMULA_TRIGGER = /^[=+\-@\t\r]/;
+  const escape  = v => {
+    let s = String(v ?? '');
+    if (FORMULA_TRIGGER.test(s)) s = "'" + s;
+    s = s.replace(/"/g, '""');
+    return s.includes(',') || s.includes('\n') || s.includes('"') ? `"${s}"` : s;
+  };
   const rows = [
     ...(title ? [[title], []] : []),
     headers,
