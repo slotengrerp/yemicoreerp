@@ -45,24 +45,18 @@ const TABS = [{ key:'list', label:'Staff Records' }, { key:'payroll', label:'Pay
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
 // ── Print helpers ──────────────────────────────────────────────────────────
-// 2026-08-18: rebuilt to match Slot's own Payroll Format.xlsx ("SUMMARY PAY
-// SHEET") field-for-field — 23 columns there vs. the 13 this print used to
-// have. Everything captured on the staff form now has its own column here
-// instead of being folded silently into Gross/Other Addition, which was the
-// actual complaint: the numbers weren't wrong, they just weren't visible as
-// separate line items once printed. Bank/Account No are kept even though the
-// Excel format doesn't have them — SLOT already relied on having them here.
-// 2026-08-18: rebuilt after live A4 preview showed columns clipped past
-// "Overtime Allow." — PRINT_CSS's th{white-space:nowrap} plus browser
-// auto-layout meant 26 columns' natural width vastly exceeded the ~273mm
-// printable landscape width no matter how small the font got. Font-size
-// alone never fixes overflow caused by nowrap + auto layout.
-// Fix: table-layout:fixed with percentage column widths (these always sum
-// to exactly 100% of the printable box, so the table CANNOT exceed the
-// page regardless of content) + white-space:normal so long text wraps
-// instead of forcing the column wider. Split into two page-broken tables
-// (13 identification/earnings cols, then 15 deduction/net-pay/status cols)
-// since 26 columns of currency data is unreadable on one page even fixed.
+// 2026-08-18 (live-verify QA fix): Slot staff asked for the payroll register
+// to fit on one A4 sheet, and suggested the exact mechanism to get there —
+// their words: "any field without any figure needs not to reflect while
+// printing." The prior fix (below, now superseded) forced this onto "Page 1
+// of 2"/"Page 2 of 2" purely because 26 columns of currency data didn't fit
+// legibly on one landscape page. Dropping whichever pay-head columns are
+// entirely zero (or, for the two text columns Ref Ind / Remarks, entirely
+// blank) for everyone in this run is the correct way to shrink it back to
+// one page — most months won't have Gift Card Recovery, Loan Deductions,
+// EOY Bonus, etc. all populated at once. Identity columns and the three
+// summary columns (Basic/Gross/Net Pay) always show; every other pay head
+// only shows if at least one person in this run actually has a figure in it.
 function printPayroll(staff, period, filtered) {
   const n = v => Number(v)||0;
   const fmt2 = v => v.toLocaleString('en-NG',{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -79,34 +73,6 @@ function printPayroll(staff, period, filtered) {
     return { s, i, basic, housing, transport, gross, paye, leave, salaryAdvance, loan, location, overtime, eoy, giftCard, voluntaryPension, pension, netPay, empDate };
   });
 
-  const rows1 = calc.map(({s,i,basic,housing,transport,gross,empDate}) => `<tr style="background:${i%2===1?'#f3faf5':'#fff'}">
-      <td>${s.sn}</td><td><strong>${s.fullName}</strong></td><td>${s.role||'—'}</td>
-      <td>${s.refIndicator||'—'}</td><td>${s.workLocation||'—'}</td>
-      <td style="font-family:monospace">${s.refId}</td><td>${empDate}</td>
-      <td>${s.bank||'—'}</td><td style="font-family:monospace">${s.accountNo||'—'}</td>
-      <td style="text-align:right">₦${fmt2(basic)}</td>
-      <td style="text-align:right">₦${fmt2(housing)}</td>
-      <td style="text-align:right">₦${fmt2(transport)}</td>
-      <td style="text-align:right;font-weight:700;color:#1A5C2A">₦${fmt2(gross)}</td>
-    </tr>`).join('');
-
-  const rows2 = calc.map(({s,i,paye,leave,salaryAdvance,loan,location,overtime,eoy,giftCard,voluntaryPension,pension,netPay}) => `<tr style="background:${i%2===1?'#f3faf5':'#fff'}">
-      <td>${s.sn}</td><td><strong>${s.fullName}</strong></td>
-      <td style="text-align:right">${dash(paye)}</td>
-      <td style="text-align:right">${dash(leave)}</td>
-      <td style="text-align:right">${dash(salaryAdvance)}</td>
-      <td style="text-align:right">${dash(loan)}</td>
-      <td style="text-align:right">${dash(location)}</td>
-      <td style="text-align:right">${dash(overtime)}</td>
-      <td style="text-align:right">${dash(eoy)}</td>
-      <td style="text-align:right">${dash(giftCard)}</td>
-      <td style="text-align:right">${dash(voluntaryPension)}</td>
-      <td style="text-align:right">${dash(pension)}</td>
-      <td style="text-align:right;font-weight:700;color:#1A5C2A">₦${fmt2(netPay)}</td>
-      <td>${s.remarks||''}</td>
-      <td style="text-align:center"><span style="padding:2px 5px;border-radius:20px;font-size:7px;background:${s.status==='Active'?'#d4edda':'#f8d7da'};color:${s.status==='Active'?'#155724':'#721c24'}">${s.status}</span></td>
-    </tr>`).join('');
-
   const tot = key => filtered.reduce((a,s)=>a+n(s[key]),0);
   const totalBasic=tot('basicSalary'), totalHousing=tot('housing'), totalTransport=tot('transport');
   const totalLocation=tot('bonnyAllowance'), totalLeave=tot('leaveAllowance'), totalOvertime=tot('overtimeAllowance'), totalEoy=tot('eoyBonus'), totalOtherAdd=tot('otherAddition');
@@ -114,57 +80,66 @@ function printPayroll(staff, period, filtered) {
   const totalPaye=tot('paye'), totalAdvance=tot('salaryAdvance'), totalLoan=tot('loan'), totalGiftCard=tot('giftCardRecovery'), totalVolPension=tot('voluntaryPension');
   const totalPension = filtered.reduce((a,s)=>a+Math.round((n(s.basicSalary)+n(s.housing)+n(s.transport))*0.08),0);
   const totalNetPay = totalGross - totalPaye - totalPension - totalVolPension - totalAdvance - totalLoan - totalGiftCard;
+  const hasRefInd  = filtered.some(s=>s.refIndicator);
+  const hasRemarks = filtered.some(s=>s.remarks);
 
-  const wideCss = `table{table-layout:fixed;font-size:8.5px} th{white-space:normal;font-size:7.5px;padding:4px 3px;line-height:1.2} td{padding:4px 3px;overflow-wrap:anywhere;line-height:1.25} .pg-title{font-size:10px;font-weight:700;color:#1A5C2A;margin-bottom:5px;text-transform:uppercase;letter-spacing:.5px} .pg2{page-break-before:always}`;
+  // Column list in print order. `always:true` never gets dropped; `show`
+  // columns (the two text fields) drop if blank for everyone; the rest drop
+  // as a whole column when their total across this run is zero.
+  const cols = [
+    { key:'sn',        label:'S/N',                  w:3,  always:true, cell:c=>c.s.sn },
+    { key:'name',      label:'Name',                  w:11, always:true, cell:c=>`<strong>${c.s.fullName}</strong>` },
+    { key:'role',      label:'Designation',           w:9,  always:true, cell:c=>c.s.role||'—' },
+    { key:'refind',    label:'Ref Ind',               w:6,  show:hasRefInd, cell:c=>c.s.refIndicator||'—' },
+    { key:'loc',       label:'Job Location',          w:8,  always:true, cell:c=>c.s.workLocation||'—' },
+    { key:'empid',     label:'Employee ID',           w:7,  always:true, cell:c=>`<span style="font-family:monospace">${c.s.refId}</span>` },
+    { key:'empdate',   label:'Employment Date',       w:7,  always:true, cell:c=>c.empDate },
+    { key:'bank',      label:'Bank',                  w:7,  always:true, cell:c=>c.s.bank||'—' },
+    { key:'acct',      label:'Account No.',           w:8,  always:true, cell:c=>`<span style="font-family:monospace">${c.s.accountNo||'—'}</span>` },
+    { key:'basic',     label:'Basic (₦)',             w:7,  always:true, num:true, total:totalBasic, cell:c=>'₦'+fmt2(c.basic) },
+    { key:'housing',   label:'Housing (₦)',           w:6,  num:true, total:totalHousing,   cell:c=>dash(c.housing) },
+    { key:'transport', label:'Transport (₦)',         w:6,  num:true, total:totalTransport, cell:c=>dash(c.transport) },
+    { key:'gross',     label:'Gross (₦)',             w:7,  always:true, num:true, bold:true, total:totalGross, cell:c=>'₦'+fmt2(c.gross) },
+    { key:'paye',      label:'PAYE (₦)',              w:6,  num:true, total:totalPaye,     cell:c=>dash(c.paye) },
+    { key:'leave',     label:'Leave Allow. (₦)',      w:6,  num:true, total:totalLeave,    cell:c=>dash(c.leave) },
+    { key:'advance',   label:'Salary Adv. (₦)',       w:6,  num:true, total:totalAdvance,  cell:c=>dash(c.salaryAdvance) },
+    { key:'loan',      label:'Loan Ded. (₦)',         w:6,  num:true, total:totalLoan,     cell:c=>dash(c.loan) },
+    { key:'location',  label:'Location Allow. (₦)',   w:6,  num:true, total:totalLocation, cell:c=>dash(c.location) },
+    { key:'overtime',  label:'Overtime Allow. (₦)',   w:6,  num:true, total:totalOvertime, cell:c=>dash(c.overtime) },
+    { key:'eoy',       label:'EOY Bonus (₦)',         w:6,  num:true, total:totalEoy,      cell:c=>dash(c.eoy) },
+    { key:'giftcard',  label:'Gift Card Rec. (₦)',    w:6,  num:true, total:totalGiftCard, cell:c=>dash(c.giftCard) },
+    { key:'volpension',label:'Voluntary Pension (₦)', w:7,  num:true, total:totalVolPension, cell:c=>dash(c.voluntaryPension) },
+    { key:'pension',   label:'Pension (₦)',           w:6,  num:true, total:totalPension,  cell:c=>dash(c.pension) },
+    { key:'netpay',    label:'Net Pay (₦)',           w:7,  always:true, num:true, bold:true, total:totalNetPay, cell:c=>'₦'+fmt2(c.netPay) },
+    { key:'remarks',   label:'Remarks',               w:8,  show:hasRemarks, cell:c=>c.s.remarks||'' },
+    { key:'status',    label:'Status',                w:5,  always:true, center:true, cell:c=>`<span style="padding:2px 5px;border-radius:20px;font-size:7px;background:${c.s.status==='Active'?'#d4edda':'#f8d7da'};color:${c.s.status==='Active'?'#155724':'#721c24'}">${c.s.status}</span>` },
+  ];
+  const visible = cols.filter(c => c.always || c.show || (c.total !== undefined && c.total > 0));
+  const wSum = visible.reduce((a,c)=>a+c.w,0);
+  const pct = c => (c.w/wSum*100).toFixed(2);
+
+  const thead = visible.map(c=>`<th style="width:${pct(c)}%;${c.num?'text-align:right':c.center?'text-align:center':''}">${c.label}</th>`).join('');
+  const rows = calc.map(c => `<tr style="background:${c.i%2===1?'#f3faf5':'#fff'}">${
+    visible.map(col => `<td style="${col.num?'text-align:right;':col.center?'text-align:center;':''}${col.bold?'font-weight:700;color:#1A5C2A;':''}">${col.cell(c)}</td>`).join('')
+  }</tr>`).join('');
+
+  const firstNumIdx = visible.findIndex(c=>c.num);
+  const numCols = visible.filter(c=>c.num);
+  const trailCols = visible.slice(firstNumIdx + numCols.length);
+  const tfoot = `<td colspan="${firstNumIdx}" style="text-align:right;text-transform:uppercase;font-size:8px;letter-spacing:.5px">Total — ${filtered.length} Staff Members</td>` +
+    numCols.map(c => `<td style="text-align:right;${c.bold?'font-size:9.5px;':''}">₦${fmt2(c.total)}</td>`).join('') +
+    (trailCols.length ? `<td colspan="${trailCols.length}"></td>` : '');
+
+  const wideCss = `table{table-layout:fixed;font-size:8.5px} th{white-space:normal;font-size:7.5px;padding:4px 3px;line-height:1.2} td{padding:4px 3px;overflow-wrap:anywhere;line-height:1.25}`;
 
   openPrintWindow(`<!DOCTYPE html><html><head><title>NLNG Contract Staff Payroll — ${period}</title>
   <style>${PRINT_CSS} ${wideCss}</style></head><body>
 ${printHeader('NLNG CONTRACT STAFF — MONTHLY PAYROLL REGISTER', period)}
-  <div class="pg-title">Page 1 of 2 — Identification &amp; Earnings</div>
   <table>
-    <thead><tr>
-      <th style="width:3%">S/N</th><th style="width:12%">Name</th><th style="width:10%">Designation</th><th style="width:6%">Ref Ind</th><th style="width:9%">Job Location</th><th style="width:7%">Employee ID</th><th style="width:8%">Employment Date</th><th style="width:8%">Bank</th><th style="width:9%">Account No.</th>
-      <th style="width:8%;text-align:right">Basic (₦)</th><th style="width:7%;text-align:right">Housing (₦)</th><th style="width:6%;text-align:right">Transport (₦)</th>
-      <th style="width:7%;text-align:right">Gross (₦)</th>
-    </tr></thead>
-    <tbody>${rows1}</tbody>
-    <tfoot><tr class="total-row">
-      <td colspan="9" style="text-align:right;text-transform:uppercase;font-size:8px;letter-spacing:.5px">Total — ${filtered.length} Staff Members</td>
-      <td style="text-align:right">₦${fmt2(totalBasic)}</td>
-      <td style="text-align:right">₦${fmt2(totalHousing)}</td>
-      <td style="text-align:right">₦${fmt2(totalTransport)}</td>
-      <td style="text-align:right;font-size:9.5px">₦${fmt2(totalGross)}</td>
-    </tr></tfoot>
+    <thead><tr>${thead}</tr></thead>
+    <tbody>${rows}</tbody>
+    <tfoot><tr class="total-row">${tfoot}</tr></tfoot>
   </table>
-  <div class="pg2">
-    <div class="pg-title">Page 2 of 2 — Deductions, Net Pay &amp; Status</div>
-    <table>
-      <thead><tr>
-        <th style="width:3%">S/N</th><th style="width:10%">Name</th>
-        <th style="width:7%;text-align:right">PAYE (₦)</th><th style="width:7%;text-align:right">Leave Allow. (₦)</th>
-        <th style="width:7%;text-align:right">Salary Adv. (₦)</th><th style="width:6%;text-align:right">Loan Ded. (₦)</th><th style="width:7%;text-align:right">Location Allow. (₦)</th>
-        <th style="width:7%;text-align:right">Overtime Allow. (₦)</th><th style="width:7%;text-align:right">EOY Bonus (₦)</th><th style="width:7%;text-align:right">Gift Card Rec. (₦)</th>
-        <th style="width:7%;text-align:right">Voluntary Pension (₦)</th><th style="width:6%;text-align:right">Pension (₦)</th><th style="width:8%;text-align:right">Net Pay (₦)</th>
-        <th style="width:7%">Remarks</th><th style="width:4%;text-align:center">Status</th>
-      </tr></thead>
-      <tbody>${rows2}</tbody>
-      <tfoot><tr class="total-row">
-        <td colspan="2" style="text-align:right;text-transform:uppercase;font-size:8px;letter-spacing:.5px">Total</td>
-        <td style="text-align:right">₦${fmt2(totalPaye)}</td>
-        <td style="text-align:right">₦${fmt2(totalLeave)}</td>
-        <td style="text-align:right">₦${fmt2(totalAdvance)}</td>
-        <td style="text-align:right">₦${fmt2(totalLoan)}</td>
-        <td style="text-align:right">₦${fmt2(totalLocation)}</td>
-        <td style="text-align:right">₦${fmt2(totalOvertime)}</td>
-        <td style="text-align:right">₦${fmt2(totalEoy)}</td>
-        <td style="text-align:right">₦${fmt2(totalGiftCard)}</td>
-        <td style="text-align:right">₦${fmt2(totalVolPension)}</td>
-        <td style="text-align:right">₦${fmt2(totalPension)}</td>
-        <td style="text-align:right;font-size:9.5px">₦${fmt2(totalNetPay)}</td>
-        <td colspan="2"></td>
-      </tr></tfoot>
-    </table>
-  </div>
   <div class="footer">
     <div><div class="sig">Prepared By / Date</div></div>
     <div><div class="sig">Reviewed By / Date</div></div>
@@ -212,6 +187,18 @@ function printPayslip(s, period, company) {
     ? new Date(s.employmentDate).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' }).replace(/ /g,'-')
     : '—';
   const today = new Date().toLocaleDateString('en-GB', { day:'2-digit', month:'long', year:'numeric' }).toUpperCase();
+
+  // Live-verify QA fix (2026-08-18): Slot staff asked that any field without
+  // a figure not print at all, so the payslip stays one page. Basic Salary
+  // always shows (it's the anchor line and should never legitimately be
+  // zero); every other earning/deduction line only prints if this employee
+  // actually has a non-zero value in it this period.
+  const earnRows = [['Basic Salary', basic, true], ['Housing Allowance', housing], ['Transport Allowance', transport], ['Bonny Location Allowance', bonny], ['Leave Allowance', leaveAll], ['End of Year Bonus', eoyBonus], ['Overtime Allowance', overtime], ['Other Addition', otherAdd]]
+    .filter(([,v,force]) => force || v > 0)
+    .map(([label,v]) => `<tr><td>${label}</td><td class="amt">${fmtN(v)}</td></tr>`).join('');
+  const deductRows = [['PAYE', paye], ['Employee Pension', employeePension], ['Voluntary Pension', voluntaryPension], ['Salary Advance', salaryAdvance], ['Loan', loan], ['Gift Card Recovery', giftCardRecovery]]
+    .filter(([,v]) => v > 0)
+    .map(([label,v]) => `<tr><td>${label}</td><td class="amt">${fmtN(v)}</td></tr>`).join('');
 
   openPrintWindow(`<!DOCTYPE html><html><head><title>Pay Slip — ${s.fullName} — ${period}</title>
   <style>
@@ -263,22 +250,10 @@ function printPayslip(s, period, company) {
     <table class="pay">
       <thead><tr><th>EARNINGS</th><th class="amt">AMOUNT (₦)</th></tr></thead>
       <tbody>
-        <tr><td>Basic Salary</td><td class="amt">${fmtN(basic)}</td></tr>
-        <tr><td>Housing Allowance</td><td class="amt">${fmtN(housing)}</td></tr>
-        <tr><td>Transport Allowance</td><td class="amt">${fmtN(transport)}</td></tr>
-        <tr><td>Bonny Location Allowance</td><td class="amt">${fmtN(bonny)}</td></tr>
-        <tr><td>Leave Allowance</td><td class="amt">${fmtN(leaveAll)}</td></tr>
-        <tr><td>End of Year Bonus</td><td class="amt">${fmtN(eoyBonus)}</td></tr>
-        <tr><td>Overtime Allowance</td><td class="amt">${fmtN(overtime)}</td></tr>
-        <tr><td>Other Addition</td><td class="amt">${fmtN(otherAdd)}</td></tr>
+        ${earnRows}
         <tr class="section"><td>GROSS EMOLUMENT</td><td class="amt">${fmtN(gross)}</td></tr>
         <tr class="section"><td colspan="2">DEDUCTIONS</td></tr>
-        <tr><td>PAYE</td><td class="amt">${fmtN(paye)}</td></tr>
-        <tr><td>Employee Pension</td><td class="amt">${fmtN(employeePension)}</td></tr>
-        <tr><td>Voluntary Pension</td><td class="amt">${fmtN(voluntaryPension)}</td></tr>
-        <tr><td>Salary Advance</td><td class="amt">${fmtN(salaryAdvance)}</td></tr>
-        <tr><td>Loan</td><td class="amt">${fmtN(loan)}</td></tr>
-        <tr><td>Gift Card Recovery</td><td class="amt">${fmtN(giftCardRecovery)}</td></tr>
+        ${deductRows || '<tr><td colspan="2" style="font-weight:400;background:#fff">No deductions this period</td></tr>'}
         <tr class="section"><td>TOTAL DEDUCTIONS</td><td class="amt">${fmtN(totalDeduct)}</td></tr>
         <tr class="net"><td>NET SALARY (TAKE HOME)</td><td class="amt">${fmtN(netPay)}</td></tr>
       </tbody>
