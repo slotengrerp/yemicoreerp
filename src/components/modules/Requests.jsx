@@ -175,7 +175,16 @@ export default function Requests({ onNav }) {
     return reqs.filter(r => {
       const matchSearch = !s || r.subject.toLowerCase().includes(s) || r.requestedBy.toLowerCase().includes(s) || r.requestNo.toLowerCase().includes(s);
       const matchType   = typeFilter === 'all' || r.type === typeFilter;
-      const matchTab    = tab === 'all' || (tab === 'pending' && r.status === 'Pending') || (tab === 'submitted' && r.status === 'Submitted') || (tab === 'approved' && r.status === 'Approved') || (tab === 'mine' && r.requestedBy === currentUser?.name);
+      // Live-verify QA fix (2026-08-18): this module's own handleSave() only
+      // ever writes status:'Submitted' on submission (never 'Pending' — that
+      // only appears inside r.approval.status for the chain engine). Because
+      // this "pending" tab checked r.status==='Pending' alone, it was dead —
+      // no request could ever land here, so the "Awaiting Action"/"Urgent
+      // Pending" KPIs (which correctly count Pending+Submitted, matching
+      // Approvals.jsx's own pendingStatuses:['Submitted','Pending'] for this
+      // same module) linked straight to a permanently-empty tab. Now matches
+      // both statuses here too, same as those two other places already do.
+      const matchTab    = tab === 'all' || (tab === 'pending' && (r.status === 'Pending' || r.status === 'Submitted')) || (tab === 'submitted' && r.status === 'Submitted') || (tab === 'approved' && r.status === 'Approved') || (tab === 'mine' && r.requestedBy === currentUser?.name);
       return matchSearch && matchType && matchTab;
     });
   }, [reqs, search, typeFilter, tab, currentUser]);

@@ -261,6 +261,27 @@ export default function ExcelManager() {
           createdAt: row.createdAt || new Date().toISOString(),
         };
       }
+      if (modKey === 'terminal_containers') {
+        // Live-verify QA fix (2026-08-18): caught on production — 578
+        // imported containers all showed a blank Port Type, so the Reports
+        // tab's "Port Type Breakdown" read 0 Sea / 0 Air despite Total
+        // Containers reading 578. Root cause: this generic branch spreads
+        // the raw sheet row straight through with no defaults, but the
+        // sheet has no Port Type column, so the field was never set on any
+        // imported container. Manually adding a container already defaults
+        // portType to 'Sea' (see the "+ Add Container" button below) —
+        // matching that same default here so future imports report
+        // correctly instead of silently going blank. Same reasoning for
+        // status/noOfContainers, which the manual form also defaults.
+        return {
+          id: generateId(),
+          ...row,
+          status: row.status || 'Arrived',
+          portType: row.portType || 'Sea',
+          noOfContainers: row.noOfContainers || 1,
+          createdAt: row.createdAt || new Date().toISOString(),
+        };
+      }
       return { id: generateId(), ...row, createdAt: row.createdAt || new Date().toISOString() };
     });
 

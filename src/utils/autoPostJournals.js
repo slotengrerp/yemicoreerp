@@ -211,24 +211,40 @@ export function computeAutoPostedJournals(existingJournals, db, appSettings) {
   });
 
   // ── Terminal Operations advance payments ──────────────────────────────
+  // Live-verify QA fix (2026-08-18): `if (adv.voided) return;` sat at the top
+  // of this block, so voiding an advance skipped postReversalIfNeeded()
+  // entirely — the receipt and every application entry stayed live in the
+  // GL forever with no reversing entry, defeating the exact "void posts an
+  // automatic reversal instead of vanishing from the ledger" guarantee this
+  // file's terminalCharges block (just above) and every other section
+  // (AR invoices, credit notes, receipts, fixed assets) already honour by
+  // only gating the POSTING half behind !voided and calling the reversal
+  // unconditionally afterward. Caught live: voided a test advance, Total
+  // Revenue (Posted) on the Accounting Overview still showed the applied
+  // amount. Also fixed: the single postReversalIfNeeded(adv, recId) call
+  // only ever reversed the receipt — each per-container application entry
+  // needs its own reversal too, or a partially-applied advance leaves
+  // orphaned income entries behind even after its receipt is reversed.
   terminalAdvances.forEach(adv => {
-    if (adv.voided) return;
     const recId = `JE-ADV-REC-${adv.id}`;
-    if (!ids.has(recId)) {
+    if (!adv.voided && !ids.has(recId)) {
       try {
         const je = journalFromAdvanceReceipt(adv);
         if (tryPost(je, adv)) { toAdd.push(je); ids.add(recId); }
       } catch (e) { /* skip malformed records */ }
     }
+    const appIds = [];
     (adv.applications || []).forEach((app, idx) => {
       const appId = `JE-ADV-APP-${adv.id}-${app.containerNo || 'bulk'}-${app.date || idx}`;
-      if (ids.has(appId)) return;
+      appIds.push(appId);
+      if (adv.voided || ids.has(appId)) return;
       try {
         const je = journalFromAdvanceApplication(adv, Number(app.amount) || 0, app.containerNo);
         if (tryPost(je, adv)) { toAdd.push(je); ids.add(appId); }
       } catch (e) { /* skip malformed records */ }
     });
     postReversalIfNeeded(adv, recId);
+    appIds.forEach(appId => postReversalIfNeeded(adv, appId));
   });
 
   // ── Payroll (two steps: accrual, then payment) ────────────────────────

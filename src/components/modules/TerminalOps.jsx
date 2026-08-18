@@ -970,18 +970,53 @@ export default function TerminalOps({ onNav }) {
                       <span style={{color:C.textMid}}>{pt} Port</span><span style={{fontWeight:700}}>{cnt} container{cnt!==1?'s':''}</span>
                     </div>;
                   })}
+                  {/* Live-verify QA fix (2026-08-18): Sea+Air used to be the
+                      whole breakdown, so a container imported with no Port
+                      Type (the exact bug just fixed in ExcelManager.jsx's
+                      import path) vanished from this report with no sign
+                      anything was missing — Total Containers said 578, this
+                      card silently summed to 0. Surfacing the gap instead of
+                      hiding it, same as every other "unspecified" bucket
+                      elsewhere in the app. */}
+                  {(()=>{
+                    const unspecified = containers.filter(c=>c.portType!=='Sea'&&c.portType!=='Air').length;
+                    return unspecified>0 && <div style={{display:'flex',justifyContent:'space-between',padding:'6px 0',fontSize:12}}>
+                      <span style={{color:C.amber}}>⚠ Unspecified</span><span style={{fontWeight:700,color:C.amber}}>{unspecified} container{unspecified!==1?'s':''}</span>
+                    </div>;
+                  })()}
                 </div>
                 {/* Dwell time */}
                 <div style={{background:C.bgCard,border:'1px solid '+C.border,borderRadius:10,padding:14}}>
                   <div style={{fontWeight:700,fontSize:13,marginBottom:10,color:C.text}}>Average Dwell Time</div>
                   {(()=>{
-                    const released=logistics.filter(l=>l.releaseDate&&l.warehouseReceiptDate);
-                    if(released.length===0)return <div style={{fontSize:12,color:C.textMuted}}>No released containers yet</div>;
-                    const avg=released.reduce((s,l)=>{
+                    // Live-verify QA fix (2026-08-18): this only ever read the
+                    // logistics collection, which stayed empty for every
+                    // bulk-imported register — those rows write
+                    // warehouseReceiptDate/releaseDate straight onto the
+                    // CONTAINER record (see the terminal_containers import
+                    // branch in excelIO.js/ExcelManager.jsx and
+                    // printSingleBoL above, which already reads dates off
+                    // containers for exactly this reason), never a matching
+                    // logistics record. Caught live: 568 of 578 production
+                    // containers show status Released, yet this always said
+                    // "No released containers yet" — the same dead-source
+                    // pattern as the Analytics WHT fix earlier this session.
+                    // Now checks each container's own dates first and falls
+                    // back to a linked logistics record, so a container is
+                    // never double-counted and manually-logged transit
+                    // records still count.
+                    const dwellSamples = containers.map(c=>{
+                      const match = c.warehouseReceiptDate && c.releaseDate ? null : logistics.find(l=>belongsToContainer(l,c));
+                      const wh  = c.warehouseReceiptDate || match?.warehouseReceiptDate;
+                      const rel = c.releaseDate          || match?.releaseDate;
+                      return (wh && rel) ? { warehouseReceiptDate: wh, releaseDate: rel } : null;
+                    }).filter(Boolean);
+                    if(dwellSamples.length===0)return <div style={{fontSize:12,color:C.textMuted}}>No released containers yet</div>;
+                    const avg=dwellSamples.reduce((s,l)=>{
                       const d1=new Date(l.warehouseReceiptDate),d2=new Date(l.releaseDate);
                       return s+(d2-d1)/(1000*60*60*24);
-                    },0)/released.length;
-                    return <div style={{fontSize:22,fontWeight:700,color:C.green}}>{Math.round(avg)} days<div style={{fontSize:12,fontWeight:400,color:C.textMuted}}>avg. warehouse receipt to release</div></div>;
+                    },0)/dwellSamples.length;
+                    return <div style={{fontSize:22,fontWeight:700,color:C.green}}>{Math.round(avg)} days<div style={{fontSize:12,fontWeight:400,color:C.textMuted}}>avg. warehouse receipt to release · {dwellSamples.length} container{dwellSamples.length===1?'':'s'}</div></div>;
                   })()}
                 </div>
               </div>
