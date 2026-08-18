@@ -2,7 +2,17 @@ import { useState, useEffect, useCallback, useContext, createContext, useRef } f
 import { useTheme } from "../../context/ThemeContext";
 import { useApp } from "../../context/AppContext";
 import { LIGHT } from "../../utils/tokens";
-import { getDeepLinkTab, formatCurrency } from "../../utils/helpers";
+// Live-verify QA fix (2026-08-18): showToast and logActivity were called all
+// over this file (recurring journal templates, live bank feed pull, Sage
+// Intelligence export) but neither was ever imported here — every one of
+// those actions threw an uncaught ReferenceError at runtime (esbuild/vite
+// don't catch a bare undefined identifier at build time, only when that
+// code path actually executes), so "Save as template", "Post" a recurring
+// template, "Delete" a template, and the Mono/Okra live bank pull were all
+// silently broken in production. Added both imports, same paths every other
+// module in this app already uses for these two helpers.
+import { getDeepLinkTab, formatCurrency, showToast } from "../../utils/helpers";
+import { logActivity } from "../../utils/audit";
 import { getClients, saveClients } from "../../utils/clientMaster";
 import { getVendors, saveVendors } from "../../utils/vendorMaster";
 import { getProjects, saveProjects } from "../../utils/projectMaster";
@@ -670,7 +680,26 @@ const CONTROL_ACCOUNTS = {
 
 function JournalTab({journals,setJournals,coa,filter,setFilter,sourceFilter,setSourceFilter}){
   const { state, dispatch } = useApp();
-  const { currentUser, db } = state;
+  const { currentUser, db, appSettings } = state;
+  // Live-verify QA fix (2026-08-18): periodOf/isPeriodClosed/isYearClosed
+  // (imported at the top of this file, and already properly enforced for
+  // every AUTO-posted journal — see utils/autoPostJournals.js's tryPost())
+  // were never actually called anywhere in this component. New Journal
+  // Entry, Edit, Delete and "Post" a recurring template could all freely
+  // post into — or erase — a period an accountant had already closed, with
+  // nothing to stop it and no warning. The Recurring Templates panel's own
+  // copy even claims "it respects period locks", which wasn't true. Matches
+  // SAP/NetSuite/Odoo: a closed period is a hard control on every posting
+  // path, not just the automated one — reopening it is a deliberate,
+  // logged admin action (Settings → Accounting → Period Close).
+  const fyStart = appSettings?.accounting?.fiscalYearStart || appSettings?.system?.fiscalYearStart || 'January';
+  function periodLockMessage(dateStr) {
+    const p = periodOf(dateStr, fyStart);
+    if (!p.periodKey) return null;
+    if (isPeriodClosed(p.periodKey, appSettings)) return `Period ${p.periodKey} is closed — reopen it in Settings → Accounting → Period Close before posting, editing or deleting entries in it.`;
+    if (isYearClosed(p.fy, appSettings)) return `Fiscal year ${p.fy} is closed — reopen it in Settings → Accounting → Year-End Close before posting, editing or deleting entries in it.`;
+    return null;
+  }
   const [showModal,setShowModal]=useState(false);
   const [jeDate,setJeDate]=useState(today());
   const [jeRef,setJeRef]=useState("");
@@ -732,6 +761,8 @@ function JournalTab({journals,setJournals,coa,filter,setFilter,sourceFilter,setS
       showToast(`Template "${tpl.name}" already posted for ${periodKey}`, 'error');
       return;
     }
+    const lockMsg = periodLockMessage(je.date);
+    if (lockMsg) { showToast('⛔ ' + lockMsg, 'error'); return; }
     setJournals(js => [...js, je]);
     // Mark template as posted
     persistTemplates((db.recurringTemplates || []).map(t => t.id === tpl.id ? { ...t, lastPosted: new Date().toISOString(), lastPostedPeriod: periodKey } : t));
@@ -757,6 +788,8 @@ function JournalTab({journals,setJournals,coa,filter,setFilter,sourceFilter,setS
     if(!balanced){alert("Amount must be > 0");return;}
     const hasBlank=lines.some(l=>!l.drCode||!l.crCode||!l.fcAmount);
     if(hasBlank){alert("Complete all line fields");return;}
+    const lockMsg=periodLockMessage(jeDate);
+    if(lockMsg){alert('⛔ '+lockMsg);return;}
     const newJE={
       id:editId||`JE-${String(journals.length+1).padStart(4,"0")}`,
       date:jeDate,ref:jeRef,description:jeDesc,source:"manual",
@@ -775,7 +808,11 @@ function JournalTab({journals,setJournals,coa,filter,setFilter,sourceFilter,setS
     setShowModal(false);
   };
 
-  const deleteJE=(id)=>{if(window.confirm("Delete this journal entry?")) setJournals(js=>js.filter(j=>j.id!==id));};
+  const deleteJE=(j)=>{
+    const lockMsg=periodLockMessage(j.date);
+    if(lockMsg){alert('⛔ '+lockMsg);return;}
+    if(window.confirm("Delete this journal entry?")) setJournals(js=>js.filter(x=>x.id!==j.id));
+  };
   const editJE=(j)=>{setEditId(j.id);setJeDate(j.date);setJeRef(j.ref);setJeDesc(j.description);setLines(j.lines.map(l=>({drCode:l.drCode,crCode:l.crCode,currency:l.currency||"NGN",fxRate:l.fxRate||1,fcAmount:l.fcAmount??l.amount,memo:l.memo||""})));setShowModal(true);};
 
   const filtered=journals.filter(j=>{
@@ -801,9 +838,16 @@ function JournalTab({journals,setJournals,coa,filter,setFilter,sourceFilter,setS
       );
     }},
     {key:"source",label:"Source",render:r=><Pill label={r.source} color={{invoice:C.green,payroll:C.amber,procurement:C.info,manual:C.textMuted,pettycash:C.warning}[r.source]||C.textMuted} sm/>},
-    {key:"actions",label:"",render:r=>r.source==="manual"
-      ? (<div style={{display:"flex",gap:4}}><Btn sm variant="ghost" onClick={e=>{e.stopPropagation();editJE(r);}}>Edit</Btn><Btn sm variant="danger" onClick={e=>{e.stopPropagation();deleteJE(r.id);}}>✕</Btn></div>)
-      : (<span title="Auto-posted from its source record — correct the invoice/bill/voucher/asset instead, and this entry updates itself." style={{fontSize:11,color:C.textMuted,cursor:"help"}}>🔒 auto-posted</span>)},
+    {key:"actions",label:"",render:r=>{
+      if(r.source!=="manual") return (<span title="Auto-posted from its source record — correct the invoice/bill/voucher/asset instead, and this entry updates itself." style={{fontSize:11,color:C.textMuted,cursor:"help"}}>🔒 auto-posted</span>);
+      // Live-verify QA fix (2026-08-18): same period-lock this component now
+      // enforces on save/delete, surfaced here too so a closed-period entry
+      // doesn't show Edit/Delete buttons that would just fail with an alert
+      // on click — same treatment as the auto-posted 🔒 badge above.
+      const lockMsg=periodLockMessage(r.date);
+      if(lockMsg) return (<span title={lockMsg} style={{fontSize:11,color:C.textMuted,cursor:"help"}}>🔒 period closed</span>);
+      return (<div style={{display:"flex",gap:4}}><Btn sm variant="ghost" onClick={e=>{e.stopPropagation();editJE(r);}}>Edit</Btn><Btn sm variant="danger" onClick={e=>{e.stopPropagation();deleteJE(r);}}>✕</Btn></div>);
+    }},
   ];
 
   return(
