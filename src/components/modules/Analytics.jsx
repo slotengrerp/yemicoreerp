@@ -243,7 +243,15 @@ export default function Analytics({ onNav }) {
     const whtOutstanding = whtInRange.filter(e=>e.certStatus!=='Remitted to FIRS').reduce((a,e)=>a+(Number(e.amount)||0),0);
     const totalStaff     = nlng.length + slot.length;
     const activeAssets   = fixedassets.filter(a=>!a.voided&&a.status==='Active').length;
-    const assetNBV       = fixedassets.filter(f=>!f.voided).reduce((a,f)=>{
+    // World-standard fixed-asset accounting (SAP AA / NetSuite FAM / Odoo
+    // Assets): once an asset is disposed/written off, it's removed from the
+    // active book — NBV stops accruing and the disposal gain/loss is booked
+    // separately (FixedAssets.jsx already does this via nbvAtDisposal).
+    // Previously this summed ALL non-voided assets regardless of status, so
+    // a Disposed asset kept silently depreciating forever inside the
+    // "Active Assets" KPI's NBV figure. Now scoped to Active only, matching
+    // the activeAssets count directly above.
+    const assetNBV       = fixedassets.filter(f=>!f.voided&&f.status==='Active').reduce((a,f)=>{
       const ul=Number(f.usefulLifeYrs)||5, cost=Number(f.cost)||0, res=Number(f.residualValue)||0;
       const months = f.purchaseDate ? (new Date()-new Date(f.purchaseDate))/2592000000 : 0;
       const dep = Math.min((cost-res)/ul*(months/12), cost-res);
@@ -266,9 +274,13 @@ export default function Analytics({ onNav }) {
   }, [invoices, wht, nlng, slot, fixedassets, requests, pettycash, procurement, dateRange]);
 
   // ── Asset depreciation by category ────────────────────────────────────────
+  // Same world-standard scoping as kpis.assetNBV above: only Active,
+  // non-voided assets belong in the live depreciation schedule. Disposed
+  // assets keep their disposal record in Fixed Assets but drop out of this
+  // register-style rollup.
   const assetDepData = useMemo(() => {
     const map = {};
-    fixedassets.forEach(a => {
+    fixedassets.filter(a=>!a.voided&&a.status==='Active').forEach(a => {
       const cat = a.category||'Other';
       if (!map[cat]) map[cat] = { cost:0, nbv:0 };
       const ul=Number(a.usefulLifeYrs)||5, cost=Number(a.cost)||0, res=Number(a.residualValue)||0;

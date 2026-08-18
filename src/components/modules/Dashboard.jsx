@@ -181,7 +181,19 @@ export default function Dashboard({ onNav }) {
   // 3 real records (Dashboard: 2, Procurement: 1). Now both use the same
   // function, so they can't drift apart again.
   const activePOs       = pos.filter(p => ['Approved','Partial'].includes(getPOStatus(p, waybills, suppInv))).length;
-  const pendingPOs      = pos.filter(p => p.status === 'Draft').length;
+  // Live-verify QA fix (2026-08-18): this checked status==='Draft', but a
+  // Draft PO hasn't been submitted into the approval workflow at all — it's
+  // still being edited, nobody is waiting on it. The KPI sub-label ("pending
+  // approval") and the Dashboard alert banner ("awaiting approval") both
+  // mean "submitted, sitting in someone's approval queue", which is
+  // status==='Pending' (set by Procurement.jsx's submitForApproval(), same
+  // status Sidebar.jsx's pendingApprovals badge and Approvals.jsx's queue
+  // both key off). Caught live: Dashboard said "1 PO awaiting approval" for
+  // a Draft PO while the real Approvals queue correctly showed 0 pending —
+  // two screens disagreeing on the same array because of a Draft/Pending
+  // mix-up, the same recurring "two screens, different status strings"
+  // pattern from earlier fixes this session.
+  const pendingPOs      = pos.filter(p => p.status === 'Pending').length;
   const totalPOValue    = pos.reduce((a,p) => a+(Number(p.total)||0), 0);
 
   const pendingInv      = suppInv.filter(i => i.status === 'Pending').length;
