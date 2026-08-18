@@ -102,12 +102,33 @@ export default function Analytics({ onNav }) {
     return d >= dateRange[0] && d <= dateRange[1];
   };
 
+  // 2026-08-18 QA fix: several cards hardcoded the label "FY2026" regardless
+  // of what the date-range picker above them was actually set to — once the
+  // picker is fixed to actually filter (see kpis/invoiceStatus below),
+  // leaving a static "FY2026" caption next to numbers that now change with
+  // the picker would be actively misleading. This reflects the real
+  // selection instead.
+  const periodLabel = useMemo(() => {
+    if (period === 'custom' && rangeFrom && rangeTo) return `${rangeFrom} to ${rangeTo}`;
+    if (period === 'prev') return `FY${rangeYear-1}`;
+    if (period === 'q1' || period === 'q2' || period === 'q3' || period === 'q4') return `${period.toUpperCase()} ${rangeYear}`;
+    return `YTD ${rangeYear}`;
+  }, [period, rangeYear, rangeFrom, rangeTo]);
+
   // ── Data from all modules ──────────────────────────────────────────────────
   const invoices    = db.invoices    || [];
   const requests    = db.request     || [];
   const pettycash   = db.pettycash   || [];
   const fixedassets = db.fixedassets || [];
-  const wht         = db.wht         || [];
+  // 2026-08-18 QA fix: this read `db.wht`, which nothing in the app ever
+  // writes to (grep confirms it's initialized empty in AppContext.jsx and
+  // never dispatched to) — a dead data source. The real WHT register staff
+  // actually use lives in Accounting.jsx's WHT tab, which is backed by
+  // `acctData.whtEntries`, an entirely separate state slice. Every WHT
+  // figure on this page (KPI totals, the Deducted-vs-Remitted chart, the
+  // Module Summary tile) was reading an array that can never contain data,
+  // regardless of how many real WHT entries exist.
+  const wht         = acctData?.whtEntries || [];
   const nlng        = db.nlng        || [];
   const slot        = db.slot        || [];
   const procurement = db.procurement?.pos || [];  // db.procurement is {rfqs,pos,waybills,invoices}
@@ -132,23 +153,36 @@ export default function Analytics({ onNav }) {
   }, [invoices, dateRange]);
 
   // ── Invoice status breakdown ───────────────────────────────────────────────
+  // 2026-08-18 QA fix: `dateRange` was already in the dependency list (so
+  // this recomputed whenever the date picker changed) but the count itself
+  // never called inRange() — the picker looked wired but silently returned
+  // the same all-time totals no matter what period was selected.
   const invoiceStatus = useMemo(() => {
     const m = { Paid:0, Pending:0, Overdue:0, Draft:0, Other:0 };
-    invoices.forEach(i=>{ const k=m[i.status]!==undefined?i.status:'Other'; m[k]++; });
+    invoices.filter(i=>inRange(i.date)).forEach(i=>{ const k=m[i.status]!==undefined?i.status:'Other'; m[k]++; });
     return Object.entries(m).filter(([,v])=>v>0).map(([name,value])=>({ name,value }));
   }, [invoices, dateRange]);
 
   // ── Procurement category breakdown ─────────────────────────────────────────
+  // 2026-08-18 QA fix: wasn't date-filtered at all — a page-level date
+  // picker that only moved 2 of 8 cards was confusing/wrong regardless of
+  // which 2. Matches Procurement's own date fallback (Approvals.jsx's
+  // getDate: r => r.date || r.createdAt) since not every PO has `.date` set.
   const procByCategory = useMemo(() => {
     const map = {};
-    procurement.forEach(p => {
+    procurement.filter(p=>inRange(p.date||p.createdAt)).forEach(p => {
       const cat = p.category||'Other';
       map[cat] = (map[cat]||0) + (Number(p.totalAmount||p.total||p.amount)||0);
     });
     return Object.entries(map).map(([name,value])=>({ name, value })).sort((a,b)=>b.value-a.value).slice(0,6);
-  }, [procurement]);
+  }, [procurement, dateRange]);
 
   // ── WHT summary by month ───────────────────────────────────────────────────
+  // 2026-08-18 QA fix: field names now match the real WHTTab record shape
+  // (utils/Accounting.jsx WHTTab's saveWHT()) — the amount field is `amount`,
+  // not `whtAmount`, and the remittance flag is `certStatus === 'Remitted to
+  // FIRS'` (a 3-state certificate field: Not Issued / Issued / Remitted to
+  // FIRS), not a `status === 'Remitted'` field that never existed.
   const whtByMonth = useMemo(() => {
     const map = {};
     MONTHS.forEach((m,i) => { map[i] = { month:m, deducted:0, remitted:0 }; });
@@ -156,40 +190,57 @@ export default function Analytics({ onNav }) {
       const d = new Date(e.date||'');
       if (!inRange(d.toISOString())) return;
       const mo = d.getMonth();
-      map[mo].deducted += Number(e.whtAmount)||0;
-      if (e.status==='Remitted') map[mo].remitted += Number(e.whtAmount)||0;
+      map[mo].deducted += Number(e.amount)||0;
+      if (e.certStatus==='Remitted to FIRS') map[mo].remitted += Number(e.amount)||0;
     });
     return Object.values(map).filter((_,i)=>i<=new Date().getMonth());
   }, [wht, dateRange]);
 
   // ── Petty cash by category ─────────────────────────────────────────────────
+  // 2026-08-18 QA fix: also wasn't date-filtered — same page-wide
+  // consistency fix as procByCategory above.
   const pettyCatData = useMemo(() => {
     const map = {};
-    pettycash.filter(e=>e.status==='Approved').forEach(e => {
+    pettycash.filter(e=>e.status==='Approved'&&inRange(e.date)).forEach(e => {
       const cat = e.category||'Other';
       map[cat] = (map[cat]||0) + (Number(e.amount)||0);
     });
     return Object.entries(map).map(([name,value])=>({ name, value })).sort((a,b)=>b.value-a.value);
-  }, [pettycash]);
+  }, [pettycash, dateRange]);
 
   // ── Request type breakdown ─────────────────────────────────────────────────
+  // 2026-08-18 QA fix: also wasn't date-filtered — same page-wide
+  // consistency fix as procByCategory/pettyCatData above.
   const reqByType = useMemo(() => {
     const map = {};
-    requests.forEach(r => { map[r.type||'Other'] = (map[r.type||'Other']||0)+1; });
+    requests.filter(r=>inRange(r.date)).forEach(r => { map[r.type||'Other'] = (map[r.type||'Other']||0)+1; });
     return Object.entries(map).map(([name,value])=>({ name, value }));
-  }, [requests]);
+  }, [requests, dateRange]);
 
   // ── Top-level KPIs ─────────────────────────────────────────────────────────
+  // 2026-08-18 QA fix: the whole point of the date-range picker at the top
+  // of this page is to scope what's shown — but this useMemo didn't even
+  // list `dateRange` in its dependency array, let alone call inRange()
+  // anywhere. Every one of these 6 KPI cards (the most prominent numbers on
+  // the page) showed the same all-time totals no matter what period was
+  // selected, while the two charts directly below correctly responded. Flow
+  // metrics (invoiced/received/WHT) are now scoped to the selected period,
+  // same convention as revenueByMonth/whtByMonth. Point-in-time snapshots
+  // (headcount, active assets, NBV as of today, current pending queue)
+  // intentionally stay unfiltered — "Total Staff right now" isn't a
+  // per-period figure, same reasoning as a balance sheet number.
   const kpis = useMemo(() => {
     // NGN-equivalent helper — same convention as AccountsReceivable.jsx:
     // ngnEquivalent = netPayable × fxRate captured at entry time. Falls back
     // to netPayable itself for NGN invoices (fxRate 1, so they're equal).
     const ngnEq = i => Number(i.ngnEquivalent ?? i.netPayable) || 0;
-    const totalInvoiced  = invoices.reduce((a,i)=>a+ngnEq(i),0);
-    const totalReceived  = invoices.filter(i=>i.status==='Paid').reduce((a,i)=>a+ngnEq(i),0);
+    const invoicesInRange = invoices.filter(i=>inRange(i.date));
+    const whtInRange      = wht.filter(e=>inRange(e.date));
+    const totalInvoiced  = invoicesInRange.reduce((a,i)=>a+ngnEq(i),0);
+    const totalReceived  = invoicesInRange.filter(i=>i.status==='Paid').reduce((a,i)=>a+ngnEq(i),0);
     const outstanding    = totalInvoiced - totalReceived;
-    const totalWHT       = wht.reduce((a,e)=>a+(Number(e.whtAmount)||0),0);
-    const whtOutstanding = wht.filter(e=>e.status!=='Remitted').reduce((a,e)=>a+(Number(e.whtAmount)||0),0);
+    const totalWHT       = whtInRange.reduce((a,e)=>a+(Number(e.amount)||0),0);
+    const whtOutstanding = whtInRange.filter(e=>e.certStatus!=='Remitted to FIRS').reduce((a,e)=>a+(Number(e.amount)||0),0);
     const totalStaff     = nlng.length + slot.length;
     const activeAssets   = fixedassets.filter(a=>!a.voided&&a.status==='Active').length;
     const assetNBV       = fixedassets.filter(f=>!f.voided).reduce((a,f)=>{
@@ -212,7 +263,7 @@ export default function Analytics({ onNav }) {
       ...invoices.filter(i=>i.status==='Pending'),
     ].length;
     return { totalInvoiced, totalReceived, outstanding, totalWHT, whtOutstanding, totalStaff, activeAssets, assetNBV, pendingApprovals };
-  }, [invoices, wht, nlng, slot, fixedassets, requests, pettycash, procurement]);
+  }, [invoices, wht, nlng, slot, fixedassets, requests, pettycash, procurement, dateRange]);
 
   // ── Asset depreciation by category ────────────────────────────────────────
   const assetDepData = useMemo(() => {
@@ -259,7 +310,7 @@ export default function Analytics({ onNav }) {
 
       {/* KPI Strip */}
       <div style={{ display:'flex', gap:12, flexWrap:'wrap' }}>
-        <KPI label="Total Invoiced" value={fmtM(kpis.totalInvoiced)} sub="FY2026" icon="🧾" accent={C.green} onClick={()=>onNav?.("invoices")} />
+        <KPI label="Total Invoiced" value={fmtM(kpis.totalInvoiced)} sub={periodLabel} icon="🧾" accent={C.green} onClick={()=>onNav?.("invoices")} />
         <KPI label="Revenue Received" value={fmtM(kpis.totalReceived)} sub="payments collected" icon="💰" accent={C.success} onClick={()=>onNav?.("invoices")} />
         <KPI label="Outstanding" value={fmtM(kpis.outstanding)} sub="accounts receivable" icon="⏳" accent={kpis.outstanding>0?C.amber:C.success} onClick={()=>onNav?.("invoices")} />
         <KPI label="Total Staff" value={kpis.totalStaff} sub={`${nlng.length} NLNG · ${slot.length} SLOT`} icon="👥" onClick={()=>onNav?.("nlng")} />
@@ -269,7 +320,7 @@ export default function Analytics({ onNav }) {
 
       {/* Row 1: Revenue trend + Invoice status */}
       <div style={{ display:'grid', gridTemplateColumns:'2fr 1fr', gap:16 }}>
-        <Card title="Revenue Trend — FY2026" sub="Monthly invoiced vs received">
+        <Card title={`Revenue Trend — ${periodLabel}`} sub="Monthly invoiced vs received">
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={revenueByMonth} margin={{ top:4, right:8, bottom:0, left:0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke={C.borderLight} />
@@ -301,7 +352,7 @@ export default function Analytics({ onNav }) {
 
       {/* Row 2: WHT trend + Asset Depreciation */}
       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16 }}>
-        <Card title="WHT — Deducted vs Remitted" sub="Monthly withholding tax FY2026">
+        <Card title="WHT — Deducted vs Remitted" sub={`Monthly withholding tax · ${periodLabel}`}>
           {whtByMonth.every(d=>d.deducted===0) ? (
             <div style={{ textAlign:'center', padding:'60px 0', color:C.textMuted, fontSize:12 }}>No WHT data yet</div>
           ) : (
@@ -396,7 +447,7 @@ export default function Analytics({ onNav }) {
             { label:'Petty Cash',      count:pettycash.length,   icon:'💵', active:pettycash.filter(p=>p.status==='Approved').length },
             { label:'Requests',        count:requests.length,    icon:'📋', active:requests.filter(r=>r.status==='Approved').length },
             { label:'Fixed Assets',    count:fixedassets.filter(a=>!a.voided).length, icon:'🏗',  active:fixedassets.filter(a=>!a.voided&&a.status==='Active').length },
-            { label:'WHT Entries',     count:wht.length,         icon:'🏛',  active:wht.filter(e=>e.status==='Remitted').length },
+            { label:'WHT Entries',     count:wht.length,         icon:'🏛',  active:wht.filter(e=>e.certStatus==='Remitted to FIRS').length },
           ].map(({ label, count, icon, active }) => (
             <div key={label} style={{ background:C.greenPale, borderRadius:10, padding:'12px 14px' }}>
               <div style={{ fontSize:20, marginBottom:6 }}>{icon}</div>
