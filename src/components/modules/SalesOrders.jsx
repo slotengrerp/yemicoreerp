@@ -66,7 +66,16 @@ function emptySo() {
 }
 
 function soTotals(so) {
-  const subtotal = (so.items || []).reduce((s, l) => s + ((Number(l.qty)||0) * (Number(l.unitPrice)||0)), 0);
+  // 2026-08-18: was l.qty — the form only ever writes quantity edits to
+  // l.orderedQty (see SOForm's Qty input), so l.qty stayed frozen at its
+  // line-creation default of 1 forever. Any SO where a line's quantity was
+  // changed from 1 had its subtotal/VAT/WHT/NGN total silently computed as
+  // if every line still had qty 1 — wrong everywhere this is used: the
+  // form's own subtotal footer, dashboard stats (Total/Open value), and
+  // SODetail's totals. generateInvoice() already used orderedQty correctly,
+  // which is why a generated invoice's amount wouldn't match the SO's own
+  // displayed total.
+  const subtotal = (so.items || []).reduce((s, l) => s + ((Number(l.orderedQty)||0) * (Number(l.unitPrice)||0)), 0);
   return { subtotal, vat: subtotal * 0.075, wht: subtotal * 0.05, total: subtotal * 1.075, ngn: subtotal * (Number(so.fxRate)||1) * 1.075 };
 }
 
@@ -75,6 +84,25 @@ function soLineProgress(l) {
   if (o <= 0) return { pct: 0, label: '—' };
   const pct = Math.min(100, Math.round((i / o) * 100));
   return { pct, label: `${i}/${o} (${pct}%)` };
+}
+
+// 2026-08-18: standard ERP practice (SAP SD, NetSuite, Odoo) ties a sales
+// order's "invoiced" status and back-order figure to BILLING, not to cash
+// collection — a line counts as invoiced the moment it's billed, whether or
+// not the customer has paid yet. Payment stays tracked separately via each
+// invoice's own Pending/Paid/Partial status and AR aging, which already
+// works independently of this. Matches by soLineId, not array position —
+// position would misalign once any line is fully invoiced and drops out of
+// the "remaining" set a later partial invoice bills from.
+function applyInvoicedLines(so, billedItems) {
+  const items = so.items.map(l => {
+    const billed = billedItems.find(b => b.soLineId === l.id);
+    return billed ? { ...l, invoicedQty: (Number(l.invoicedQty)||0) + (Number(billed.qty)||0) } : l;
+  });
+  const allInvoiced = items.every(l => Number(l.invoicedQty) >= Number(l.orderedQty));
+  const anyInvoiced = items.some(l => Number(l.invoicedQty) > 0);
+  const status = allInvoiced ? 'Invoiced' : (anyInvoiced ? 'Partially Invoiced' : so.status);
+  return { ...so, items, status };
 }
 
 export default function SalesOrders() {
@@ -115,6 +143,14 @@ export default function SalesOrders() {
     if (!target) return;
     if (!target.client) { showToast('Select a client', 'error'); return; }
     if (!target.items?.length) { showToast('At least one line item required', 'error'); return; }
+    // 2026-08-18: closes the other half of the FX-rate fix above — clearing
+    // the field stops it defaulting to a fake "1", but without this check
+    // a foreign-currency SO could still be saved with fxRate left blank,
+    // which soTotals() would silently compute as 1:1 anyway.
+    if (target.currency && target.currency !== 'NGN' && !(Number(target.fxRate) > 0)) {
+      showToast(`Enter the ${target.currency} → NGN FX rate before saving`, 'error');
+      return;
+    }
     const isEdit = sos.some(s => s.id === target.id);
     const so = isEdit ? target : { ...target, soNo: target.soNo || nextSoNo(sos) };
     const next = isEdit ? sos.map(s => s.id === so.id ? so : s) : [so, ...sos];
@@ -159,6 +195,7 @@ export default function SalesOrders() {
       fxRate: so.fxRate,
       items: remaining.map(l => ({
         id: generateId(),
+        soLineId: l.id, // traces this invoice line back to its SO line — used below (and on void, in AccountsReceivable.jsx) to bump/reverse invoicedQty precisely instead of by array position
         description: l.description,
         qty: (Number(l.orderedQty)||0) - (Number(l.invoicedQty)||0),
         unit: l.unit,
@@ -171,36 +208,33 @@ export default function SalesOrders() {
       status: 'Draft',
       createdAt: new Date().toISOString(),
     };
+
+    // 2026-08-18: this used to rely on a window.__sotBumpInvoice hook the AR
+    // module was meant to call once this invoice got posted/paid — nothing
+    // ever called it (confirmed by grep), so no SO ever left Draft even
+    // after being fully billed and paid, and the module's headline
+    // "back-order tracking per line" feature never actually ran. Fixed by
+    // updating the SO right here, in the same operation that creates the
+    // invoice — this function already knows exactly what's being billed, so
+    // no cross-module event is needed for the create path. See
+    // AccountsReceivable.jsx's handleDelete for the matching reversal when
+    // one of these invoices is later voided.
+    const updatedSo = applyInvoicedLines(so, newInv.items);
+    const nextSos = sos.map(s => s.id === so.id ? updatedSo : s);
+    diffAndPush('salesOrders', sos, nextSos);
+    setSos(nextSos);
+    dispatch({ type:'UPDATE_MODULE', mod:'salesOrders', data: nextSos });
+
     // Push to db.invoices as a Draft — the user can open the AR module,
     // review, and post from there. This keeps the SO module from
     // accidentally posting revenue without review.
     const nextInv = [...(db.invoices || []), newInv];
     pushOne('invoices', newInv); // 2026-07-29 — exactly one new record, no diff needed
     dispatch({ type:'UPDATE_MODULE', mod:'invoices', data: nextInv });
-    saveDBLocal({ ...db, invoices: nextInv, salesOrders: sos }, state.activity);
+    saveDBLocal({ ...db, invoices: nextInv, salesOrders: nextSos }, state.activity);
     logActivity(dispatch, `Generated AR invoice draft from Sales Order ${so.soNo}`, currentUser, { module:'salesorders', action:'create' });
     showToast(`Invoice draft created from ${so.soNo}. Open Invoices module to review and post.`, 'success');
   }
-
-  // Helper used by the AR module: when an SO-linked invoice is posted,
-  // the AR save path can call this to bump the SO's invoicedQty on each
-  // line and roll the status forward. Exposed on window for now; in a
-  // future refactor this would live in a shared module.
-  function markLinesInvoiced(soId, lines) {
-    const next = sos.map(s => {
-      if (s.id !== soId) return s;
-      const items = s.items.map((sl, i) => lines[i] ? { ...sl, invoicedQty: (Number(sl.invoicedQty)||0) + (Number(lines[i].qty)||0) } : sl);
-      const allInvoiced = items.every(sl => Number(sl.invoicedQty) >= Number(sl.orderedQty));
-      const anyInvoiced = items.some(sl => Number(sl.invoicedQty) > 0);
-      let status = s.status;
-      if (allInvoiced) status = 'Invoiced';
-      else if (anyInvoiced) status = 'Partially Invoiced';
-      return { ...s, items, status };
-    });
-    persist(next);
-  }
-  // Expose for cross-module calls (AR save path can call this)
-  if (typeof window !== 'undefined') window.__sotBumpInvoice = markLinesInvoiced;
 
   // ── View: list ──
   const filtered = useMemo(() => {
@@ -360,7 +394,7 @@ function SODetail({ so, C, inp, onBack, onGenerateInvoice }) {
                   <td style={{ padding:'8px 10px', textAlign:'right', fontWeight:700, color: backOrder>0?C.amber:C.success }}>{backOrder>0 ? `${backOrder} ${l.unit}` : '✓ Fully billed'}</td>
                   <td style={{ padding:'8px 10px', color:C.textMuted }}>{l.unit}</td>
                   <td style={{ padding:'8px 10px', textAlign:'right' }}>{fmtFC(l.unitPrice, so.currency)}</td>
-                  <td style={{ padding:'8px 10px', textAlign:'right', fontWeight:600 }}>{fmtFC(((Number(l.qty)||0) * (Number(l.unitPrice)||0)), so.currency)}</td>
+                  <td style={{ padding:'8px 10px', textAlign:'right', fontWeight:600 }}>{fmtFC(((Number(l.orderedQty)||0) * (Number(l.unitPrice)||0)), so.currency)}</td>
                   <td style={{ padding:'8px 10px', minWidth:140 }}>
                     <div style={{ display:'flex', alignItems:'center', gap:6 }}>
                       <div style={{ flex:1, background:C.greenPale, borderRadius:20, height:6 }}>
@@ -399,7 +433,7 @@ function SOForm({ so: initial, setSo, onSave, onCancel, C, inp, currentUser }) {
           <FG label="Order Date"><input type="date" style={inp} value={f.date||''} onChange={e=>set('date', e.target.value)} /></FG>
           <FG label="Expected Delivery"><input type="date" style={inp} value={f.expectedDelivery||''} onChange={e=>set('expectedDelivery', e.target.value)} /></FG>
           <FG label="Client *">
-            <select style={inp} value={f.clientCode||''} onChange={e => { const c = clients.find(x => x.code === e.target.value); setF(p => ({ ...p, clientCode: e.target.value, client: c?.name || p.client, currency: c?.currency || p.currency, fxRate: c?.currency && c.currency !== 'NGN' ? (p.fxRate || 1500) : 1 })); }}>
+            <select style={inp} value={f.clientCode||''} onChange={e => { const c = clients.find(x => x.code === e.target.value); setF(p => ({ ...p, clientCode: e.target.value, client: c?.name || p.client, currency: c?.currency || p.currency, fxRate: c?.currency && c.currency !== 'NGN' ? (p.fxRate && p.fxRate !== 1 ? p.fxRate : '') : 1 })); }}>
               <option value="">— Select client —</option>
               {clients.map(c => <option key={c.id} value={c.code}>{c.name} — {c.code} ({c.currency})</option>)}
             </select>
@@ -416,11 +450,19 @@ function SOForm({ so: initial, setSo, onSave, onCancel, C, inp, currentUser }) {
             </select>
           </FG>
           <FG label="Currency">
-            <select style={inp} value={f.currency||'NGN'} onChange={e => { setF(p => ({ ...p, currency: e.target.value, fxRate: e.target.value === 'NGN' ? 1 : (p.fxRate || 1500) })); }}>
+            {/* 2026-08-18: was `p.fxRate || 1500` here and in the Client
+                selector above — since fxRate starts at 1 (a truthy value),
+                that fallback never actually fired, so switching to a
+                foreign currency silently left fxRate at 1 with no prompt
+                to enter a real rate. A Sales Order's whole NGN total is
+                built on this number, so a forgotten "1" understates it by
+                ~1500x. Now clears it instead, matching Procurement.jsx's PO
+                form, which never pre-fills a guessed rate either. */}
+            <select style={inp} value={f.currency||'NGN'} onChange={e => { setF(p => ({ ...p, currency: e.target.value, fxRate: e.target.value === 'NGN' ? 1 : (p.fxRate && p.fxRate !== 1 ? p.fxRate : '') })); }}>
               <option>NGN</option><option>USD</option><option>EUR</option><option>GBP</option>
             </select>
           </FG>
-          <FG label="FX Rate (₦ per unit)"><input type="number" style={inp} value={f.fxRate||1} onChange={e=>set('fxRate', Number(e.target.value)||1)} disabled={f.currency==='NGN'} /></FG>
+          <FG label="FX Rate (₦ per unit)"><input type="number" style={inp} value={f.fxRate ?? ''} onChange={e=>set('fxRate', e.target.value === '' ? '' : Number(e.target.value))} disabled={f.currency==='NGN'} placeholder={f.currency!=='NGN' ? 'e.g. 1500' : ''} /></FG>
           <FG label="Notes" full><textarea style={{ ...inp, height:60 }} value={f.notes||''} onChange={e=>set('notes', e.target.value)} /></FG>
         </div>
       </Card>

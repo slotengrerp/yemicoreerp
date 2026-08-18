@@ -442,10 +442,38 @@ export default function AccountsReceivable() {
     // posted, so the ledger stays correct with a full audit trail. Any
     // receipts already recorded against this invoice are voided too, since
     // they'd otherwise be orphaned (referencing an invoice that's gone).
-    save(
-      invoices.map(i => i.id === id ? { ...i, voided: true } : i),
-      receipts.map(r => r.invoiceId === id ? { ...r, voided: true } : r),
-    );
+    const inv = invoices.find(i => i.id === id);
+    const nextInv = invoices.map(i => i.id === id ? { ...i, voided: true } : i);
+    const nextRec = receipts.map(r => r.invoiceId === id ? { ...r, voided: true } : r);
+    save(nextInv, nextRec);
+
+    // 2026-08-18: mirror-image of the fix in SalesOrders.jsx's
+    // generateInvoice() — that function bumps the originating SO's
+    // invoicedQty the moment this invoice is created (matching standard ERP
+    // practice: invoiced tracks billing, not payment). Voiding the invoice
+    // must reverse that bump, or the SO permanently overstates how much of
+    // the order was actually billed. Matched by soLineId, not position.
+    // Separate saveDBLocal call rather than folding into save() above —
+    // save() only ever touches invoices/arReceipts, and this only applies
+    // to the minority of invoices that came from a Sales Order.
+    if (inv?.salesOrderId) {
+      const sos = db.salesOrders || [];
+      const so = sos.find(s => s.id === inv.salesOrderId);
+      if (so) {
+        const items = so.items.map(l => {
+          const billed = (inv.items||[]).find(it => it.soLineId === l.id);
+          return billed ? { ...l, invoicedQty: Math.max(0, (Number(l.invoicedQty)||0) - (Number(billed.qty)||0)) } : l;
+        });
+        const allInvoiced = items.every(l => Number(l.invoicedQty) >= Number(l.orderedQty));
+        const anyInvoiced = items.some(l => Number(l.invoicedQty) > 0);
+        const status = allInvoiced ? 'Invoiced' : anyInvoiced ? 'Partially Invoiced' : 'Confirmed';
+        const nextSos = sos.map(s => s.id === so.id ? { ...s, items, status } : s);
+        diffAndPush('salesOrders', sos, nextSos);
+        dispatch({ type:'UPDATE_MODULE', mod:'salesOrders', data: nextSos });
+        saveDBLocal({ ...db, invoices: nextInv, arReceipts: nextRec, salesOrders: nextSos }, state.activity);
+      }
+    }
+
     showToast('Invoice voided'); setDelId(null);
   }
 
