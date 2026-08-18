@@ -106,7 +106,7 @@ function printInvoice(inv) {
     <thead><tr><th>Item</th><th style="text-align:center">Qty</th><th style="text-align:center">Unit</th><th>Material Description</th><th style="text-align:right">Unit Price</th><th style="text-align:right">Total Price</th></tr></thead>
     <tbody>${rows}</tbody>
     <tfoot>
-      <tr class="total-row"><td colspan="5" style="text-align:right">PO Value</td><td style="text-align:right">${m(inv.subtotal)}</td></tr>
+      <tr class="total-row"><td colspan="5" style="text-align:right">Invoice Subtotal</td><td style="text-align:right">${m(inv.subtotal)}</td></tr>
       <tr class="total-row"><td colspan="5" style="text-align:right">VAT (7.5%)</td><td style="text-align:right">${m(inv.vatAmount)}</td></tr>
       <tr style="background:#1A5C2A;color:#fff"><td colspan="5" style="padding:10px;text-align:right;font-weight:800;font-size:13px">TOTAL</td><td style="padding:10px;text-align:right;font-weight:800;font-size:15px">${m(inv.netPayable)}</td></tr>
     </tfoot>
@@ -860,7 +860,7 @@ function printWaybill(form) {
         <div class="f"><label>PO Reference</label><span>${form.poNo}</span></div>
         <div class="f"><label>Supplier</label><span>${form.supplier}</span></div>
         <div class="f"><label>Status</label><span>${form.status}</span></div>
-        <div class="f"><label>Received By</label><span>${form.receivedBy||'—'}</span></div>
+        <div class="f"><label>Delivered By</label><span>${form.receivedBy||'—'}</span></div>
         <div class="f"><label>Vehicle / Truck No</label><span>${form.vehicleNo||'—'}</span></div>
         <div class="f"><label>Driver Name</label><span>${form.driverName||'—'}</span></div>
         ${form.deliveryAddress?`<div class="f" style="grid-column:1/-1"><label>Delivery Address</label><span>${form.deliveryAddress}</span></div>`:''}
@@ -878,7 +878,7 @@ function printWaybill(form) {
       ${form.notes?`<div style="margin-top:12px;padding:10px;background:#f9fafb;border-radius:6px;font-size:11px"><strong>Notes:</strong> ${form.notes}</div>`:''}
       <div class="sigs">
         <div><div class="sig">Driver Signature / Date</div></div>
-        <div><div class="sig">Received By / Date</div></div>
+        <div><div class="sig">Delivered By / Date</div></div>
         <div><div class="sig">Store / Warehouse Officer / Date</div></div>
       </div>
       ${printBootstrap({ landscape: false })}
@@ -971,8 +971,8 @@ function WaybillModal({ wb, po, onSave, onClose, onCreateInvoice, allWaybills = 
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 16 }}>
           <FG label="Waybill Number"><input style={S.inp} value={form.waybillNo} onChange={set('waybillNo')} placeholder="Auto-generated" readOnly={isLocked} /></FG>
-          <FG label="Date Received"><input style={S.inp} type="date" value={form.date} onChange={set('date')} readOnly={isLocked} /></FG>
-          <FG label="Received By"><input style={S.inp} value={form.receivedBy} onChange={set('receivedBy')} placeholder="Name of receiver" readOnly={isLocked} /></FG>
+          <FG label="Date Delivered"><input style={S.inp} type="date" value={form.date} onChange={set('date')} readOnly={isLocked} /></FG>
+          <FG label="Delivered By"><input style={S.inp} value={form.receivedBy} onChange={set('receivedBy')} placeholder="Name of receiver" readOnly={isLocked} /></FG>
           <FG label="Vehicle / Truck No"><input style={S.inp} value={form.vehicleNo} onChange={set('vehicleNo')} placeholder="e.g. PHC-234-GH" readOnly={isLocked} /></FG>
           <FG label="Driver Name"><input style={S.inp} value={form.driverName} onChange={set('driverName')} placeholder="Driver name" readOnly={isLocked} /></FG>
           <FG label="Status"><select style={S.sel} value={form.status} onChange={set('status')} disabled={isLocked}>{['Pending Inspection', 'Accepted', 'Partially Accepted', 'Rejected'].map(s => <option key={s}>{s}</option>)}</select></FG>
@@ -1661,7 +1661,7 @@ export default function Procurement({ onNav }) {
           {/* ── Waybill Table ──────────────────────────────────────────────── */}
           {tab === 'waybill' && (
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 750 }}>
-              <THead cols={['Waybill No', 'PO Number', 'Supplier', 'Date', 'Received By', 'Total Delivered', 'Status', '']} />
+              <THead cols={['Waybill No', 'PO Number', 'Supplier', 'Date', 'Delivered By', 'Total Delivered', 'Status', '']} />
               <tbody>
                 {filteredWaybills.length === 0 && <tr><td colSpan={8} style={{ textAlign: 'center', padding: 32, color: C.textMuted }}>No waybills found</td></tr>}
                 {filteredWaybills.map((w, i) => {
