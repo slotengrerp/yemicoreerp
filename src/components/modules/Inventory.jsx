@@ -8,11 +8,41 @@ import { saveDBLocal } from '../../utils/db';
 import { logActivity } from '../../utils/audit';
 import { Btn, Tag, StatCard, Modal, FG, FormGrid, SectionLabel, SearchBar, TabBar, EmptyState, Confirm } from '../ui';
 import { printHeader, SLOT_BRAND, PRINT_CSS, printBootstrap, openPrintWindow} from '../../utils/logo';
-import { valueIssue, journalFromStockIssue } from '../../utils/inventoryModel';
+import { valueIssue, journalFromStockIssue, UOM } from '../../utils/inventoryModel';
 import { readTextSmart } from '../../utils/excelIO';
 import { diffAndPush, pushOne, pushDelete } from '../../hooks/usePerRecordSync';
 
 const TAB_LABELS = { vehicles:'Vehicles Register', heavy:'Heavy Equipment Register', materials:'Construction Materials Register', office:'Office Appliances / Furniture Register' };
+
+// 2026-08-18 QA fix — Slot staff flagged S/N duplicates on the Materials
+// register (fixed separately). Digging into that surfaced a related data
+// quality gap: "Quantity" was a single free-text field (placeholder example
+// "500 tonnes") — staff typed things like "41 Pcs" as one string. No real
+// ERP register stores quantity that way (SAP MM, NetSuite, Odoo, even
+// QuickBooks always split it into a number + a unit-of-measure) because a
+// combined string can't be summed, validated, or used for low-stock
+// detection. Materials now store `qty` (number) + `uom` (dropdown, reusing
+// the same UOM list the Stock Costing tab already uses). Existing records
+// only have the old `quantity` string — parseLegacyQty() below extracts a
+// number + unit from it so old data still displays correctly and
+// pre-fills cleanly the moment someone opens it to edit, without a forced
+// bulk rewrite.
+function parseLegacyQty(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return { qty: '', uom: '' };
+  const m = s.match(/^([\d,.]+)\s*(.*)$/);
+  if (!m) return { qty: '', uom: '' };
+  const num = Number(m[1].replace(/,/g, ''));
+  return { qty: Number.isFinite(num) ? num : '', uom: (m[2] || '').trim() };
+}
+// Prefer the new structured fields; fall back to the legacy free-text
+// string for records nobody has re-saved yet.
+function materialQtyDisplay(x) {
+  if (x.qty !== undefined && x.qty !== '' && x.qty !== null) {
+    return `${Number(x.qty).toLocaleString('en-NG')}${x.uom ? ' ' + x.uom : ''}`;
+  }
+  return x.quantity || '—';
+}
 
 function printInventory(items, tab) {
   const label = TAB_LABELS[tab] || 'Inventory';
@@ -24,7 +54,7 @@ function printInventory(items, tab) {
     let cells = '';
     if (tab==='vehicles')  cells = `<td>${i+1}</td><td><strong>${x.vehicleNumber}</strong></td><td>${x.make}</td><td>${x.yearOfPurchase||'—'}</td><td>${x.unitServing||'—'}</td>`;
     if (tab==='heavy')     cells = `<td>${i+1}</td><td><strong>${x.regNumber}</strong></td><td>${x.name||'—'}</td><td>${x.make||'—'}</td><td>${x.companyNumber||'—'}</td><td>${x.status||x.remark||'—'}</td>`;
-    if (tab==='materials') cells = `<td>${i+1}</td><td><strong>${x.name}</strong></td><td>${x.quantity||'—'}</td><td>${x.position||'—'}</td><td>${x.status||'—'}</td>`;
+    if (tab==='materials') cells = `<td>${i+1}</td><td><strong>${x.name}</strong></td><td>${materialQtyDisplay(x)}</td><td>${x.position||'—'}</td><td>${x.status||'—'}</td>`;
     if (tab==='office')    cells = `<td>${i+1}</td><td><strong>${x.description}</strong></td><td>${x.officeId||'—'}</td><td>${x.location||'—'}</td><td>${x.status||'—'}</td>`;
     return `<tr style="background:${i%2===1?'#f3faf5':'#fff'}">${cells}</tr>`;
   }).join('');
@@ -48,7 +78,7 @@ const OFFICE_STATUSES = ['In Use','Under Repair','Decommissioned','In Storage'];
 const EMPTY = {
   vehicles:  { vehicleNumber:'', make:'', yearOfPurchase:'', unitServing:'' },
   heavy:     { regNumber:'', name:'', make:'', companyNumber:'', status:'Operational' },
-  materials: { name:'', quantity:'', position:'', status:'Available' },
+  materials: { name:'', qty:'', uom:'pcs', position:'', status:'Available' },
   office:    { description:'', officeId:'', location:'', status:'In Use' },
 };
 const HEADERS = {
@@ -101,6 +131,13 @@ export default function Inventory({ onNav }) {
             companyNumber: row['company no']||row['companyno']||row['company number']||'',
             status: row['status']||'Operational',
             remark: row['status']||row['remark']||'Operational',
+            // 2026-08-18 QA fix: materials imports used to write a single
+            // free-text `quantity` cell straight through (e.g. "41 Pcs").
+            // Split into qty (number) + uom the same way manual entry now
+            // does — a dedicated "unit"/"uom" CSV column wins if present,
+            // otherwise parse it out of the quantity cell itself.
+            qty: (() => { const raw = row['quantity']||row['qty']||''; const n = Number(String(raw).replace(/,/g,'').trim()); return Number.isFinite(n) && String(raw).trim() !== '' ? n : parseLegacyQty(raw).qty; })(),
+            uom: row['unit']||row['uom']||parseLegacyQty(row['quantity']||row['qty']||'').uom||'pcs',
             quantity: row['quantity']||row['qty']||'',
             position: row['position']||row['location']||'',
             description: row['description']||row['item']||row['name']||'',
@@ -277,7 +314,7 @@ export default function Inventory({ onNav }) {
       <tr key={x.id} style={bg}>
         <td style={td}>{i+1}</td>
         <td style={{ ...td, fontWeight: 600 }}>{x.name}</td>
-        <td style={{ ...td, color: C.amber, fontWeight: 700 }}>{x.quantity}</td>
+        <td style={{ ...td, color: C.amber, fontWeight: 700 }}>{materialQtyDisplay(x)}</td>
         <td style={{ ...td, color: C.textMuted }}>{x.position}</td>
         <td style={td}><Tag status={x.status} /></td>
         {actions}
@@ -421,14 +458,53 @@ function StockCostingTab({ C, db, currentUser, dispatch, state }) {
 
   function postMovement(item, move) {
     if (!move.qty || Number(move.qty) <= 0) { showToast('Quantity required', 'error'); return; }
-    if (move.type === 'RECEIVE' && (!move.unitCost || Number(move.unitCost) <= 0)) { showToast('Unit cost required for RECEIVE', 'error'); return; }
-    // For ISSUE/RETURN/SCRAP, run the costing engine to confirm enough stock
+    // 2026-08-18 QA fix: RETURN brings stock back in at a cost, exactly like
+    // RECEIVE — it was missing the same "unit cost required" guard RECEIVE
+    // already had, which let a returned item dilute the weighted-average
+    // cost down toward zero.
+    if ((move.type === 'RECEIVE' || move.type === 'RETURN') && (!move.unitCost || Number(move.unitCost) <= 0)) {
+      showToast(`Unit cost required for ${move.type}`, 'error'); return;
+    }
+    let unitCost = Number(move.unitCost) || 0;
+    let postedToGL = false;
+    // 2026-08-18 QA fix — two bugs in how ISSUE/SCRAP were recorded:
+    // (a) the on-hand check only looked at `result.unitCost <= 0`, which
+    //     inventoryModel.js's own valueIssue() comment flags as insufficient
+    //     — it doesn't catch a PARTIAL over-issue (e.g. 5 on hand, someone
+    //     requests 100): unitCost is still > 0, so the old guard let it
+    //     through and recorded the full over-issued qty as a real movement,
+    //     silently taking stock negative in the true history even though
+    //     itemSummary()'s display clamps at 0. Now blocks using the
+    //     `insufficientStock` flag valueIssue() already computes for
+    //     exactly this case.
+    // (b) unit cost for an issue was whatever the user typed into the same
+    //     "Unit Cost" box RECEIVE uses — but nobody issuing stock actually
+    //     knows the running weighted-average cost, so it was routinely left
+    //     blank/0, silently recording (and would-be GL-posting) a ₦0 COGS
+    //     line. Standard ERP practice (SAP/NetSuite/Odoo) always computes
+    //     the issue cost from the costing engine, never from manual entry —
+    //     so it's taken from valueIssue()'s result instead.
     if (move.type === 'ISSUE' || move.type === 'SCRAP') {
       const itemMovs = stockMovements.filter(m => m.itemId === item.id);
       const result = valueIssue(itemMovs, Number(move.qty), 'wavg');
-      if (result.unitCost <= 0) { showToast('No stock on hand to issue', 'error'); return; }
+      if (result.insufficientStock) {
+        showToast(`Only ${result.qtyOnHand.toLocaleString('en-NG')} ${item.uom} on hand — cannot issue ${Number(move.qty).toLocaleString('en-NG')}`, 'error');
+        return;
+      }
+      unitCost = result.unitCost;
+      // 2026-08-18 QA fix: this module's own header comment claims issues
+      // "post a Dr COGS / Cr Inventory journal entry via Accounting's
+      // auto-post effect" (see utils/autoPostJournals.js's stock-issue
+      // block), but that effect only acts on movements where
+      // `postedToGL === true` — and this was the ONLY place that creates
+      // ISSUE/SCRAP movements, always leaving the flag false. So no stock
+      // ever issued to a project had reached the GL: COGS never recognized
+      // the cost and the Inventory account never ran down. Goods-issue is
+      // not an optional/periodic posting like month-end depreciation — it
+      // posts immediately, same as every mainstream ERP.
+      postedToGL = true;
     }
-    const rec = { id: generateId(), itemId: item.id, ...move, qty: Number(move.qty), unitCost: Number(move.unitCost) || 0, createdAt: new Date().toISOString() };
+    const rec = { id: generateId(), itemId: item.id, ...move, qty: Number(move.qty), unitCost, postedToGL, createdAt: new Date().toISOString() };
     pushOne('stockMovements', rec); // 2026-07-29 full-app sync sweep
     dispatch({ type:'UPDATE_MODULE', mod:'stockMovements', data: [...stockMovements, rec] });
     saveDBLocal({ ...db, stockMovements: [...stockMovements, rec] }, state.activity);
@@ -498,7 +574,9 @@ function StockCostingTab({ C, db, currentUser, dispatch, state }) {
               </select>
             </FG>
             <FG label={`Quantity (${item.uom})`}><input type="number" style={{ padding:'6px 8px', borderRadius:6, border:'1px solid '+C.border, background:C.bgCard, color:C.text, fontSize:12 }} value={newMove.qty||''} onChange={e=>setNewMove(p=>({...p,qty:e.target.value}))} /></FG>
-            <FG label="Unit Cost (₦)" hint="Required for RECEIVE"><input type="number" style={{ padding:'6px 8px', borderRadius:6, border:'1px solid '+C.border, background:C.bgCard, color:C.text, fontSize:12 }} value={newMove.unitCost||''} onChange={e=>setNewMove(p=>({...p,unitCost:e.target.value}))} /></FG>
+            <FG label="Unit Cost (₦)" hint={newMove.type==='ISSUE'||newMove.type==='SCRAP' ? 'Auto-computed at weighted-average cost' : 'Required for RECEIVE / RETURN'}>
+              <input type="number" disabled={newMove.type==='ISSUE'||newMove.type==='SCRAP'} placeholder={newMove.type==='ISSUE'||newMove.type==='SCRAP' ? `≈ ₦${sum.avgCost.toLocaleString('en-NG',{maximumFractionDigits:2})}` : ''} style={{ padding:'6px 8px', borderRadius:6, border:'1px solid '+C.border, background: (newMove.type==='ISSUE'||newMove.type==='SCRAP') ? C.bgAlt : C.bgCard, color:C.text, fontSize:12 }} value={newMove.unitCost||''} onChange={e=>setNewMove(p=>({...p,unitCost:e.target.value}))} />
+            </FG>
             <FG label="Date"><input type="date" style={{ padding:'6px 8px', borderRadius:6, border:'1px solid '+C.border, background:C.bgCard, color:C.text, fontSize:12 }} value={newMove.date} onChange={e=>setNewMove(p=>({...p,date:e.target.value}))} /></FG>
             <FG label="Reference"><input style={{ padding:'6px 8px', borderRadius:6, border:'1px solid '+C.border, background:C.bgCard, color:C.text, fontSize:12 }} value={newMove.refId||''} onChange={e=>setNewMove(p=>({...p,refId:e.target.value,refType:'manual'}))} placeholder="PO/SO/Manual ref" /></FG>
             <Btn onClick={() => postMovement(item, newMove)}>+ Record</Btn>
@@ -644,7 +722,17 @@ function StockCostingTab({ C, db, currentUser, dispatch, state }) {
 
 function InvModal({ tab, modal, onSave, onClose }) {
   const { C } = useTheme();
-  const [f, setF] = useState(modal.data);
+  // 2026-08-18 QA fix: opening an old materials record that only has the
+  // legacy free-text `quantity` field (e.g. "41 Pcs") now pre-fills the new
+  // qty/uom fields by parsing it, so editing and saving once completes that
+  // record's migration without staff having to re-type anything.
+  const [f, setF] = useState(() => {
+    if (tab === 'materials' && (modal.data.qty === undefined || modal.data.qty === '') && modal.data.quantity) {
+      const parsed = parseLegacyQty(modal.data.quantity);
+      return { ...modal.data, qty: parsed.qty, uom: parsed.uom || modal.data.uom || 'pcs' };
+    }
+    return modal.data;
+  });
   const set = k => e => setF(p => ({ ...p, [k]: e.target.value }));
   const isEdit = modal.mode === 'edit';
   const titles = { vehicles:'Vehicle', heavy:'Heavy Equipment / Trailer', materials:'Construction Material', office:'Office Equipment / Furniture' };
@@ -671,7 +759,8 @@ function InvModal({ tab, modal, onSave, onClose }) {
       </FormGrid>}
       {tab === 'materials' && <FormGrid>
         <FG label="Name of Material" full><input style={inp} value={f.name} onChange={set('name')} placeholder="e.g. Reinforcement Steel (16mm)" /></FG>
-        <FG label="Quantity"><input style={inp} value={f.quantity} onChange={set('quantity')} placeholder="e.g. 500 tonnes" /></FG>
+        <FG label="Quantity"><input style={inp} type="number" value={f.qty ?? ''} onChange={e=>setF(p=>({...p,qty:e.target.value===''?'':Number(e.target.value)}))} placeholder="e.g. 500" /></FG>
+        <FG label="Unit"><select style={inp} value={f.uom||'pcs'} onChange={set('uom')}>{UOM.map(u=><option key={u}>{u}</option>)}</select></FG>
         <FG label="Position / Location"><input style={inp} value={f.position} onChange={set('position')} placeholder="e.g. Yard A – Bay 3" /></FG>
         <FG label="Status"><select style={inp} value={f.status} onChange={set('status')}>{MAT_STATUSES.map(s=><option key={s}>{s}</option>)}</select></FG>
       </FormGrid>}
