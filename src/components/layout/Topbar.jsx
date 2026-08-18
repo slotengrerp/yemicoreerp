@@ -5,6 +5,7 @@ import { Btn, ThemeToggle } from '../ui';
 import { SLOT_LOGO_SRC } from '../../utils/logo';
 import { LogOut, Wifi, WifiOff, CloudOff, Cloud, Menu, Search } from 'lucide-react';
 import DocScanner from '../ui/DocScanner';
+import { writeDeepLink } from '../../utils/helpers';
 
 const PAGE_TITLES = {
   dashboard:'Dashboard', nlng:'Contract Staff (NLNG)', slot:'Company Staff',
@@ -26,7 +27,7 @@ const PAGE_ICONS = {
 export default function Topbar({ page, onLogout, online = true, pendingSync = 0, onMenuClick, onNav }) {
   const { C } = useTheme();
   const { state, dispatch } = useApp();
-  const { currentUser, cloudReady, db } = state;
+  const { currentUser, cloudReady, db, acctData } = state;
   const [searchOpen, setSearchOpen]   = useState(false);
   const [searchQ, setSearchQ]         = useState('');
   const [scannerOpen, setScannerOpen] = useState(false);
@@ -42,9 +43,16 @@ export default function Topbar({ page, onLogout, online = true, pendingSync = 0,
     if (q.length < 2) return [];
     const results = [];
 
-    const push = (mod, label, icon, record, fields) => {
+    // `tab` (optional) writes a deep-link signal before navigating, for
+    // records that live inside a specific sub-tab of another module rather
+    // than being a standalone page — same mechanism Dashboard.jsx and every
+    // other cross-module link in this app already uses (see writeDeepLink /
+    // getDeepLinkTab in utils/helpers.js). `badge` (optional) overrides what
+    // the small pill in the result row shows, when it should read
+    // differently from the page it navigates to.
+    const push = (mod, label, icon, record, fields, tab, badge) => {
       const hit = fields.some(f => String(record[f] || '').toLowerCase().includes(q));
-      if (hit) results.push({ mod, label, icon, record, preview: fields.map(f => record[f]).filter(Boolean).join(' · ').slice(0, 80) });
+      if (hit) results.push({ mod, label, icon, record, tab, badge: badge || mod, preview: fields.map(f => record[f]).filter(Boolean).join(' · ').slice(0, 80) });
     };
 
     (db.invoices    || []).forEach(r => push('invoices',    r.invoiceNo || 'Invoice',       '🧾', r, ['invoiceNo','client','projectRef','notes']));
@@ -54,12 +62,21 @@ export default function Topbar({ page, onLogout, online = true, pendingSync = 0,
     (db.slot        || []).forEach(r => push('slot',        r.fullName || 'Staff',          '👤', r, ['fullName','refId','department','email']));
     (db.pettycash   || []).forEach(r => push('pettycash',   r.voucherNo || 'Petty Cash',    '💵', r, ['voucherNo','purpose','payee','category']));
     (db.fixedassets || []).forEach(r => push('fixedassets', r.assetTag || 'Asset',          '🏗', r, ['assetTag','assetName','location','serialNo']));
-    (db.wht         || []).forEach(r => push('wht',         r.refNo || 'WHT',               '🏛', r, ['refNo','vendor','invoiceRef']));
+    // 2026-08-18 QA fix: was reading db.wht, which nothing in the app ever
+    // writes to (same dead-source bug already fixed in Analytics.jsx) —
+    // this search entry could never return a result. The real WHT register
+    // lives in acctData.whtEntries (Accounting.jsx's WHT tab), with fields
+    // ref/vendor/tin/desc, not refNo/invoiceRef which never existed. WHT
+    // also isn't its own page (no 'wht' entry in App.jsx's PAGES map) — it's
+    // a tab inside Accounting, so this now deep-links there like every
+    // other cross-module tab link in the app, instead of calling
+    // onNav('wht') into a route that doesn't exist.
+    (acctData?.whtEntries || []).forEach(r => push('accounting', r.ref || r.vendor || 'WHT', '🏛', r, ['ref','vendor','tin','desc'], 'wht', 'wht'));
     (db.inventory   || []).forEach(r => push('inventory',   r.regNumber || r.name || 'Item','📦', r, ['name','regNumber','make','position']));
     (db.vehicles    || []).forEach(r => push('vehicles',    r.vehicleNumber || 'Vehicle',   '🚗', r, ['vehicleNumber','make','unitServing']));
 
     return results.slice(0, 12);
-  }, [searchQ, db]);
+  }, [searchQ, db, acctData]);
 
   // Close on outside click
   useEffect(() => {
@@ -121,7 +138,7 @@ export default function Topbar({ page, onLogout, online = true, pendingSync = 0,
               )}
               {searchResults.map((r, i) => (
                 <div key={i}
-                  onClick={() => { if (onNav) onNav(r.mod); setSearchOpen(false); setSearchQ(''); }}
+                  onClick={() => { if (r.tab) writeDeepLink(r.mod, r.tab); if (onNav) onNav(r.mod); setSearchOpen(false); setSearchQ(''); }}
                   style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 16px', cursor:'pointer', borderBottom:'1px solid '+C.borderLight, background:'transparent', transition:'background .1s' }}
                   onMouseEnter={e => e.currentTarget.style.background = C.greenPale}
                   onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
@@ -131,7 +148,7 @@ export default function Topbar({ page, onLogout, online = true, pendingSync = 0,
                     <div style={{ fontSize:13, fontWeight:600, color:C.text, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{r.label}</div>
                     <div style={{ fontSize:11, color:C.textMuted, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{r.preview}</div>
                   </div>
-                  <span style={{ fontSize:10, color:C.textLight, background:C.bgAlt, borderRadius:10, padding:'2px 8px', flexShrink:0, textTransform:'capitalize' }}>{r.mod}</span>
+                  <span style={{ fontSize:10, color:C.textLight, background:C.bgAlt, borderRadius:10, padding:'2px 8px', flexShrink:0, textTransform:'capitalize' }}>{r.badge}</span>
                 </div>
               ))}
             </div>
