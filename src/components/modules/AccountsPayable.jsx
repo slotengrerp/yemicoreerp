@@ -525,7 +525,26 @@ export default function AccountsPayable() {
                               db.ap.bills record — deleting it here would have nothing to
                               delete. Removing a real invoice is Procurement's job (it has
                               its own audited delete flow); void it there instead. */}
-                          {perms.del && b.source !== 'procurement' && <Btn sm variant="danger" onClick={()=>{ saveBills(manualBills.filter(x=>x.id!==b.id)); showToast('Bill deleted'); }}>✕</Btn>}
+                          {/* Live-verify QA fix (2026-08-18): this delete button used to fire
+                              regardless of status, so a bill that already had a Partial or
+                              Paid payment recorded against it could be hard-deleted — silently
+                              orphaning the payment record (still pointing at a billId that no
+                              longer exists) and destroying the audit trail. World-standard AP
+                              practice (SAP/NetSuite/Odoo): once any payment posts against an
+                              invoice, it can no longer be deleted — only a never-paid bill can
+                              be removed outright; a paid/partially-paid one must be reversed
+                              through its payment first. Also wired up the 'Cancelled' status
+                              here: it was defined in BillTag and excluded from every
+                              outstanding/aging/ledger calc, but nothing in this file ever set
+                              it — a dead status, same pattern as this session's other fixes.
+                              Void is now the non-destructive alternative to delete, both gated
+                              to bills with zero payments applied. */}
+                          {perms.del && b.source !== 'procurement' && b.status === 'Unpaid' && (
+                            <>
+                              <Btn sm variant="outline" onClick={()=>{ saveBills(manualBills.map(x=>x.id===b.id?{...x,status:'Cancelled'}:x)); showToast('Bill voided'); }}>Void</Btn>
+                              <Btn sm variant="danger" onClick={()=>{ saveBills(manualBills.filter(x=>x.id!==b.id)); showToast('Bill deleted'); }}>✕</Btn>
+                            </>
+                          )}
                         </div>
                       </td>
                     </tr>
