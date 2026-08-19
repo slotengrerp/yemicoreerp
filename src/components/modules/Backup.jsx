@@ -2,7 +2,7 @@
 // SLOT ENGINEERING — BACKUP & RESTORE MODULE v1.0
 // Export JSON · import/restore · cloud sync · backup history · integrity check
 // ══════════════════════════════════════════════════════════════════════════════
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useApp }   from '../../context/AppContext';
 import { useTheme } from '../../context/ThemeContext';
 import { showToast, formatDate, formatDateTime, totalRecords, WIPE_FLAG_KEY } from '../../utils/helpers';
@@ -13,6 +13,7 @@ import { getClients, saveClients } from '../../utils/clientMaster';
 import { saveProjects } from '../../utils/projectMaster';
 import { SLOT_BRAND } from '../../utils/logo';
 import { readTextSmart } from '../../utils/excelIO';
+import { getActiveWipeRequest, getWipeHistory, requestWipe, approveAndExecuteWipe, cancelWipeRequest, subscribeWipeRequests } from '../../supabase/wipeGate';
 
 const BACKUP_HISTORY_KEY = 'bc_backup_history';
 function loadHistory()    { try { const r=localStorage.getItem(BACKUP_HISTORY_KEY); return r?JSON.parse(r):[]; } catch { return []; } }
@@ -69,6 +70,32 @@ export default function Backup() {
   const [loading, setLoading]   = useState({});
   const [verifyResult, setVR]   = useState(null);
   const fileRef = useRef();
+
+  // ── Two-admin wipe approval gate ─────────────────────────────────────────
+  const [wipeRequest, setWipeRequest] = useState(null);   // active pending request, or null
+  const [wipeHistory, setWipeHistory] = useState([]);      // past completed/cancelled/expired requests
+  const [wipeReason, setWipeReason]   = useState('');
+  const [wipeBusy, setWipeBusy]       = useState(false);
+  const [wipeLoaded, setWipeLoaded]   = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function refresh() {
+      try {
+        const [active, past] = await Promise.all([getActiveWipeRequest(), getWipeHistory(10)]);
+        if (!cancelled) { setWipeRequest(active); setWipeHistory(past); }
+      } catch (e) {
+        console.warn('[SLOT] Could not load wipe request state:', e?.message);
+      } finally {
+        if (!cancelled) setWipeLoaded(true);
+      }
+    }
+    refresh();
+    // Live updates — so a second admin sees a new pending request (or its
+    // cancellation/completion) appear without needing to reload the page.
+    const unsub = subscribeWipeRequests(() => refresh());
+    return () => { cancelled = true; unsub(); };
+  }, []);
 
   // ── Admin-only gate ─────────────────────────────────────────────────────────
   if (!isAdmin) {
@@ -242,76 +269,90 @@ export default function Backup() {
     return obj;
   }
 
-  async function handleWipe() {
-    const confirm1 = window.confirm('⚠️ DANGER: This will permanently delete ALL data — locally AND in the cloud. Are you absolutely sure?');
-    if (!confirm1) return;
-    const confirm2 = window.prompt('Type "DELETE ALL" to confirm:');
-    if (confirm2 !== 'DELETE ALL') { showToast('Wipe cancelled'); return; }
+  // Runs after a wipe has actually been executed server-side (both real
+  // per-record tables AND the legacy blob are now empty in Supabase) — puts
+  // this browser into the same clean state so the reload that follows
+  // doesn't briefly flash stale local data before the next sync catches up.
+  async function clearLocalAfterWipe() {
+    const keys = Object.keys(localStorage).filter(k => k.startsWith('bc_') || k.startsWith('slot_'));
+    keys.forEach(k => localStorage.removeItem(k));
+    saveClients([]);
+    saveVendors([]);
+    saveProjects([]);
+    localStorage.setItem('slot_seed_version', 'slot-seed-v3');
+    localStorage.setItem(WIPE_FLAG_KEY, '1');
+    const wipedSettings = { ...appSettings, dataWiped: true };
+    const emptyDb = clearDeep(db);
+    const emptyAcct = { journals: [], coa: state.acctData?.coa || [], bankStmt: [], vatAdj: [], whtEntries: [], assets: [] };
+    saveDBLocal(emptyDb, []);
+    try { localStorage.setItem('bc_accounting', JSON.stringify(emptyAcct)); } catch {}
+    // Also clear the legacy company_data blob for hygiene — nothing reads it
+    // on boot while per-record sync is on, but leaving stale data sitting in
+    // it serves no purpose either.
+    if (cloudReady) { try { await saveDBCloud(emptyDb, [], wipedSettings, emptyAcct); } catch {} }
+  }
+
+  // ── STEP 1 of 2: an admin requests a wipe. This does not delete anything —
+  // it just opens a pending request that a DIFFERENT admin must approve.
+  // The distinct-admin check happens server-side (execute_company_wipe), not
+  // here, so this button cannot itself be the whole authorization.
+  async function handleRequestWipe() {
+    if (!cloudReady) { showToast('Cloud not connected — cannot request a wipe','error'); return; }
+    if (!window.confirm('Request a full data wipe? This starts a pending request that a DIFFERENT admin must approve before anything is actually deleted. Nothing is deleted yet.')) return;
+    setWipeBusy(true);
     try {
-      // ── Strategy ────────────────────────────────────────────────────────
-      // If we simply delete all localStorage keys, the next boot sees
-      // loadDBLocal() → null, hits (!seeded || !local) → true, and fires
-      // seedDemoData() — silently undoing the wipe before the UI even
-      // renders. Instead, we clear everything THEN write a minimal empty
-      // database so the boot sequence sees a valid db, skips seeding, and
-      // the app starts clean.
-      // ─────────────────────────────────────────────────────────────────────
-
-      // 1) Clear ALL app-related localStorage keys
-      const keys = Object.keys(localStorage).filter(k =>
-        k.startsWith('bc_') || k.startsWith('slot_')
-      );
-      keys.forEach(k => localStorage.removeItem(k));
-
-      // 1b) Master data (clients/vendors/projects) needs the SAME treatment
-      // as db/accounting below: getClients()/getVendors()/getProjects() only
-      // reseed when their localStorage key is missing entirely, not when
-      // it's an explicit empty array — but the sweep above just deleted
-      // bc_clients/bc_vendors/bc_projects outright, which is indistinguishable
-      // from "never set". Writing them back as [] via their own save
-      // functions (rather than a raw localStorage.setItem) keeps this in
-      // sync with however those functions decide to persist/dispatch.
-      saveClients([]);
-      saveVendors([]);
-      saveProjects([]);
-
-      // 2) Write seed version gate — without this, the app re-seeds
-      localStorage.setItem('slot_seed_version', 'slot-seed-v3');
-
-      // 2b) Mark this install as deliberately wiped. Historically this let
-      // each module's "no data yet" fallback tell a deliberate wipe apart
-      // from a brand-new install before deciding whether to show demo
-      // records. As of 2026-07-29 every one of those inline SEED constants
-      // (Procurement, FleetMaintenance, PettyCash, Requests, SalesOrders,
-      // AccountsReceivable, Invoices, FixedAssets, Accounting) has been
-      // deleted outright — the fallback is always an empty array/object now,
-      // wiped or not. This flag is kept for the few remaining call sites
-      // that still read it (e.g. FleetMaintenance's migrateFleet) and as a
-      // clear on/off record of the last wipe, but it no longer gates any
-      // demo-data path, because none exists to gate.
-      localStorage.setItem(WIPE_FLAG_KEY, '1');
-      const wipedSettings = { ...appSettings, dataWiped: true };
-
-      // 3) Write a minimal empty database — so loadDBLocal() returns a real
-      //    (but empty) db object, and the boot condition (!seeded || !local)
-      //    evaluates to false. The schema normalization in loadDBLocal()
-      //    fills in any missing sub-arrays on read.
-      const emptyDb = clearDeep(db);
-      const emptyAcct = { journals: [], coa: state.acctData?.coa || [], bankStmt: [], vatAdj: [], whtEntries: [], assets: [] };
-      saveDBLocal(emptyDb, []);
-      try { localStorage.setItem('bc_accounting', JSON.stringify(emptyAcct)); } catch {}
-
-      // 4) Push empty dataset to cloud (if connected) so it doesn't restore
-      //    old data on next sync
-      if (cloudReady) {
-        await saveDBCloud(emptyDb, [], wipedSettings, emptyAcct);
-      }
-
-      showToast('All data wiped locally and in the cloud — reloading…');
-      setTimeout(() => window.location.reload(), 1500);
-    } catch(e) {
-      showToast('Wipe failed: '+e.message,'error');
+      const req = await requestWipe(wipeReason.trim());
+      setWipeRequest(req);
+      setWipeReason('');
+      logActivity(dispatch, `Data wipe REQUESTED by ${currentUser?.name} — awaiting a second admin's approval`, currentUser, { module:'backup', action:'info' });
+      showToast('Wipe requested — waiting for a second admin to approve', 'error');
+    } catch (e) {
+      showToast('Could not request wipe: ' + (e.message || 'unknown error'), 'error');
     }
+    setWipeBusy(false);
+  }
+
+  // ── STEP 2 of 2: a DIFFERENT admin approves. Approving IS executing — the
+  // actual delete runs inside execute_company_wipe(), which independently
+  // re-checks that the approver differs from the requester before touching
+  // any data. If someone tried to approve their own request (e.g. by
+  // calling the API directly, bypassing this UI), the database rejects it.
+  async function handleApproveWipe() {
+    if (!wipeRequest) return;
+    if (wipeRequest.requested_by_name === currentUser?.name) {
+      showToast('You requested this wipe — a different admin must approve it', 'error');
+      return;
+    }
+    const confirm1 = window.confirm(`⚠️ DANGER: Approve and PERMANENTLY delete ALL business data?\n\nRequested by: ${wipeRequest.requested_by_name}\nReason: ${wipeRequest.reason || '(none given)'}\n\nThis clears every live table — HR, payroll, procurement, accounting, everything — for this company. Company details, user accounts, and settings are kept. This cannot be undone.`);
+    if (!confirm1) return;
+    const confirm2 = window.prompt('Type "DELETE ALL" to confirm you understand this is permanent:');
+    if (confirm2 !== 'DELETE ALL') { showToast('Wipe not approved'); return; }
+    setWipeBusy(true);
+    try {
+      await approveAndExecuteWipe(wipeRequest.id);
+      await clearLocalAfterWipe();
+      logActivity(dispatch, `Data wipe APPROVED and executed by ${currentUser?.name} (requested by ${wipeRequest.requested_by_name})`, currentUser, { module:'backup', action:'info' });
+      showToast('Wipe approved and executed — reloading…', 'error');
+      setTimeout(() => window.location.reload(), 1500);
+    } catch (e) {
+      showToast('Wipe failed: ' + (e.message || 'unknown error'), 'error');
+    }
+    setWipeBusy(false);
+  }
+
+  async function handleCancelWipeRequest() {
+    if (!wipeRequest) return;
+    if (!window.confirm('Cancel this pending wipe request? No data will be deleted.')) return;
+    setWipeBusy(true);
+    try {
+      await cancelWipeRequest(wipeRequest.id);
+      logActivity(dispatch, `Data wipe request cancelled by ${currentUser?.name} (originally requested by ${wipeRequest.requested_by_name})`, currentUser, { module:'backup', action:'info' });
+      setWipeRequest(null);
+      showToast('Wipe request cancelled');
+    } catch (e) {
+      showToast('Could not cancel: ' + (e.message || 'unknown error'), 'error');
+    }
+    setWipeBusy(false);
   }
 
   const th = { padding:'8px 12px', textAlign:'left', fontSize:10.5, fontWeight:700, color:C.tableHeaderText, textTransform:'uppercase', letterSpacing:'0.4px', background:C.tableHeaderBg };
@@ -430,15 +471,76 @@ export default function Backup() {
 
       {/* Danger Zone */}
       <Section icon="⚠️" title="Danger Zone" sub="Irreversible actions — use with extreme caution" accent={C.danger}>
-        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:16 }}>
-          <div style={{ fontSize:12.5, color:C.textMid, lineHeight:1.7 }}>
-            <strong style={{ color:C.danger }}>Wipe all data</strong> — permanently deletes all records locally AND in the cloud (company details, approval rules, and permissions are kept). This cannot be undone. Export a backup first.
+        <div style={{ fontSize:12.5, color:C.textMid, lineHeight:1.7, marginBottom:16 }}>
+          <strong style={{ color:C.danger }}>Wipe all data</strong> — permanently deletes every live business record (HR, payroll, procurement, accounting, everything) for this company. Company details, user accounts, and settings are kept. This cannot be undone. Export a backup first.
+        </div>
+
+        <div style={{ padding:'10px 14px', background:'rgba(26,122,74,.06)', border:'1px solid rgba(26,122,74,.15)', borderLeft:'4px solid '+C.green, borderRadius:8, fontSize:11.5, color:C.textMid, marginBottom:16 }}>
+          🔒 Two-admin approval required. One admin requests the wipe, a <strong>different</strong> admin must independently approve before anything is deleted. Requests expire automatically after 24 hours if not approved.
+        </div>
+
+        {!wipeLoaded ? (
+          <div style={{ fontSize:12, color:C.textMuted }}>Loading wipe request status…</div>
+        ) : wipeRequest ? (
+          // ── A request is pending ──────────────────────────────────────
+          <div style={{ padding:'16px', background:'rgba(192,57,43,.06)', border:'1px solid rgba(192,57,43,.25)', borderLeft:'4px solid '+C.danger, borderRadius:8 }}>
+            <div style={{ fontSize:13, fontWeight:700, color:C.danger, marginBottom:6 }}>⚠️ Wipe request pending approval</div>
+            <div style={{ fontSize:12.5, color:C.text, lineHeight:1.8 }}>
+              <div>Requested by <strong>{wipeRequest.requested_by_name}</strong> on {formatDateTime(wipeRequest.requested_at)}</div>
+              {wipeRequest.reason && <div>Reason: {wipeRequest.reason}</div>}
+              <div style={{ color:C.textMuted, fontSize:11.5 }}>Expires {formatDateTime(wipeRequest.expires_at)} if not approved</div>
+            </div>
+            <div style={{ display:'flex', gap:8, marginTop:14 }}>
+              {wipeRequest.requested_by_name === currentUser?.name ? (
+                <div style={{ fontSize:12, color:C.textMuted, fontStyle:'italic', display:'flex', alignItems:'center' }}>
+                  Waiting for a different admin to approve — you requested this, so you can't approve it yourself.
+                </div>
+              ) : (
+                <Btn variant="danger" loading={wipeBusy} onClick={handleApproveWipe}>🗑 Approve &amp; Execute Wipe</Btn>
+              )}
+              <Btn variant="ghost" loading={wipeBusy} onClick={handleCancelWipeRequest}>Cancel Request</Btn>
+            </div>
           </div>
-          <Btn variant="danger" onClick={handleWipe} style={{ flexShrink:0 }}>🗑 Wipe All Data</Btn>
-        </div>
-        <div style={{ marginTop:12, padding:'10px 14px', background:'rgba(217,119,6,.08)', border:'1px solid rgba(217,119,6,.2)', borderLeft:'4px solid '+C.amber, borderRadius:8, fontSize:11.5, color:C.amber }}>
-          If per-record sync (VITE_USE_PER_RECORD_SYNC) is turned on, this button does not clear the separate per-record Supabase tables — those need clearing directly in the Supabase SQL Editor. Most setups aren't using that mode yet, but check with your developer if you're unsure.
-        </div>
+        ) : (
+          // ── No request pending — start one ───────────────────────────
+          <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+            <input
+              value={wipeReason}
+              onChange={e => setWipeReason(e.target.value)}
+              placeholder="Reason for this wipe (shown to the approving admin)"
+              style={{ padding:'8px 12px', borderRadius:7, border:'1px solid '+C.border, background:C.bgCard, color:C.text, fontSize:12.5, outline:'none', fontFamily:'inherit' }}
+            />
+            <div style={{ display:'flex', justifyContent:'flex-end' }}>
+              <Btn variant="danger" loading={wipeBusy} onClick={handleRequestWipe}>🗑 Request Data Wipe</Btn>
+            </div>
+          </div>
+        )}
+
+        {wipeHistory.length > 0 && (
+          <div style={{ marginTop:18 }}>
+            <div style={{ fontSize:11.5, fontWeight:700, color:C.textMuted, textTransform:'uppercase', letterSpacing:'.4px', marginBottom:8 }}>Past wipe requests</div>
+            <div style={{ overflowX:'auto' }}>
+              <table style={{ width:'100%', borderCollapse:'collapse' }}>
+                <thead><tr>{['Requested','By','Status','Approved / Cancelled By','When'].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {wipeHistory.map(h => (
+                    <tr key={h.id}>
+                      <td style={{ ...td, fontSize:11.5 }}>{formatDateTime(h.requested_at)}</td>
+                      <td style={td}>{h.requested_by_name}</td>
+                      <td style={td}>
+                        <span style={{ fontSize:11, fontWeight:600, color: h.status==='completed'?C.danger : h.status==='cancelled'?C.textMuted : C.amber }}>
+                          {h.status==='completed'?'✓ Executed':h.status==='cancelled'?'Cancelled':'Expired'}
+                        </span>
+                      </td>
+                      <td style={{ ...td, fontSize:11.5 }}>{h.approved_by_name || h.cancelled_by_name || '—'}</td>
+                      <td style={{ ...td, fontSize:11.5 }}>{formatDateTime(h.executed_at || h.cancelled_at || h.requested_at)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </Section>
     </div>
   );
