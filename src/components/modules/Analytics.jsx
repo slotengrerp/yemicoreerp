@@ -5,7 +5,7 @@
 import { useMemo, useState } from 'react';
 import { useApp }   from '../../context/AppContext';
 import { useTheme } from '../../context/ThemeContext';
-import { formatDate } from '../../utils/helpers';
+import { formatDate, writeDeepLink } from '../../utils/helpers';
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 
 const fmt   = n => '₦' + (Number(n)||0).toLocaleString('en-NG', { maximumFractionDigits:0 });
@@ -449,19 +449,32 @@ export default function Analytics({ onNav }) {
       </div>
 
       {/* Summary Table */}
-      <Card title="Module Summary" sub="Records count and activity across all modules">
+      {/* 2026-08-19 QA fix (Yemi): these tiles sit right below 6 KPI cards that
+          all navigate on click, but had no onClick at all — same class of bug
+          KPI's own header comment above already documents for this file. Each
+          tile now jumps to its source module, same as the KPI cards. WHT is
+          the one exception: it isn't its own page (see Topbar.jsx's WHT
+          search-result comment), it's a tab inside Accounting — so that tile
+          uses the same writeDeepLink('accounting','wht') + onNav('accounting')
+          pattern already used by Topbar's global search and Dashboard's KPIs,
+          instead of a bare onNav('wht') into a route that doesn't exist. */}
+      <Card title="Module Summary" sub="Records count and activity across all modules — click a tile to open that module">
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(180px,1fr))', gap:12 }}>
           {[
-            { label:'NLNG Staff',      count:nlng.length,        icon:'👷', active:nlng.filter(s=>s.status==='Active').length },
-            { label:'SLOT Staff',      count:slot.length,        icon:'👤', active:slot.filter(s=>s.status==='Active').length },
-            { label:'Procurement POs', count:procurement.length, icon:'🛒', active:procurement.filter(p=>p.status==='Approved').length },
-            { label:'Invoices',        count:invoices.length,    icon:'🧾', active:invoices.filter(i=>i.status==='Paid').length },
-            { label:'Petty Cash',      count:pettycash.length,   icon:'💵', active:pettycash.filter(p=>p.status==='Approved').length },
-            { label:'Requests',        count:requests.length,    icon:'📋', active:requests.filter(r=>r.status==='Approved').length },
-            { label:'Fixed Assets',    count:fixedassets.filter(a=>!a.voided).length, icon:'🏗',  active:fixedassets.filter(a=>!a.voided&&a.status==='Active').length },
-            { label:'WHT Entries',     count:wht.length,         icon:'🏛',  active:wht.filter(e=>e.certStatus==='Remitted to FIRS').length },
-          ].map(({ label, count, icon, active }) => (
-            <div key={label} style={{ background:C.greenPale, borderRadius:10, padding:'12px 14px' }}>
+            { label:'NLNG Staff',      count:nlng.length,        icon:'👷', active:nlng.filter(s=>s.status==='Active').length,        nav:'nlng' },
+            { label:'SLOT Staff',      count:slot.length,        icon:'👤', active:slot.filter(s=>s.status==='Active').length,        nav:'slot' },
+            { label:'Procurement POs', count:procurement.length, icon:'🛒', active:procurement.filter(p=>p.status==='Approved').length, nav:'procurement' },
+            { label:'Invoices',        count:invoices.length,    icon:'🧾', active:invoices.filter(i=>i.status==='Paid').length,        nav:'invoices' },
+            { label:'Petty Cash',      count:pettycash.length,   icon:'💵', active:pettycash.filter(p=>p.status==='Approved').length,   nav:'pettycash' },
+            { label:'Requests',        count:requests.length,    icon:'📋', active:requests.filter(r=>r.status==='Approved').length,    nav:'request' },
+            { label:'Fixed Assets',    count:fixedassets.filter(a=>!a.voided).length, icon:'🏗',  active:fixedassets.filter(a=>!a.voided&&a.status==='Active').length, nav:'fixedassets' },
+            { label:'WHT Entries',     count:wht.length,         icon:'🏛',  active:wht.filter(e=>e.certStatus==='Remitted to FIRS').length, nav:'accounting', tab:'wht' },
+          ].map(({ label, count, icon, active, nav, tab }) => (
+            <div
+              key={label}
+              onClick={() => { if (!onNav) return; if (tab) writeDeepLink(nav, tab); onNav(nav); }}
+              style={{ background:C.greenPale, borderRadius:10, padding:'12px 14px', cursor:onNav?'pointer':'default' }}
+            >
               <div style={{ fontSize:20, marginBottom:6 }}>{icon}</div>
               <div style={{ fontSize:12, fontWeight:600, color:C.text }}>{label}</div>
               <div style={{ fontSize:22, fontWeight:800, color:C.green, lineHeight:1, marginTop:4 }}>{count}</div>
