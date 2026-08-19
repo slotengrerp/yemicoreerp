@@ -15,6 +15,7 @@ const PAGE_TITLES = {
   fixedassets:'Fixed Asset Register', wht:'Withholding Tax',
   accounting:'Accounting', approvals:'Approval Queue', analytics:'Analytics',
   users:'User Management', settings:'Settings', backup:'Backup & Restore',
+  activitylog:'Activity Log',
 };
 const PAGE_ICONS = {
   dashboard:'📊', nlng:'👷', slot:'👤', procurement:'🛒', inventory:'📦',
@@ -22,6 +23,7 @@ const PAGE_ICONS = {
   invoices:'🧾', pettycash:'💵', request:'📋',
   fixedassets:'🏗', wht:'🏛', accounting:'📒',
   approvals:'✅', analytics:'📈', users:'👥', settings:'⚙️', backup:'💾',
+  activitylog:'🕒',
 };
 
 export default function Topbar({ page, onLogout, online = true, pendingSync = 0, onMenuClick, onNav }) {

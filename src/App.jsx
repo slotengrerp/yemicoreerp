@@ -79,6 +79,7 @@ const Analytics        = lazyWithRetry(() => import('./components/modules/Analyt
 const Users            = lazyWithRetry(() => import('./components/modules/Users'), 'Users');
 const Settings         = lazyWithRetry(() => import('./components/modules/Settings'), 'Settings');
 const Backup           = lazyWithRetry(() => import('./components/modules/Backup'), 'Backup');
+const ActivityLog      = lazyWithRetry(() => import('./components/modules/ActivityLog'), 'ActivityLog');
 const ExcelManager     = lazyWithRetry(() => import('./components/modules/ExcelManager'), 'ExcelManager');
 const ModuleEditor     = lazyWithRetry(() => import('./components/modules/ModuleEditor'), 'ModuleEditor');
 const FixedAssets      = lazyWithRetry(() => import('./components/modules/FixedAssets'), 'FixedAssets');
@@ -119,6 +120,7 @@ const PAGES = {
   users:        Users,
   settings:     Settings,
   backup:       Backup,
+  activitylog:  ActivityLog,
   fixedassets:  FixedAssets,
   salesorders:  SalesOrders,
   sagereports:  SageReports,

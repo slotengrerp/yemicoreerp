@@ -51,6 +51,7 @@ const NAV = [
   { id: 'users',        label: 'Users',               icon: '👥', section: 'SYSTEM', adminOnly: true },
   { id: 'settings',     label: 'Settings',            icon: '⚙️',  section: 'SYSTEM', adminOnly: true },
   { id: 'moduleeditor', label: 'Module Editor',       icon: '🔧', section: 'SYSTEM', adminOnly: true },
+  { id: 'activitylog',  label: 'Activity Log',        icon: '🕒', section: 'SYSTEM', adminOnly: true },
   { id: 'backup',       label: 'Backup',              icon: '💾', section: 'SYSTEM', adminOnly: true },
 ];
 
@@ -74,8 +75,22 @@ function SectionHeader({ section, meta, isOpen, itemCount, collapsed, onToggle }
   const isMain = section === 'MAIN';
 
   if (collapsed) {
+    // 2026-08-19 QA fix: this branch used to have no onClick at all, so
+    // clicking a section's icon while the sidebar was narrow did nothing —
+    // reported as "SYSTEM won't open when collapsed," but it affected every
+    // section equally (HR/OPERATIONS/FINANCE/REPORTS/SYSTEM), just noticed
+    // on SYSTEM because that's where an admin reaches for Users/Settings/
+    // Backup after collapsing the sidebar for screen space. Paired with the
+    // Collapsible fix below (isOpen no longer forced false while collapsed),
+    // clicking the icon now toggles that section open, revealing its items
+    // as an icon-only stack — the same tooltip/no-label styling NavItem
+    // already renders in collapsed mode, it just never got the chance to.
     return (
-      <div style={{ display:'flex', flexDirection:'column', alignItems:'center', padding:'10px 0 4px', gap:4 }}>
+      <div
+        onClick={() => !isMain && onToggle(section)}
+        title={!isMain ? meta.label : undefined}
+        style={{ display:'flex', flexDirection:'column', alignItems:'center', padding:'10px 0 4px', gap:4, cursor: isMain ? 'default' : 'pointer', WebkitTapHighlightColor:'transparent' }}
+      >
         <span style={{ fontSize:16 }}>{meta.icon}</span>
         <div style={{ width:20, height:2, borderRadius:1, background: meta.accent, opacity:0.6 }} />
       </div>
@@ -291,7 +306,7 @@ function NavContent({
                   />
                 ))
               ) : (
-                <Collapsible isOpen={!collapsed && isOpen}>
+                <Collapsible isOpen={isOpen}>
                   {items.map(item => (
                     <NavItem
                       key={item.id}

@@ -147,6 +147,23 @@ export default function ActivityLog() {
 
   const hasFilters = search || modFilter !== 'all' || actFilter !== 'all' || userFilter !== 'all' || fromDate || toDate;
 
+  // ── Admin-only gate ─────────────────────────────────────────────────────────
+  // Sidebar hides this link from non-admins (adminOnly: true in NAV), but that's
+  // UX only — same defense-in-depth pattern as Backup.jsx, since this page shows
+  // who did what across the whole company and shouldn't be reachable by guessing
+  // the page id.
+  if (currentUser?.role !== 'admin') {
+    return (
+      <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:60, gap:16, textAlign:'center' }}>
+        <div style={{ fontSize:48 }}>🔒</div>
+        <div style={{ fontSize:18, fontWeight:700, color:C.text }}>Admin Access Only</div>
+        <div style={{ fontSize:13, color:C.textMuted, maxWidth:380, lineHeight:1.7 }}>
+          The Activity Log shows every action taken across the company and is restricted to administrators.
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:20 }}>
 
