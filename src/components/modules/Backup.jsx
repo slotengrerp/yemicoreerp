@@ -239,8 +239,17 @@ export default function Backup() {
     if (!local) { issues.push('No local data found'); }
     else {
       if (local.db) {
+        // 2026-08-19 QA fix: this flagged every object-shaped module —
+        // procurement, terminal, ap, fleet, pettycash_fund — as "corrupted"
+        // on every single run, even on a perfectly healthy database. Those
+        // modules are legitimately objects by design (see the wipe-data
+        // comment a few lines below, which already documents this for
+        // db.fleet), not flat arrays. A module is only actually corrupted if
+        // it's neither an array nor a plain object — e.g. a string, number,
+        // or null where real data was expected.
         Object.entries(local.db).forEach(([k,v]) => {
-          if (!Array.isArray(v)) issues.push(`Module "${k}" is corrupted (not an array)`);
+          const validShape = Array.isArray(v) || (v !== null && typeof v === 'object');
+          if (!validShape) issues.push(`Module "${k}" is corrupted (expected an array or object, found ${v === null ? 'null' : typeof v})`);
         });
       }
     }

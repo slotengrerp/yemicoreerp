@@ -15,16 +15,23 @@
 // their identity stable across renders, so React just updates the existing
 // DOM instead of recreating it, and scroll position survives naturally.
 // ══════════════════════════════════════════════════════════════════════════════
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApp }   from '../../context/AppContext';
 import { useTheme } from '../../context/ThemeContext';
 import { SLOT_LOGO_SRC } from '../../utils/logo';
 import { canSeeDashboard } from '../../utils/auth';
 
 // ── Nav items ─────────────────────────────────────────────────────────────────
+// `section` here doubles as the permission key that isVisible() switches on
+// below — it must NEVER be overridden by a user's saved Module Editor
+// preference (see effectiveNav in the Sidebar component), otherwise
+// relabeling/regrouping a module in Module Editor could silently change who
+// is allowed to see it. `locked` marks the small set of admin-infrastructure
+// pages that must always stay reachable — Module Editor itself included,
+// since hiding it would leave no UI path back to un-hide anything.
 const NAV = [
   // MAIN
-  { id: 'dashboard',    label: 'Dashboard',           icon: '📊', section: 'MAIN' },
+  { id: 'dashboard',    label: 'Dashboard',           icon: '📊', section: 'MAIN', locked: true },
   // HR
   { id: 'nlng',         label: 'Contract Staff',      icon: '👷', section: 'HR' },
   { id: 'slot',         label: 'Company Staff',       icon: '👤', section: 'HR' },
@@ -48,11 +55,11 @@ const NAV = [
   { id: 'sagereports',  label: 'Slot Reports',        icon: '📑', section: 'REPORTS' },
   { id: 'excel',        label: 'Excel Import/Export', icon: '📊', section: 'REPORTS', adminOnly: true },
   // SYSTEM
-  { id: 'users',        label: 'Users',               icon: '👥', section: 'SYSTEM', adminOnly: true },
-  { id: 'settings',     label: 'Settings',            icon: '⚙️',  section: 'SYSTEM', adminOnly: true },
-  { id: 'moduleeditor', label: 'Module Editor',       icon: '🔧', section: 'SYSTEM', adminOnly: true },
+  { id: 'users',        label: 'Users',               icon: '👥', section: 'SYSTEM', adminOnly: true, locked: true },
+  { id: 'settings',     label: 'Settings',            icon: '⚙️',  section: 'SYSTEM', adminOnly: true, locked: true },
+  { id: 'moduleeditor', label: 'Module Editor',       icon: '🔧', section: 'SYSTEM', adminOnly: true, locked: true },
   { id: 'activitylog',  label: 'Activity Log',        icon: '🕒', section: 'SYSTEM', adminOnly: true },
-  { id: 'backup',       label: 'Backup',              icon: '💾', section: 'SYSTEM', adminOnly: true },
+  { id: 'backup',       label: 'Backup',              icon: '💾', section: 'SYSTEM', adminOnly: true, locked: true },
 ];
 
 const SECTIONS = ['MAIN', 'HR', 'OPERATIONS', 'FINANCE', 'REPORTS', 'SYSTEM'];
@@ -227,6 +234,7 @@ function Collapsible({ isOpen, children }) {
 function NavContent({
   scrollRef, collapsed, currentUser, offlineMode, cloudReady,
   openSections, toggleSection, active, pendingApprovals, isVisible, handleNav, onCollapse,
+  effectiveNav,
 }) {
   return (
     <>
@@ -277,7 +285,7 @@ function NavContent({
       {/* Nav sections */}
       <div ref={scrollRef} style={{ flex:1, paddingBottom:8, overflowY:'auto', overflowX:'hidden' }}>
         {SECTIONS.map(section => {
-          const items = NAV.filter(n => n.section === section && isVisible(n));
+          const items = effectiveNav.filter(n => n.displaySection === section && isVisible(n));
           if (!items.length) return null;
           const meta   = SECTION_META[section];
           const isOpen = openSections[section] !== false; // default true
@@ -419,10 +427,49 @@ function NavContent({
 export default function Sidebar({ active, onNav, collapsed, onCollapse, mobileOpen, onMobileClose }) {
   const { state } = useApp();
   const { C } = useTheme();
-  const { currentUser, db, cloudReady, offlineMode } = state;
+  const { currentUser, db, cloudReady, offlineMode, appSettings } = state;
   const role         = currentUser?.role || 'viewer';
   const isAdmin      = role === 'admin';
   const isAccountant = role === 'accountant';
+
+  // 2026-08-19: Module Editor (moduleeditor page) lets an admin rename,
+  // reorder, hide, and re-icon sidebar entries, saved to
+  // appSettings.moduleConfig. It used to save fine and even say "Reload to
+  // see sidebar changes" — but nothing here ever read moduleConfig, so every
+  // change was a no-op. This merges the saved config onto NAV:
+  //   - label/icon/displaySection come from the saved config (fall back to
+  //     NAV's own values for anything not yet customised, or for modules
+  //     added after the config was last saved).
+  //   - `section` (used by isVisible()'s permission switch below) and
+  //     `adminOnly`/`badge` ALWAYS come from NAV, never from the saved
+  //     config — a relabel/regroup must never change who can see a module.
+  //   - `visible` respects the saved hide/show flag, except for `locked`
+  //     items (Dashboard/Users/Settings/Module Editor/Backup), which stay
+  //     visible regardless — those are the pages an admin needs to always
+  //     be able to reach.
+  const moduleConfig = appSettings?.moduleConfig;
+  const effectiveNav = useMemo(() => {
+    if (!moduleConfig || !moduleConfig.length) {
+      return NAV.map(n => ({ ...n, displaySection: n.section, visible: true }));
+    }
+    const configuredIds = new Set(moduleConfig.map(m => m.id));
+    const merged = [];
+    moduleConfig.forEach(cfg => {
+      const base = NAV.find(n => n.id === cfg.id);
+      if (!base) return; // stale id from an old config — no longer a real page
+      merged.push({
+        ...base,
+        label: cfg.label || base.label,
+        icon: cfg.icon || base.icon,
+        displaySection: cfg.section || base.section,
+        visible: base.locked ? true : cfg.visible !== false,
+      });
+    });
+    NAV.forEach(base => {
+      if (!configuredIds.has(base.id)) merged.push({ ...base, displaySection: base.section, visible: true });
+    });
+    return merged;
+  }, [moduleConfig]);
 
   const [openSections, setOpenSections] = useState(
     () => Object.fromEntries(SECTIONS.map(s => [s, s === 'MAIN']))
@@ -443,10 +490,10 @@ export default function Sidebar({ active, onNav, collapsed, onCollapse, mobileOp
   }
 
   useEffect(() => {
-    const activeItem = NAV.find(n => n.id === active);
+    const activeItem = effectiveNav.find(n => n.id === active);
     let didExpand = false;
-    if (activeItem && openSections[activeItem.section] === false) {
-      setOpenSections(prev => ({ ...prev, [activeItem.section]: true }));
+    if (activeItem && openSections[activeItem.displaySection] === false) {
+      setOpenSections(prev => ({ ...prev, [activeItem.displaySection]: true }));
       didExpand = true;
     }
     const restore = () => {
@@ -490,6 +537,7 @@ export default function Sidebar({ active, onNav, collapsed, onCollapse, mobileOp
   ].length;
 
   function isVisible(item) {
+    if (item.visible === false) return false; // hidden via Module Editor (locked items are never merged in as false)
     if (item.adminOnly && !isAdmin) return false;
     switch (item.section) {
       // Dashboard aggregates cross-module data (HR headcount, money in/out)
@@ -520,6 +568,7 @@ export default function Sidebar({ active, onNav, collapsed, onCollapse, mobileOp
   const navContentProps = {
     collapsed, currentUser, offlineMode, cloudReady,
     openSections, toggleSection, active, pendingApprovals, isVisible, handleNav, onCollapse,
+    effectiveNav,
   };
 
   return (

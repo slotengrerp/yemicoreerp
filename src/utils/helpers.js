@@ -69,9 +69,25 @@ export function truncate(str, n = 30) {
   return str.length > n ? str.slice(0, n) + '…' : str;
 }
 
+// 2026-08-19 QA fix: this hardcoded MODULE_IDS/EXTENDED_IDS allowlist had
+// drifted from the real `db` shape — it silently missed 'terminal' (1351
+// records), 'ap', 'fleet', and every module added since this list was last
+// touched, AND `db[k]?.length` returns undefined→0 for object-shaped
+// modules like procurement ({ pos, rfqs, invoices, waybills }), which have
+// no top-level .length at all. Net effect: the Backup page's "Total
+// Records" tile — and the record counts written into local-backup files
+// and cloud/file-restore history entries — showed 53 when the real total
+// (matching the per-module tiles directly above it, which already handled
+// this correctly) was over 1,400. Rewritten to walk every key in `db`
+// generically, the same way Backup.jsx's own per-module tile calc already
+// does, so it can't drift out of sync with the real module list again.
 export function totalRecords(db) {
   if (!db) return 0;
-  return [...MODULE_IDS, ...EXTENDED_IDS, '_trash'].reduce((a, k) => a + (db[k]?.length || 0), 0);
+  return Object.values(db).reduce((a, v) => {
+    if (Array.isArray(v)) return a + v.length;
+    if (v && typeof v === 'object') return a + Object.values(v).reduce((s, x) => s + (Array.isArray(x) ? x.length : 0), 0);
+    return a;
+  }, 0);
 }
 
 

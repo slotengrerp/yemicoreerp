@@ -256,7 +256,13 @@ function CustomerStatementTab({ state, dispatch, inp }) {
     const from = fromDate ? new Date(fromDate) : null;
     const to   = toDate   ? new Date(toDate)   : new Date(toDate + 'T23:59:59');
     const out = [];
-    invoices.filter(matchInv).forEach(inv => {
+    // 2026-08-19 QA fix: voided AR invoices (inv.voided === true) kept
+    // showing up here as real debt — Alphaden Energy's statement listed a
+    // voided ₦10,250 test invoice as a live "Over 90 days" balance. Voiding
+    // an invoice never changes its `status` field (it stays 'Pending' etc.),
+    // it's tracked separately via `voided`, same convention already used by
+    // autoPostJournals.js and AccountsReceivable.jsx's own invoice list.
+    invoices.filter(inv => matchInv(inv) && !inv.voided && inv.status !== 'Cancelled').forEach(inv => {
       const d = new Date(inv.date);
       if (from && d < from) return;
       if (to   && d > to)   return;
@@ -299,7 +305,7 @@ function CustomerStatementTab({ state, dispatch, inp }) {
     if (!client) return { current:0, b30:0, b60:0, b90:0, b120:0 };
     const out = { current:0, b30:0, b60:0, b90:0, b120:0 };
     invoices.filter(inv => inv.clientCode === clientCode || inv.client === client.name)
-      .filter(inv => inv.status !== 'Paid' && inv.status !== 'Cancelled')
+      .filter(inv => inv.status !== 'Paid' && inv.status !== 'Cancelled' && !inv.voided)
       .forEach(inv => {
         const bal = (Number(inv.ngnEquivalent || inv.netPayable) || 0) - (Number(inv.receivedAmount) || 0);
         if (bal <= 0) return;
@@ -507,7 +513,10 @@ function SupplierStatementTab({ state, dispatch, inp }) {
     const from = fromDate ? new Date(fromDate) : null;
     const to   = toDate   ? new Date(toDate + 'T23:59:59') : null;
     const out = [];
-    bills.filter(matchBill).forEach(b => {
+    // 2026-08-19 QA fix: same issue as CustomerStatementTab — a Cancelled
+    // (voided) bill was still listed as a live "Bill" credit line here even
+    // though the aging breakdown below already correctly excludes Cancelled.
+    bills.filter(b => matchBill(b) && b.status !== 'Cancelled').forEach(b => {
       const d = new Date(b.date);
       if (from && d < from) return;
       if (to   && d > to)   return;
@@ -764,7 +773,10 @@ function CreditNotesTab({ state, dispatch, inp }) {
 
   // Pick invoices that can have a credit note (status Paid/Pending/Overdue,
   // not Cancelled, not already fully credited).
-  const eligibleInvoices = invoices.filter(inv => inv.status !== 'Cancelled');
+  // 2026-08-19 QA fix: voided invoices (voided:true, status unchanged) were
+  // still selectable here — you can't credit-note an invoice that never
+  // actually took effect financially.
+  const eligibleInvoices = invoices.filter(inv => inv.status !== 'Cancelled' && !inv.voided);
   const totalCreditedFor = (invId) => creditNotes
     .filter(cn => cn.invoiceId === invId && cn.status !== 'Cancelled')
     .reduce((s, cn) => s + (Number(cn.amount) || 0), 0);
@@ -1543,7 +1555,9 @@ function AgingTab({ state, dispatch, inp }) {
   const arRows = useMemo(() => {
     const invoices = db.invoices || [];
     const map = {};
-    invoices.filter(i => i.status !== 'Paid' && i.status !== 'Cancelled').forEach(inv => {
+    // 2026-08-19 QA fix: voided invoices (voided:true, status left
+    // unchanged) were showing here as real overdue AR debt.
+    invoices.filter(i => i.status !== 'Paid' && i.status !== 'Cancelled' && !i.voided).forEach(inv => {
       const bal = (Number(inv.ngnEquivalent || inv.netPayable) || 0) - (Number(inv.receivedAmount) || 0);
       if (bal <= 0) return;
       const key = inv.clientCode || inv.client;
@@ -1995,7 +2009,12 @@ function WHTTab({ state, dispatch, inp }) {
     const from = new Date(fromDate);
     const to   = new Date(toDate + 'T23:59:59');
     const map = {};
-    bills.forEach(b => {
+    // 2026-08-19 QA fix: Cancelled/voided AP bills (e.g. a cancelled
+    // procurement invoice) were still counted here, which would print a WHT
+    // certificate for tax withheld on a purchase that never actually went
+    // through. Same Cancelled-exclusion already used everywhere else in
+    // this file (Aging, Supplier Statement, Batch Payment Run).
+    bills.filter(b => b.status !== 'Cancelled').forEach(b => {
       const d = new Date(b.date);
       if (d < from || d > to) return;
       const wht = Number(b.whtAmount) || 0;
@@ -2158,8 +2177,10 @@ function CreditLimitTab({ state, dispatch, inp }) {
   const rows = useMemo(() => {
     return clients.map(c => {
       // Outstanding = sum of (netPayable - receivedAmount) for unpaid invoices
+      // 2026-08-19 QA fix: voided invoices were counting toward a customer's
+      // credit-limit utilization, which could wrongly block a new invoice.
       const custInvoices = invoices.filter(inv => (inv.clientCode === c.code || inv.client === c.name)
-        && inv.status !== 'Paid' && inv.status !== 'Cancelled');
+        && inv.status !== 'Paid' && inv.status !== 'Cancelled' && !inv.voided);
       const outstanding = custInvoices.reduce((s, inv) => {
         const bal = (Number(inv.ngnEquivalent || inv.netPayable) || 0) - (Number(inv.receivedAmount) || 0);
         return s + Math.max(0, bal);

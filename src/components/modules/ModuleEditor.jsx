@@ -11,29 +11,46 @@ import { showToast } from '../../utils/helpers';
 import { saveSettingsLocal } from '../../utils/db';
 import { logActivity } from '../../utils/audit';
 
+// 2026-08-19 QA fix: this list had drifted badly from Sidebar.jsx's real NAV
+// array — missing 6 modules added since this was last touched (Accounts
+// Payable, Sales Orders, Project P&L, Slot Reports, Module Editor itself,
+// Activity Log), carrying a dead 'wht' entry (WHT now lives inside
+// Accounting's own tab, not as a standalone page), and using section names
+// (MODULES/EXTENDED/ADMIN) that don't match any real sidebar accordion group.
+// Now that Sidebar.jsx actually reads this saved config (previously it
+// didn't — see Sidebar.jsx's effectiveNav), id and section MUST match NAV
+// exactly or a module silently vanishes from the real sidebar. `locked`
+// mirrors Sidebar.jsx's own locked set — these are the pages an admin needs
+// to always be able to reach (self-consistently: hiding Module Editor would
+// have no UI path back to un-hide it).
 const DEFAULT_MODULES = [
-  { id:'dashboard',   label:'Dashboard',          icon:'📊', section:'MAIN',     visible:true, locked:true  },
-  { id:'nlng',        label:'Contract Staff',      icon:'👷', section:'MODULES',  visible:true, locked:false },
-  { id:'slot',        label:'Company Staff',       icon:'👤', section:'MODULES',  visible:true, locked:false },
-  { id:'procurement', label:'Procurement',         icon:'🛒', section:'MODULES',  visible:true, locked:false },
-  { id:'inventory',   label:'Inventory',           icon:'📦', section:'MODULES',  visible:true, locked:false },
-  { id:'vehicles',    label:'Fleet / Vehicles',    icon:'🚗', section:'MODULES',  visible:true, locked:false },
-  { id:'terminal',    label:'Terminal Operations', icon:'🏭', section:'MODULES',  visible:true, locked:false },
-  { id:'invoices',    label:'Invoices',            icon:'🧾', section:'MODULES',  visible:true, locked:false },
-  { id:'pettycash',   label:'Petty Cash',          icon:'💵', section:'MODULES',  visible:true, locked:false },
-  { id:'request',     label:'Requests',            icon:'📋', section:'MODULES',  visible:true, locked:false },
-  { id:'fixedassets', label:'Fixed Assets',        icon:'🏗',  section:'EXTENDED', visible:true, locked:false },
-  { id:'wht',         label:'WHT',                 icon:'🏛',  section:'EXTENDED', visible:true, locked:false },
-  { id:'accounting',  label:'Accounting',          icon:'📒', section:'FINANCE',  visible:true, locked:false },
-  { id:'approvals',   label:'Approvals',           icon:'✅', section:'FINANCE',  visible:true, locked:false },
-  { id:'analytics',   label:'Analytics',           icon:'📈', section:'REPORTS',  visible:true, locked:false },
-  { id:'excel',       label:'Excel Import/Export', icon:'📊', section:'ADMIN',    visible:true, locked:false },
-  { id:'users',       label:'Users',               icon:'👥', section:'ADMIN',    visible:true, locked:true  },
-  { id:'settings',    label:'Settings',            icon:'⚙️',  section:'ADMIN',    visible:true, locked:true  },
-  { id:'backup',      label:'Backup',              icon:'💾', section:'ADMIN',    visible:true, locked:true  },
+  { id:'dashboard',    label:'Dashboard',           icon:'📊', section:'MAIN',       visible:true, locked:true  },
+  { id:'nlng',         label:'Contract Staff',       icon:'👷', section:'HR',         visible:true, locked:false },
+  { id:'slot',         label:'Company Staff',        icon:'👤', section:'HR',         visible:true, locked:false },
+  { id:'procurement',  label:'Procurement',          icon:'🛒', section:'OPERATIONS', visible:true, locked:false },
+  { id:'inventory',    label:'Inventory',            icon:'📦', section:'OPERATIONS', visible:true, locked:false },
+  { id:'vehicles',     label:'Fleet / Vehicles',     icon:'🚗', section:'OPERATIONS', visible:true, locked:false },
+  { id:'terminal',     label:'Terminal Operations',  icon:'🏭', section:'OPERATIONS', visible:true, locked:false },
+  { id:'request',      label:'Requests',             icon:'📋', section:'OPERATIONS', visible:true, locked:false },
+  { id:'accounting',   label:'Accounting',           icon:'📒', section:'FINANCE',    visible:true, locked:false },
+  { id:'ap',           label:'Accounts Payable',     icon:'📤', section:'FINANCE',    visible:true, locked:false },
+  { id:'salesorders',  label:'Sales Orders',         icon:'📋', section:'FINANCE',    visible:true, locked:false },
+  { id:'invoices',     label:'Accounts Receivable',  icon:'📥', section:'FINANCE',    visible:true, locked:false },
+  { id:'projectpl',    label:'Project P&L',          icon:'📐', section:'FINANCE',    visible:true, locked:false },
+  { id:'pettycash',    label:'Petty Cash',           icon:'💵', section:'FINANCE',    visible:true, locked:false },
+  { id:'fixedassets',  label:'Fixed Assets',         icon:'🏗',  section:'FINANCE',    visible:true, locked:false },
+  { id:'approvals',    label:'Approvals',            icon:'✅', section:'FINANCE',    visible:true, locked:false },
+  { id:'analytics',    label:'Analytics',            icon:'📈', section:'REPORTS',    visible:true, locked:false },
+  { id:'sagereports',  label:'Slot Reports',         icon:'📑', section:'REPORTS',    visible:true, locked:false },
+  { id:'excel',        label:'Excel Import/Export',  icon:'📊', section:'REPORTS',    visible:true, locked:false },
+  { id:'users',        label:'Users',                icon:'👥', section:'SYSTEM',     visible:true, locked:true  },
+  { id:'settings',     label:'Settings',             icon:'⚙️',  section:'SYSTEM',     visible:true, locked:true  },
+  { id:'moduleeditor', label:'Module Editor',        icon:'🔧', section:'SYSTEM',     visible:true, locked:true  },
+  { id:'activitylog',  label:'Activity Log',         icon:'🕒', section:'SYSTEM',     visible:true, locked:false },
+  { id:'backup',       label:'Backup',               icon:'💾', section:'SYSTEM',     visible:true, locked:true  },
 ];
 
-const SECTIONS = ['MAIN','MODULES','EXTENDED','FINANCE','REPORTS','ADMIN'];
+const SECTIONS = ['MAIN','HR','OPERATIONS','FINANCE','REPORTS','SYSTEM'];
 const ICON_PRESETS = ['📊','👷','👤','🛒','📦','🚗','🏭','🧾','💵','📋','📥','🏗','🏛','📒','✅','📈','📝','⚙️','💾','👥','🔧','📁','🗂','💼','🏢','📌','🔑','📎','🗒','✏️','🖨','📱','💻','🖥'];
 
 function Btn({ children, onClick, variant='primary', sm, disabled, style={} }) {

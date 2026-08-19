@@ -18,12 +18,20 @@ const ACTION_COLORS = {
   login:   { bg:'rgba(142,68,173,.12)', c:'#8E44AD', label:'Login'    },
 };
 
+// 2026-08-19 QA fix: several real modules were missing here (fell back to
+// raw ids like 'inventory'/'salesorders' in the filter dropdown, standing
+// out next to properly-cased entries like 'Contract Staff'). Filled out to
+// match every module id in Sidebar.jsx's NAV.
 const MODULE_LABELS = {
   nlng:'Contract Staff', slot:'Company Staff', procurement:'Procurement',
-  invoices:'Invoices', pettycash:'Petty Cash', request:'Requests',
+  inventory:'Inventory', vehicles:'Fleet / Vehicles', terminal:'Terminal Operations',
+  invoices:'Accounts Receivable', ap:'Accounts Payable', salesorders:'Sales Orders',
+  projectpl:'Project P&L', pettycash:'Petty Cash', request:'Requests',
   fixedassets:'Fixed Assets', wht:'WHT',
   accounting:'Accounting', approvals:'Approvals', users:'Users',
-  settings:'Settings', backup:'Backup',
+  analytics:'Analytics', sagereports:'Slot Reports', excel:'Excel Import/Export',
+  settings:'Settings', moduleeditor:'Module Editor', activitylog:'Activity Log',
+  backup:'Backup',
 };
 
 function ActionBadge({ action }) {

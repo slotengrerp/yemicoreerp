@@ -694,7 +694,7 @@ export default function Settings() {
                 <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
                   {[
                     ['Application',SLOT_BRAND.short],
-                    ['Version','2.0.0'],
+                    ['Version','3.0.0'], // 2026-08-19 QA fix: was hardcoded '2.0.0', stale vs the v3.0 shown everywhere else (Sidebar footer, build banner)
                     ['Build','React + Vite + Supabase'],
                     ['Environment','Production'],
                     ['Cloud Status', cloudReady ? '✓ Connected' : '✗ Offline'],
