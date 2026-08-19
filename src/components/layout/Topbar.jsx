@@ -77,6 +77,55 @@ export default function Topbar({ page, onLogout, online = true, pendingSync = 0,
     (db.inventory   || []).forEach(r => push('inventory',   r.regNumber || r.name || 'Item','📦', r, ['name','regNumber','make','position']));
     (db.vehicles    || []).forEach(r => push('vehicles',    r.vehicleNumber || 'Vehicle',   '🚗', r, ['vehicleNumber','make','unitServing']));
 
+    // 2026-08-19 — expanded from 9 record types to cover the rest of the app.
+    // Global search only ever indexed the handful of modules above; every
+    // other module (AP, Sales Orders, Procurement's own RFQ/waybill/invoice
+    // sub-tabs, Terminal, Fleet, Credit Notes) was invisible to Ctrl+K even
+    // though its data was right there in `db`. Same push() helper, same
+    // pattern — each entry's `tab` matches that module's own TABS key (see
+    // PROC_TABS in Procurement.jsx, TABS in TerminalOps.jsx/FleetMaintenance.jsx)
+    // so clicking a result lands on the right sub-tab, not just the right page.
+    (db.ap?.bills || []).forEach(r => push('ap', r.billNo || 'AP Bill', '📤', r, ['billNo','vendorName','description']));
+    (db.salesOrders || []).forEach(r => push('salesorders', r.soNo || 'Sales Order', '📋', r, ['soNo','client']));
+    (db.procurement?.rfqs || []).forEach(r => push('procurement', r.rfqNo || 'RFQ', '📋', r, ['rfqNo','clientName','description'], 'rfq'));
+    (db.procurement?.waybills || []).forEach(r => push('procurement', r.waybillNo || 'Waybill', '🚚', r, ['waybillNo','poNo'], 'waybill'));
+    (db.procurement?.invoices || []).forEach(r => push('procurement', r.invoiceNo || 'Supplier Invoice', '🧾', r, ['invoiceNo','supplierInvoiceNo','supplier','poNo'], 'invoice'));
+    (db.terminal?.containers || []).forEach(r => push('terminal', r.containerNo || 'Container', '📦', r, ['containerNo','billOfLading','consigneeName','shippingCompany'], 'containers'));
+    (db.terminal?.bols || []).forEach(r => push('terminal', r.billOfLadingNo || 'Bill of Lading', '📦', r, ['billOfLadingNo'], 'bols'));
+    (db.terminal?.charges || []).forEach(r => push('terminal', r.receiptNo || r.containerNo || 'Charge', '💰', r, ['containerNo','agentName','receiptNo'], 'charges'));
+    (db.terminal?.advances || []).forEach(r => push('terminal', r.payerName || 'Advance', '💵', r, ['payerName','receiptNo'], 'advances'));
+    (db.fleet?.fleet || []).forEach(r => push('vehicles', r.vehicleNo || 'Fleet Vehicle', '🚗', r, ['vehicleNo','make','model','assignedDriver'], 'fleet'));
+    (db.fleet?.breakdowns || []).forEach(r => push('vehicles', r.vehicleNo || 'Breakdown', '🚨', r, ['driverName','vehicleNo','vehicleMake','detailOfFault'], 'breakdown'));
+    (db.creditNotes || []).forEach(r => push('sagereports', r.cnNo || 'Credit Note', '↩️', r, ['cnNo','invoiceNo','client'], 'creditNotes'));
+
+    // ── second pass — the remaining Accounting / Inventory / Terminal / Fleet
+    // sub-collections, all living inside SageReports.jsx's own tab set (see
+    // its TABS array) or FleetMaintenance.jsx's TABS. Same tab-key-matching
+    // rule as above.
+    (db.recurringInvoiceTemplates || []).forEach(r => push('sagereports', r.tplNo || 'Recurring Invoice', '🔁', r, ['tplNo','clientName','description'], 'recurring'));
+    (db.bankReconciliations || []).forEach(r => push('sagereports', r.bankCode || 'Bank Reconciliation', '🏧', r, ['bankCode','stmtDate'], 'bankRec'));
+    (db.prepayments || []).forEach(r => push('sagereports', r.description || 'Prepayment', '💳', r, ['description','supplier'], 'prepayAccrual'));
+    (db.accruals || []).forEach(r => push('sagereports', r.description || 'Accrual', '💳', r, ['description','supplier'], 'prepayAccrual'));
+    (db.assetDisposals || []).forEach(r => push('sagereports', r.dispNo || 'Asset Disposal', '🏗', r, ['dispNo'], 'assetDisposal'));
+    (db.budgets || []).forEach(r => push('sagereports', r.accountName || 'Budget', '📊', r, ['accountCode','accountName'], 'budget'));
+    (db.stockItems || []).forEach(r => push('sagereports', r.name || r.code || 'Stock Item', '📦', r, ['code','name','supplier'], 'warehouses'));
+    (db.stockMovements || []).forEach(r => push('sagereports', r.ref || 'Stock Movement', '📦', r, ['ref','reason','type'], 'warehouses'));
+    (db.stockTakes || []).forEach(r => push('sagereports', r.stNo || 'Stock Take', '📦', r, ['stNo','name'], 'stockTake'));
+    (db.stockTransfers || []).forEach(r => push('sagereports', r.itemName || 'Stock Transfer', '📦', r, ['itemCode','itemName'], 'warehouses'));
+    (db.warehouses || []).forEach(r => push('sagereports', r.name || 'Warehouse', '🏬', r, ['code','name','location'], 'warehouses'));
+    (db.serialBatches || []).forEach(r => push('sagereports', r.code || 'Serial/Batch', '🏷️', r, ['code','supplier'], 'serialBatch'));
+    (db.boms || []).forEach(r => push('sagereports', r.bomNo || 'BOM', '🔧', r, ['bomNo','assemblyItemCode'], 'bom'));
+    (db.bomBuilds || []).forEach(r => push('sagereports', r.buildNo || 'BOM Build', '🔧', r, ['buildNo','bomNo'], 'bom'));
+    (db.arReceipts || []).forEach(r => push('invoices', r.receiptNo || 'AR Receipt', '💰', r, ['receiptNo','client','reference'], 'receipts'));
+    (db.terminal?.consignees || []).forEach(r => push('terminal', r.name || 'Consignee', '📋', r, ['name'], 'masters'));
+    (db.terminal?.shippingCompanies || []).forEach(r => push('terminal', r.name || 'Shipping Company', '🚢', r, ['name'], 'masters'));
+    (db.terminal?.logistics || []).forEach(r => push('terminal', r.containerNo || 'Logistics Record', '🚢', r, ['containerNo','billOfLading','consigneeName','shippingCompany'], 'logistics'));
+    (db.fleet?.services || []).forEach(r => push('vehicles', r.vehicleNo || 'Service Record', '🔧', r, ['vehicleNo','operation','technicianName'], 'service'));
+    (db.fleet?.requests || []).forEach(r => push('vehicles', r.requestNo || 'Maint. Request', '📋', r, ['requestNo','assetName','assetNo','requestedBy'], 'requests'));
+    (db.fleet?.handovers || []).forEach(r => push('vehicles', r.vehicleNo || 'Handover', '🤝', r, ['vehicleNo','receiverName','handedOverBy'], 'handover'));
+    (db.fleet?.facilitySchedule || []).forEach(r => push('vehicles', r.description || 'Facility Schedule', '🏢', r, ['description','assignedTo'], 'facility'));
+    (db.fleet?.calibration || []).forEach(r => push('vehicles', r.equipmentName || 'Calibration', '🎯', r, ['equipmentName','certType','certNo','authority'], 'calibration'));
+
     return results.slice(0, 12);
   }, [searchQ, db, acctData]);
 

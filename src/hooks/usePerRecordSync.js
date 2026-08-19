@@ -19,7 +19,7 @@ import { useEffect, useRef } from 'react';
 import {
   loadAll, loadAppSettings, loadJournals, loadActivity,
   saveRecord, deleteRecord, saveAppSettings, postJournalEntry, logActivityServer,
-  backfillFromBlob, backfillAccountingData, saveAttachment, subscribePerRecord,
+  backfillFromBlob, backfillAccountingData, saveAttachment, deleteAttachment, subscribePerRecord,
   subscribeActivity,
   RECORD_TABLES,
 } from '../supabase/syncPerRecord';
@@ -784,6 +784,15 @@ export async function pushActivity({ userId, userName, userRole, module, action,
 export async function pushAttachment({ parentType, parentId, att }) {
   if (!USE_PER_RECORD || !supabaseReady) return { ok: false };
   return saveAttachment({ parentType, parentId, att });
+}
+
+// 2026-08-19: companion to pushAttachment — voids the cross-module index row
+// when a file is removed via AttachmentUploader, so the index doesn't outlive
+// the attachment it points to. Mirrors deleteAttachment's own soft-delete
+// (audit trail), and best-effort deletes the underlying storage object too.
+export async function pushDeleteAttachment(attId, opts) {
+  if (!USE_PER_RECORD || !supabaseReady) return { ok: false };
+  return deleteAttachment(attId, opts);
 }
 
 export { USE_PER_RECORD };

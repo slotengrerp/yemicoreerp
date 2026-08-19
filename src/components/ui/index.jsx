@@ -305,13 +305,28 @@ export function ThemeToggle() {
 //     onChange={next => updateInvoice({...invoice, attachments: next})}
 //     folder="invoices"                       // logical folder, prefix on storage path
 //     maxSizeMB={10}
+//     parentType="ar-invoice"                 // optional — see below
+//     parentId={invoice.id}                   // optional — see below
 //   />
 //
 // `attachments` is the source of truth. The component uploads the bytes
 // and adds a record to the list, never mutating other entries.
+//
+// `parentType`/`parentId` (optional): when supplied, every upload/delete is
+// also mirrored into the standalone `attachments` cross-module index table
+// (supabase/syncPerRecord.js's saveAttachment/deleteAttachment) — the lookup
+// meant to power a company-wide "search all documents" view. 2026-08-19: this
+// table existed with zero writers anywhere in the app; every AttachmentUploader
+// call site was omitting these props, so the index was silently unpopulated
+// forever even though the feature it exists for was already half-built (see
+// loadAttachments). Fire-and-forget, same pattern as audit.js's pushActivity —
+// a failed index write must never block the actual upload/delete it's
+// describing. Callers that don't pass these props are unaffected: the
+// attachment still lives safely in the parent record's own attachments[]
+// field either way, this only concerns the separate cross-module index.
 import { useState, useRef } from 'react';
 import { showToast } from '../../utils/helpers';
-export function AttachmentUploader({ attachments = [], onChange, folder = 'general', maxSizeMB = 10, compact = false, currentUser }) {
+export function AttachmentUploader({ attachments = [], onChange, folder = 'general', maxSizeMB = 10, compact = false, currentUser, parentType, parentId }) {
   const { C } = useTheme();
   const fileRef = useRef(null);
   const [uploading, setUploading] = useState(false);
@@ -335,7 +350,7 @@ export function AttachmentUploader({ attachments = [], onChange, folder = 'gener
             contentType: file.type,
             companyId: folder,
           });
-          next.push({
+          const attRecord = {
             id: 'att-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7),
             name: file.name,
             url: result.url,
@@ -346,7 +361,13 @@ export function AttachmentUploader({ attachments = [], onChange, folder = 'gener
             folder,
             uploadedAt: new Date().toISOString(),
             uploadedBy: currentUser?.name || currentUser?.email || 'system',
-          });
+          };
+          next.push(attRecord);
+          if (parentType && parentId) {
+            import('../../hooks/usePerRecordSync').then(({ pushAttachment }) => {
+              pushAttachment({ parentType, parentId, att: attRecord });
+            }).catch(() => {});
+          }
         } catch (e) {
           showToast(`Upload failed: ${file.name} — ${e.message}`, 'error');
         }
@@ -364,6 +385,13 @@ export function AttachmentUploader({ attachments = [], onChange, folder = 'gener
     if (att.storageBackend === 'storage' && att.path) {
       const { deleteDocument } = await import('../../supabase/storage');
       await deleteDocument(att.path);
+    }
+    if (parentType && parentId) {
+      import('../../hooks/usePerRecordSync').then(({ pushDeleteAttachment }) => {
+        // storage file is already removed above — pass no storagePath so
+        // deleteAttachment's own best-effort storage cleanup is a no-op.
+        pushDeleteAttachment(att.id);
+      }).catch(() => {});
     }
     onChange?.(attachments.filter(a => a.id !== att.id));
     showToast('Attachment deleted', 'error');

@@ -1055,6 +1055,8 @@ export default function AccountsReceivable() {
                 }}
                 folder="ar-invoices"
                 currentUser={currentUser}
+                parentType="ar-invoice"
+                parentId={sel2.id}
               />
             </div>
           </Card>
