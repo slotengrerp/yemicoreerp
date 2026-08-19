@@ -15,6 +15,7 @@
 // ══════════════════════════════════════════════════════════════════════════════
 import { STORAGE, MODULE_IDS, EXTENDED_IDS } from './helpers';
 import { saveToSupabase, saveSettingsToSupabase, loadFromSupabase } from '../supabase/sync';
+import { saveAppSettings } from '../supabase/syncPerRecord';
 
 // ── localStorage size guard ───────────────────────────────────────────────────
 const QUOTA_WARN_BYTES  = 4 * 1024 * 1024;
@@ -216,10 +217,33 @@ export async function loadDBCloud() {
 }
 
 // Alias used by Settings.jsx — saves settings to Supabase
+//
+// 2026-08-19 QA fix: this only ever wrote to the legacy company_data.settings
+// blob (saveSettingsToSupabase). But boot-time settings are read from TWO
+// different places depending on VITE_USE_PER_RECORD_SYNC: App.jsx's Phase 1
+// reads localStorage/company_data, while usePerRecordSync's boot effect
+// (which wins on every load once per-record sync is on, which it is in
+// production) reads the SEPARATE app_settings table via loadAppSettings().
+// Nothing was ever writing to that second table, so every settings save
+// made through the UI (Settings.jsx branding/security/roles, and Module
+// Editor's layout) appeared to succeed and even survived a reload if you
+// looked at company_data directly — but the actually-rendered UI silently
+// reverted on the very next load, because usePerRecordSync's fetch of the
+// stale app_settings row ran after Phase 1 and overwrote it. Caught live:
+// renamed a module, saved, confirmed the write hit company_data.settings
+// via direct query, reloaded — sidebar still showed the old label. Fixed
+// by writing to both tables here, once, so every caller (present and
+// future) is correct regardless of which sync engine a given deployment
+// is running.
 export async function saveSettingsCloud(settings) {
   try {
-    await saveSettingsToSupabase(settings);
-    return true;
+    const [legacy, perRecord] = await Promise.allSettled([
+      saveSettingsToSupabase(settings),
+      saveAppSettings(settings),
+    ]);
+    const legacyOk    = legacy.status === 'fulfilled' && legacy.value;
+    const perRecordOk = perRecord.status === 'fulfilled' && perRecord.value?.ok;
+    return legacyOk || perRecordOk;
   } catch { return false; }
 }
 
