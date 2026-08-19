@@ -6,7 +6,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useApp }   from '../../context/AppContext';
 import { useTheme } from '../../context/ThemeContext';
 import { showToast, formatDate, formatDateTime, totalRecords, WIPE_FLAG_KEY } from '../../utils/helpers';
-import { saveDBLocal, loadDBLocal, saveDBCloud, loadDBCloud, saveSettingsLocal, getStorageHealth } from '../../utils/db';
+import { saveDBLocal, loadDBLocal, saveDBCloud, loadDBCloud, saveSettingsLocal, saveSettingsCloud, getStorageHealth } from '../../utils/db';
 import { logActivity } from '../../utils/audit';
 import { getVendors, saveVendors } from '../../utils/vendorMaster';
 import { getClients, saveClients } from '../../utils/clientMaster';
@@ -183,7 +183,22 @@ export default function Backup() {
       const data = await loadDBCloud();
       if (!data) { showToast('No cloud backup found','error'); setLoad('cloudRestore',false); return; }
       if (data.db)       { dispatch({ type:'SET_DB', payload:data.db }); saveDBLocal(data.db, data.activity||[]); }
-      if (data.settings) { dispatch({ type:'SET_SETTINGS', payload:data.settings }); saveSettingsLocal(data.settings); }
+      if (data.settings) {
+        dispatch({ type:'SET_SETTINGS', payload:data.settings });
+        saveSettingsLocal(data.settings);
+        // 2026-08-19 QA fix: loadDBCloud() reads the manual point-in-time
+        // snapshot in company_data — that's correct, it's what "restore my
+        // last backup" should mean. But live settings on every subsequent
+        // boot are read from the separate app_settings table (see
+        // saveSettingsCloud()'s comment in utils/db.js for the full
+        // history). Without this, a restored snapshot would look right for
+        // the rest of this session and then silently vanish the moment the
+        // page reloaded, because boot would overwrite it with whatever was
+        // last in app_settings — the exact same class of bug as the
+        // Module Editor one this was found alongside. Pushing the restored
+        // settings into app_settings too makes the restore actually stick.
+        saveSettingsCloud(data.settings);
+      }
       if (data.acctData) { dispatch({ type:'SET_ACCT', payload:data.acctData }); }
       pushHistory({ type:'Cloud Restore', records:totalRecords(data.db||{}), status:'Success' });
       logActivity(dispatch, `Cloud restore completed by ${currentUser?.name}`, currentUser);
@@ -203,7 +218,7 @@ export default function Backup() {
     // this app writes are UTF-8, but a backup that has been round-tripped
     // through a Windows editor can come back ANSI-encoded, and readAsText would
     // quietly replace every non-ASCII character in the restored data.
-    readTextSmart(file).then(text => {
+    readTextSmart(file).then(async text => {
       try {
         const payload = JSON.parse(text);
         // Validate structure
@@ -214,7 +229,16 @@ export default function Backup() {
         const acct    = payload.acctData || null;
         dispatch({ type:'SET_DB', payload:dbData });
         saveDBLocal(dbData, actData);
-        if (sets) { dispatch({ type:'SET_SETTINGS', payload:sets }); saveSettingsLocal(sets); }
+        if (sets) {
+          dispatch({ type:'SET_SETTINGS', payload:sets });
+          saveSettingsLocal(sets);
+          // 2026-08-19 QA fix: same reasoning as handleCloudRestore() above —
+          // this restore is immediately followed by a page reload, which
+          // would otherwise wipe the just-restored settings straight back
+          // out via the boot-time app_settings fetch. Push to cloud too —
+          // awaited, since the reload below would otherwise race it.
+          if (cloudReady) await saveSettingsCloud(sets);
+        }
         if (acct) dispatch({ type:'SET_ACCT', payload:acct });
         // User accounts come from Supabase, not the backup file. Restoring
         // an old v1.x backup that includes a `users` field is silently

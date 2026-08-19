@@ -216,25 +216,29 @@ export async function loadDBCloud() {
   try { return await loadFromSupabase(); } catch { return null; }
 }
 
-// Alias used by Settings.jsx — saves settings to Supabase
+// Alias used by Settings.jsx and ModuleEditor.jsx — saves settings to Supabase
 //
-// 2026-08-19 QA fix: this only ever wrote to the legacy company_data.settings
-// blob (saveSettingsToSupabase). But boot-time settings are read from TWO
-// different places depending on VITE_USE_PER_RECORD_SYNC: App.jsx's Phase 1
-// reads localStorage/company_data, while usePerRecordSync's boot effect
-// (which wins on every load once per-record sync is on, which it is in
-// production) reads the SEPARATE app_settings table via loadAppSettings().
-// Nothing was ever writing to that second table, so every settings save
-// made through the UI (Settings.jsx branding/security/roles, and Module
-// Editor's layout) appeared to succeed and even survived a reload if you
-// looked at company_data directly — but the actually-rendered UI silently
-// reverted on the very next load, because usePerRecordSync's fetch of the
-// stale app_settings row ran after Phase 1 and overwrote it. Caught live:
-// renamed a module, saved, confirmed the write hit company_data.settings
-// via direct query, reloaded — sidebar still showed the old label. Fixed
-// by writing to both tables here, once, so every caller (present and
-// future) is correct regardless of which sync engine a given deployment
-// is running.
+// 2026-08-19 QA fix + permanent design decision:
+//
+// Boot-time settings are read from ONE of two tables depending on
+// VITE_USE_PER_RECORD_SYNC: the legacy company_data.settings blob when it's
+// off, or the newer app_settings table (usePerRecordSync's loadAppSettings())
+// when it's on — which is how production runs today. This function
+// originally wrote only to company_data, so every settings save via the UI
+// (Settings.jsx, Module Editor) appeared to succeed but silently reverted on
+// the next reload, because boot read the OTHER, stale table.
+//
+// Rather than pick one table and risk the same class of bug resurfacing the
+// day the deployment mode changes (or a future company runs this app in
+// legacy mode — both modes are still exercised in CI, see
+// hooks/__tests__/usePerRecordSync.test.jsx), this function is the single
+// choke point for every settings write in the app and is responsible for
+// keeping BOTH tables current, always. No other code should call
+// saveSettingsToSupabase or saveAppSettings directly — go through this
+// function so there is never a second place that can "forget" one table.
+// The extra write is one cheap Supabase upsert; the alternative (a table
+// that's silently wrong until someone notices) is the actual expensive
+// outcome.
 export async function saveSettingsCloud(settings) {
   try {
     const [legacy, perRecord] = await Promise.allSettled([
