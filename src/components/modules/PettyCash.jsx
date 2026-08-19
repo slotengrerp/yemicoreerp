@@ -199,7 +199,7 @@ export default function PettyCash({ onNav }) {
   const [modal, setModal]     = useState(null);
   const [sel2, setSel2]       = useState(null);
   const [delId, setDelId]     = useState(null);
-  const [replenForm, setRF]   = useState({ amount:'', date:today(), ref:'', note:'' });
+  const [replenForm, setRF]   = useState({ amount:'', date:today(), ref:'', note:'', limit:'', custodian:'' });
 
   const EMPTY = { payee:'', description:'', category:'Stationery', amount:'', date:today(), requestedBy:currentUser?.name||'', receipt:false, notes:'' };
   const [form, setForm] = useState(EMPTY);
@@ -255,12 +255,25 @@ export default function PettyCash({ onNav }) {
 
   function handleReplenish() {
     if (!replenForm.amount || Number(replenForm.amount) <= 0) { showToast('Enter replenishment amount','error'); return; }
-    const updFund = { ...fund, balance: Math.min(fund.balance + Number(replenForm.amount), fund.limit), lastReplenished: replenForm.date };
+    // 2026-08-19 QA fix: fund.limit defaulted to 0 (see DEFAULT_FUND) and
+    // nothing anywhere in the app ever set it above 0 — this function was
+    // the only place fund state changes, and it only ever wrote `balance`
+    // and `lastReplenished`, leaving `limit` permanently stuck at 0. Since
+    // balance was computed as Math.min(newBalance, fund.limit), every
+    // replenishment silently capped the usable balance back down to ₦0,
+    // even though a voucher record showing the cash "arrived" was created —
+    // the fund could never actually be funded. Fund Limit is now a field
+    // the admin sets explicitly (imprest ceiling), persisted here.
+    const newBalanceRaw = fund.balance + Number(replenForm.amount);
+    let newLimit = Number(replenForm.limit) || 0;
+    if (newLimit <= 0) { showToast('Enter the fund limit (authorized ceiling) — required the first time this fund is funded','error'); return; }
+    if (newLimit < newBalanceRaw) newLimit = newBalanceRaw; // limit can never be lower than the cash just deposited
+    const updFund = { ...fund, limit: newLimit, balance: Math.min(newBalanceRaw, newLimit), custodian: replenForm.custodian?.trim() || fund.custodian, lastReplenished: replenForm.date };
     dispatch({ type:'UPDATE_MODULE', mod:'pettycash_fund', data:updFund }); setFund(updFund);
     const rec = { id:uid(), voucherNo:`REP-${year()}-${Date.now().toString().slice(-4)}`, date:replenForm.date, payee:'Fund Replenishment', description:`Cash replenishment. Ref: ${replenForm.ref||'—'}. ${replenForm.note||''}`, category:'Replenishment', amount:Number(replenForm.amount), requestedBy:'Finance', approvedBy:currentUser?.name||'Admin', status:'Replenishment', receipt:true, createdAt:new Date().toISOString() };
     save([...entries, rec]);
     logActivity(dispatch, `Petty cash fund replenished by ${fmt(replenForm.amount)}`, currentUser);
-    showToast('Fund replenished'); setModal(null); setRF({ amount:'', date:today(), ref:'', note:'' });
+    showToast('Fund replenished'); setModal(null); setRF({ amount:'', date:today(), ref:'', note:'', limit:'', custodian:'' });
   }
 
   const pct = stats.pct;
@@ -274,7 +287,7 @@ export default function PettyCash({ onNav }) {
           <div style={{ fontSize:12, color:C.textMuted, marginTop:2 }}>Disbursement management · fund tracking · approvals</div>
         </div>
         <div style={{ display:'flex', gap:8 }}>
-          {isAdmin && <Btn variant="outline" onClick={()=>setModal('replenish')}>↑ Replenish Fund</Btn>}
+          {isAdmin && <Btn variant="outline" onClick={()=>{ setRF(f=>({ ...f, limit: fund.limit > 0 ? fund.limit : '', custodian: fund.custodian || '' })); setModal('replenish'); }}>↑ Replenish Fund</Btn>}
           {perms.add && <Btn onClick={()=>{ setForm(EMPTY); setModal('add'); }}>+ New Voucher</Btn>}
         </div>
       </div>
@@ -393,8 +406,12 @@ export default function PettyCash({ onNav }) {
             <div style={{ fontSize:12, color:C.textMuted, marginBottom:20 }}>Current balance: {fmt(fund.balance)} · Fund limit: {fmt(fund.limit)}</div>
             <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
               <FG label="Replenishment Amount (₦) *"><input type="number" style={inp} value={replenForm.amount} onChange={e=>setRF(f=>({...f,amount:e.target.value}))} placeholder="0.00" min="0" /></FG>
+              <FG label={`Fund Limit (₦) * ${fund.limit > 0 ? '— authorized ceiling for this fund' : '— required: this fund has never been funded before'}`}>
+                <input type="number" style={inp} value={replenForm.limit} onChange={e=>setRF(f=>({...f,limit:e.target.value}))} placeholder="e.g. 500000" min="0" />
+              </FG>
               <FG label="Date *"><input type="date" style={inp} value={replenForm.date} onChange={e=>setRF(f=>({...f,date:e.target.value}))} /></FG>
               <FG label="Reference No."><input style={inp} value={replenForm.ref} onChange={e=>setRF(f=>({...f,ref:e.target.value}))} placeholder="Bank transfer ref" /></FG>
+              <FG label="Custodian"><input style={inp} value={replenForm.custodian} onChange={e=>setRF(f=>({...f,custodian:e.target.value}))} placeholder="Who holds this fund?" /></FG>
               <FG label="Note"><input style={inp} value={replenForm.note} onChange={e=>setRF(f=>({...f,note:e.target.value}))} /></FG>
             </div>
             <div style={{ display:'flex', justifyContent:'flex-end', gap:10, marginTop:20 }}>
