@@ -58,11 +58,19 @@ export async function getWipeHistory(limit = 10) {
 // company_id/requested_by/requested_by_name/status/expires_at are all
 // overwritten server-side by the stamp_wipe_request trigger regardless of
 // what's sent here — only `reason` is actually taken from the client.
+//
+// requested_by/requested_by_name must be OMITTED here, not sent as ''. Both
+// columns are typed (uuid / text NOT NULL) and Postgres validates literal
+// values against the column type while parsing the INSERT, before any
+// BEFORE INSERT trigger runs — so an empty-string placeholder for a uuid
+// column fails immediately ("invalid input syntax for type uuid: \"\"")
+// and never even reaches stamp_wipe_request() to be overwritten. Leaving
+// the keys out entirely lets the trigger set them from a clean NULL.
 export async function requestWipe(reason) {
   if (!supabase) throw new Error('Cloud not connected');
   const { data, error } = await supabase
     .from('wipe_requests')
-    .insert({ reason: reason || null, company_id: COMPANY_ID, requested_by: '', requested_by_name: '' })
+    .insert({ reason: reason || null, company_id: COMPANY_ID })
     .select()
     .single();
   if (error) throw error;
