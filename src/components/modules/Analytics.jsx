@@ -139,6 +139,7 @@ export default function Analytics({ onNav }) {
     const map = {};
     MONTHS.forEach((m,i) => { map[i] = { month:m, invoiced:0, received:0 }; });
     invoices.forEach(inv => {
+      if (inv.voided) return; // 2026-08-19 QA fix: same voided-invoice leak as the KPI cards below
       const d = new Date(inv.date||'');
       if (!inRange(d.toISOString())) return;
       const mo = d.getMonth();
@@ -159,7 +160,7 @@ export default function Analytics({ onNav }) {
   // the same all-time totals no matter what period was selected.
   const invoiceStatus = useMemo(() => {
     const m = { Paid:0, Pending:0, Overdue:0, Draft:0, Other:0 };
-    invoices.filter(i=>inRange(i.date)).forEach(i=>{ const k=m[i.status]!==undefined?i.status:'Other'; m[k]++; });
+    invoices.filter(i=>inRange(i.date) && !i.voided).forEach(i=>{ const k=m[i.status]!==undefined?i.status:'Other'; m[k]++; });
     return Object.entries(m).filter(([,v])=>v>0).map(([name,value])=>({ name,value }));
   }, [invoices, dateRange]);
 
@@ -234,7 +235,12 @@ export default function Analytics({ onNav }) {
     // ngnEquivalent = netPayable × fxRate captured at entry time. Falls back
     // to netPayable itself for NGN invoices (fxRate 1, so they're equal).
     const ngnEq = i => Number(i.ngnEquivalent ?? i.netPayable) || 0;
-    const invoicesInRange = invoices.filter(i=>inRange(i.date));
+    // 2026-08-19 QA fix: voided invoices (voided:true, status left
+    // unchanged) were still counted here — Total Invoiced/Outstanding both
+    // showed ~₦21K from two voided test invoices with real money owed
+    // nowhere in sight. Same fix already applied to Slot Reports' Customer
+    // Statement, Aged AR/AP, and Credit Limit Check this pass.
+    const invoicesInRange = invoices.filter(i=>inRange(i.date) && !i.voided);
     const whtInRange      = wht.filter(e=>inRange(e.date));
     const totalInvoiced  = invoicesInRange.reduce((a,i)=>a+ngnEq(i),0);
     const totalReceived  = invoicesInRange.filter(i=>i.status==='Paid').reduce((a,i)=>a+ngnEq(i),0);
@@ -268,7 +274,7 @@ export default function Analytics({ onNav }) {
       ...requests.filter(r=>r.status==='Submitted'||r.status==='Pending'),
       ...pettycash.filter(p=>p.status==='Pending'),
       ...procurement.filter(p=>p.status==='Pending'),
-      ...invoices.filter(i=>i.status==='Pending'),
+      ...invoices.filter(i=>i.status==='Pending' && !i.voided),
     ].length;
     return { totalInvoiced, totalReceived, outstanding, totalWHT, whtOutstanding, totalStaff, activeAssets, assetNBV, pendingApprovals };
   }, [invoices, wht, nlng, slot, fixedassets, requests, pettycash, procurement, dateRange]);
@@ -464,7 +470,7 @@ export default function Analytics({ onNav }) {
             { label:'NLNG Staff',      count:nlng.length,        icon:'👷', active:nlng.filter(s=>s.status==='Active').length,        nav:'nlng' },
             { label:'SLOT Staff',      count:slot.length,        icon:'👤', active:slot.filter(s=>s.status==='Active').length,        nav:'slot' },
             { label:'Procurement POs', count:procurement.length, icon:'🛒', active:procurement.filter(p=>p.status==='Approved').length, nav:'procurement' },
-            { label:'Invoices',        count:invoices.length,    icon:'🧾', active:invoices.filter(i=>i.status==='Paid').length,        nav:'invoices' },
+            { label:'Invoices',        count:invoices.filter(i=>!i.voided).length, icon:'🧾', active:invoices.filter(i=>i.status==='Paid').length,        nav:'invoices' },
             { label:'Petty Cash',      count:pettycash.length,   icon:'💵', active:pettycash.filter(p=>p.status==='Approved').length,   nav:'pettycash' },
             { label:'Requests',        count:requests.length,    icon:'📋', active:requests.filter(r=>r.status==='Approved').length,    nav:'request' },
             { label:'Fixed Assets',    count:fixedassets.filter(a=>!a.voided).length, icon:'🏗',  active:fixedassets.filter(a=>!a.voided&&a.status==='Active').length, nav:'fixedassets' },

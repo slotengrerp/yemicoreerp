@@ -8,7 +8,7 @@ import { useState, useMemo } from 'react';
 import { useApp }   from '../../context/AppContext';
 import { useTheme } from '../../context/ThemeContext';
 import { showToast } from '../../utils/helpers';
-import { saveSettingsLocal } from '../../utils/db';
+import { saveSettingsLocal, saveSettingsCloud } from '../../utils/db';
 import { logActivity } from '../../utils/audit';
 
 // 2026-08-19 QA fix: this list had drifted badly from Sidebar.jsx's real NAV
@@ -67,7 +67,7 @@ function Card({ children, style }) {
 export default function ModuleEditor() {
   const { state, dispatch } = useApp();
   const { C } = useTheme();
-  const { appSettings, currentUser } = state;
+  const { appSettings, currentUser, cloudReady } = state;
 
   // Load saved config or use defaults
   const [modules, setModules] = useState(() => {
@@ -148,6 +148,16 @@ export default function ModuleEditor() {
     const newSettings = { ...appSettings, moduleConfig: modules };
     dispatch({ type:'SET_SETTINGS', payload: newSettings });
     saveSettingsLocal(newSettings);
+    // 2026-08-19 QA fix: this previously only wrote to localStorage. On the
+    // next page load, App.jsx's cloud fetch overwrote it with the old
+    // server-side settings (which never had moduleConfig), silently
+    // reverting every rename/hide/reorder. Settings.jsx's own handleSave
+    // already does local+cloud together — mirror that here so a saved
+    // layout actually survives a reload, not just the current tab session.
+    const cloudSyncEnabled = appSettings?.system?.cloudSync ?? true;
+    if (cloudReady && cloudSyncEnabled) {
+      await saveSettingsCloud(newSettings);
+    }
     logActivity(dispatch, `Module layout updated by ${currentUser?.name}`, currentUser, { module:'settings', action:'edit' });
     showToast('Module configuration saved. Reload to see sidebar changes.');
     setDirty(false);

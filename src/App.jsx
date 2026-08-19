@@ -616,16 +616,41 @@ function Shell() {
       // design intent above ("show app immediately") so it's fixed the
       // same way Phase 2 already handles this: try/catch + a timeout race,
       // falling back to "no session" rather than blocking boot.
+      // 2026-08-19 QA fix: restoreSupabaseSession() makes TWO sequential
+      // network calls (supabase.auth.getSession() + an app_users profile
+      // fetch over PostgREST). It was sharing the same 5s CLOUD_TIMEOUT_MS
+      // budget as the best-effort background data sync below. Under any
+      // real-world latency (cold RLS evaluation, slow connection) that
+      // combined round-trip can exceed 5s even though the underlying
+      // Supabase JWT/refresh token sitting in localStorage is completely
+      // valid — reported live as "it signs out, I click refresh, it signs
+      // back in": the race was discarding a session restore that was
+      // moments from succeeding, and a reload just gave it a fresh 5s
+      // window to win. Fixed two ways: (1) auth restore gets its own more
+      // generous budget — a false "signed out" is far more disruptive than
+      // a slightly delayed data pull, so it shouldn't share the tight
+      // best-effort timeout; (2) even if that budget is still exceeded,
+      // the real restore keeps running in the background and signs the
+      // user in retroactively the moment it resolves, instead of requiring
+      // a manual refresh to get the same result.
+      const SESSION_RESTORE_TIMEOUT_MS = 12000;
       let session = null;
+      const restorePromise = restoreSupabaseSession();
       try {
         session = await Promise.race([
-          restoreSupabaseSession(),
+          restorePromise,
           new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('session_restore_timeout')), CLOUD_TIMEOUT_MS)
+            setTimeout(() => reject(new Error('session_restore_timeout')), SESSION_RESTORE_TIMEOUT_MS)
           ),
         ]);
       } catch (e) {
-        console.warn('[SLOT ERP] Session restore failed or timed out — continuing without it:', e?.message || e);
+        console.warn('[SLOT ERP] Session restore slow — continuing without it for now, will sign in automatically if it resolves:', e?.message || e);
+        restorePromise.then(lateSession => {
+          if (lateSession) {
+            dispatch({ type: 'SET_USER', payload: lateSession });
+            console.info('[SLOT ERP] Session restore succeeded after the initial timeout — signed in without a manual refresh.');
+          }
+        }).catch(() => {}); // genuine failure (no session / network error) — showing the login screen is correct here
       }
       const local         = loadDBLocal();
       const localSettings = loadSettingsLocal();
