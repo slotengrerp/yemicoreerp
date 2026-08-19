@@ -19,6 +19,13 @@ describe('SlotStaff — Add Staff', () => {
     const fullNameInput = screen.getByPlaceholderText(/full legal name/i);
     await user.type(fullNameInput, 'Test Staffer Adeyemi');
 
+    // Employee ID is required since the 2026-08-14 blank-record validation
+    // fix (same as ContractStaff) — a save with only the name filled in is
+    // rejected with a toast and the modal stays open. Fill it in here too,
+    // matching ContractStaff.test.jsx's pattern.
+    const refIdInput = screen.getByPlaceholderText(/e\.g\. slot-001/i);
+    await user.type(refIdInput, 'SLOT-TEST-001');
+
     await user.click(screen.getByRole('button', { name: /save staff member/i }));
 
     expect(screen.queryByText(/add new staff member/i)).not.toBeInTheDocument();

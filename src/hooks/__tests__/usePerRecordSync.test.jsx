@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, waitFor } from '@testing-library/react';
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -72,11 +72,29 @@ describe('usePerRecordSync — auth-change reload guard', () => {
   let reloadSpy;
 
   beforeEach(async () => {
+    // The whole reload guard this file tests only runs when per-record sync
+    // is enabled — usePerRecordSync's effect bails out entirely (including
+    // the supabaseAuthChange subscription) when USE_PER_RECORD is false.
+    // CI runs `npm test` with VITE_USE_PER_RECORD_SYNC=false at the process
+    // level (the rest of the suite intentionally exercises the legacy
+    // engine, no Supabase needed), which silently skipped this file's
+    // subscription and made "DOES reload on a genuine new sign-in" fail
+    // every time — there was no listener left to fire. Stub the env var to
+    // 'true' for this file specifically so it exercises the real code path
+    // regardless of how the outer test command was invoked.
+    vi.stubEnv('VITE_USE_PER_RECORD_SYNC', 'true');
     vi.resetModules();
     authStateCb = null;
     reloadSpy = vi.fn();
     delete window.location;
     window.location = { reload: reloadSpy };
+  });
+
+  // The test suite runs with a single fork (see vite.config.js), so all test
+  // files share one process — an env stub left in place here would otherwise
+  // leak into whichever file runs next.
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   it('does NOT reload for the initial replay of an already-existing session (the exact bug that caused the production crash-loop)', async () => {

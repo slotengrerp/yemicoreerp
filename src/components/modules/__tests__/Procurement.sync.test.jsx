@@ -5,7 +5,7 @@
 // a form-closes-without-crashing test alone would not have caught that bug,
 // since the UI worked fine either way. This asserts on the actual data path.
 import { describe, it, expect } from 'vitest';
-import { screen } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useApp } from '../../../context/AppContext';
 import Procurement from '../Procurement';
@@ -37,6 +37,18 @@ describe('Procurement — saves reach the central (Supabase-synced) store', () =
 
     await user.click(screen.getByRole('button', { name: /\+ new client po/i }));
     await screen.findByText(/new client purchase order/i);
+
+    // savePO() requires a client name and at least one real line item
+    // (description + qty) since the 2026-08-13 blank-record validation fix —
+    // without these the save is rejected and pos never grows. Fill both.
+    const clientInput = screen.getByPlaceholderText(/type a client name, or pick from the list/i);
+    await user.type(clientInput, 'Test Client Ltd');
+    const descInput = screen.getByPlaceholderText(/item description/i);
+    await user.type(descInput, 'Test line item');
+    const row = descInput.closest('tr');
+    const qtyInput = within(row).getAllByRole('spinbutton')[0];
+    await user.type(qtyInput, '5');
+
     await user.click(screen.getByRole('button', { name: /save purchase order/i }));
 
     const after = JSON.parse(screen.getByTestId('proc-state').textContent);
