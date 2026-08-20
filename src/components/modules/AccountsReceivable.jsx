@@ -379,7 +379,7 @@ export default function AccountsReceivable() {
     // already do correctly) is to derive overdue from due date vs today,
     // not from a stored status. Reuses the same getAgingClass() helper.
     const overdue = active.filter(i => i.status!=='Paid' && i.status!=='Cancelled' && getAgingClass(i) != null).length;
-    return { total, paid, outstanding, overdue };
+    return { total, paid, outstanding, overdue, count: active.length };
   }, [invoices]);
 
   function handleSaveCustomer() {
@@ -593,7 +593,12 @@ export default function AccountsReceivable() {
       {tab === 'overview' && (
         <>
           <div style={{ display:'flex', gap:12, flexWrap:'wrap' }}>
-            <KPI label="Total Invoiced (NGN eq.)" value={fmt(stats.total)} sub={`${invoices.length} invoices`} onClick={()=>setTab('list')} />
+            {/* 2026-08-20: sub-label used raw invoices.length, which counts
+                voided invoices too — so it could read "3 invoices" right
+                next to a ₦ total that (correctly, via stats.total) already
+                excludes them. stats.count applies the same !voided filter
+                as every other figure on this card. */}
+            <KPI label="Total Invoiced (NGN eq.)" value={fmt(stats.total)} sub={`${stats.count} invoice${stats.count===1?'':'s'}`} onClick={()=>setTab('list')} />
             <KPI label="Total Received"   value={fmt(stats.paid)} accent={C.success} sub="payments collected" onClick={()=>setTab('receipts')} />
             <KPI label="Outstanding"      value={fmt(stats.outstanding)} accent={C.amber} sub="awaiting payment" onClick={()=>setTab('aging')} />
             <KPI label="Overdue"          value={stats.overdue} alert={stats.overdue > 0} sub="require follow-up" onClick={()=>setTab('aging')} />
