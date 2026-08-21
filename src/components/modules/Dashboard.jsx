@@ -8,6 +8,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { formatCurrency, formatDate } from '../../utils/helpers';
 import { writeDeepLink, getDeepLinkTab } from '../../utils/helpers';
 import { getPOStatus } from '../../utils/poStatus';
+import { canSeeTerminalLedger } from '../../utils/auth';
 
 // ── Mini components ───────────────────────────────────────────────────────────
 function KPI({ label, value, sub, accent, icon, onClick }) {
@@ -162,7 +163,15 @@ export default function Dashboard({ onNav }) {
   const suppInv   = procData?.invoices  || [];
   const containers = termData?.containers || [];
   const termCharges = termData?.charges  || [];
-  const journals  = acctData?.journalEntries || acctData?.journals || [];
+  // Multi-entity ledger visibility — see canSeeTerminalLedger() in
+  // utils/auth.js. The Dashboard's "Recent Journal Entries" preview shows raw
+  // descriptions (e.g. "Terminal/Clearing Charges: CONTAINER123 — Agent") and
+  // its own posted-entries count — both would otherwise surface Terminal's
+  // transactions to Slot's accountant (who does see the Dashboard, per
+  // canSeeDashboard() below) even with the Accounting module itself locked
+  // down. 2026-08-20, per Yemi.
+  const allJournals = acctData?.journalEntries || acctData?.journals || [];
+  const journals = canSeeTerminalLedger(currentUser) ? allJournals : allJournals.filter(j => j.source !== 'terminal' && j.source !== 'terminal-advance');
 
   const brand = appSettings?.brand || {};
   const today = new Date().toISOString().split('T')[0];

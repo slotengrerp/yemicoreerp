@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useContext, createContext, useRef } from "react";
+import { useState, useEffect, useCallback, useContext, createContext, useRef, useMemo } from "react";
 import { useTheme } from "../../context/ThemeContext";
 import { useApp } from "../../context/AppContext";
 import { LIGHT } from "../../utils/tokens";
@@ -20,6 +20,7 @@ import { journalFromPurchaseInvoice, journalFromInvoice, journalFromReceipt, jou
 import { periodOf, isPeriodClosed, isYearClosed } from "../../utils/periods";
 import { computeAutoPostedJournals } from "../../utils/autoPostJournals";
 import { mergeCOA } from "../../utils/chartOfAccounts";
+import { canSeeTerminalLedger } from "../../utils/auth";
 import { FG } from "../ui";
 import { diffAndPush } from "../../hooks/usePerRecordSync";
 import { printHeader, PRINT_CSS, printBootstrap, openPrintWindow, SLOT_LOGO_IMG_TAG } from '../../utils/logo';
@@ -681,6 +682,18 @@ const CONTROL_ACCOUNTS = {
 function JournalTab({journals,setJournals,coa,filter,setFilter,sourceFilter,setSourceFilter}){
   const { state, dispatch } = useApp();
   const { currentUser, db, appSettings } = state;
+  // ── Multi-entity ledger visibility — see canSeeTerminalLedger() in
+  // utils/auth.js. `journals` (the prop) stays the FULL array on purpose:
+  // new-JE ref numbers and recurring-template duplicate checks below are
+  // both based on journals.length / journals.some(...), and setJournals
+  // always writes through React's functional-updater form (js => ...), which
+  // reads the real state directly rather than this prop — so none of that
+  // can be safely computed off a filtered copy without risking a ref
+  // collision with a hidden entry, or silently dropping Terminal's entries
+  // from what gets saved. Only the rendered list and its exports use
+  // `visibleJournals`.
+  const canSeeTerminal = canSeeTerminalLedger(currentUser);
+  const visibleJournals = canSeeTerminal ? journals : journals.filter(j => j.source !== 'terminal' && j.source !== 'terminal-advance');
   // Live-verify QA fix (2026-08-18): periodOf/isPeriodClosed/isYearClosed
   // (imported at the top of this file, and already properly enforced for
   // every AUTO-posted journal — see utils/autoPostJournals.js's tryPost())
@@ -837,7 +850,7 @@ function JournalTab({journals,setJournals,coa,filter,setFilter,sourceFilter,setS
   };
   const editJE=(j)=>{setEditId(j.id);setJeDate(j.date);setJeRef(j.ref);setJeDesc(j.description);setLines(j.lines.map(l=>({drCode:l.drCode,crCode:l.crCode,currency:l.currency||"NGN",fxRate:l.fxRate||1,fcAmount:l.fcAmount??l.amount,memo:l.memo||""})));setShowModal(true);};
 
-  const filtered=journals.filter(j=>{
+  const filtered=visibleJournals.filter(j=>{
     const mf=!filter||j.id.toLowerCase().includes(filter.toLowerCase())||j.description.toLowerCase().includes(filter.toLowerCase())||j.ref.toLowerCase().includes(filter.toLowerCase());
     const sf=!sourceFilter||j.source===sourceFilter;
     return mf&&sf;
@@ -891,11 +904,11 @@ function JournalTab({journals,setJournals,coa,filter,setFilter,sourceFilter,setS
         <div style={{display:"flex",gap:8}}>
           <Btn variant="ghost" sm icon="📊" onClick={()=>{
             const headers = ['Journal ID','Date','Reference','Description','Source','Dr Account','Cr Account','Currency','FC Amount','FX Rate','Amount (₦)'];
-            const rows = journals.flatMap(j=>j.lines.map(l=>[j.id,j.date,j.ref,j.description,j.source,l.drName,l.crName,l.currency||'NGN',l.fcAmount??l.amount,l.fxRate||1,l.amount]));
+            const rows = visibleJournals.flatMap(j=>j.lines.map(l=>[j.id,j.date,j.ref,j.description,j.source,l.drName,l.crName,l.currency||'NGN',l.fcAmount??l.amount,l.fxRate||1,l.amount]));
             exportToExcel('SLOT_Journal_Entries', headers, rows);
           }}>Export Excel</Btn>
           <Btn variant="ghost" sm icon="🖨" onClick={()=>{
-            const rowsHtml = journals.slice(0,100).flatMap((j,ji)=>j.lines.map((l,li)=>`
+            const rowsHtml = visibleJournals.slice(0,100).flatMap((j,ji)=>j.lines.map((l,li)=>`
               <tr class="${ji%2===1?'alt':''}">
                 ${li===0?`<td rowspan="${j.lines.length}"><b style="color:#1A5C2A">${j.id}</b></td><td rowspan="${j.lines.length}">${j.date}</td><td rowspan="${j.lines.length}">${j.ref}</td>`:''}
                 <td>${l.drName}</td><td>${l.crName}</td>
@@ -907,7 +920,7 @@ function JournalTab({journals,setJournals,coa,filter,setFilter,sourceFilter,setS
           <Btn sm onClick={openNew} icon="＋">New Journal Entry</Btn>
         </div>
       </div>
-      <Alert type="info">Double-entry enforced — every transaction posts a matching Debit and Credit, converted to its Naira-equivalent. Total posted: {journals.length} entries.</Alert>
+      <Alert type="info">Double-entry enforced — every transaction posts a matching Debit and Credit, converted to its Naira-equivalent. Total posted: {visibleJournals.length} entries.</Alert>
 
       {/* ── Recurring / Template Journals Panel ────────────────────────── */}
       <div style={{ background:C.bgCard, border:'1px solid '+C.border, borderRadius:10, overflow:'hidden' }}>
@@ -2993,6 +3006,23 @@ export default function Accounting({data,setData}){
     dispatch({ type:'SET_ACCT', payload:{ journals, coa, bankStmt, vatAdj, whtEntries, assets, savedAt:new Date().toISOString() } });
   },[journals,coa,bankStmt,vatAdj,whtEntries,assets]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Multi-entity ledger visibility — see canSeeTerminalLedger() in
+  // utils/auth.js for the full rationale. `journals` (real state, above)
+  // stays completely untouched — it's what gets persisted, auto-posted into,
+  // and voided/reversed. `visibleJournals` is a read-only derived view used
+  // ONLY by the reporting tabs below (Overview/COA/Ledger/Trial
+  // Balance/P&L/BS/Cash Flow/Bank Recon/VAT), so a user without Terminal
+  // module access never sees Terminal-tagged entries in any of Slot's
+  // financial statements. JournalTab and FXTab still receive the full
+  // `journals` prop (they write to it) and apply this same filter
+  // internally, scoped to just their own display/export, so ref-number
+  // generation and duplicate-template checks keep working off the real data.
+  const canSeeTerminal = canSeeTerminalLedger(appState?.currentUser);
+  const visibleJournals = useMemo(
+    () => canSeeTerminal ? journals : journals.filter(j => j.source !== 'terminal' && j.source !== 'terminal-advance'),
+    [journals, canSeeTerminal]
+  );
+
   // Auto-post paid invoices from app data into journals
   // ── Auto-post AP/AR/Petty-Cash/Fixed-Asset transactions into the GL ───────
   // Accounting.jsx is the single source of truth for all journal entries.
@@ -3076,9 +3106,18 @@ export default function Accounting({data,setData}){
           <button onClick={async () => {
             try {
               const { downloadSageIntelligenceTemplate } = await import('../../utils/liveExcel');
-              const params = { journals, coa, invoices: appState?.db?.invoices || [], ap: appState?.db?.ap || {}, salesOrders: appState?.db?.salesOrders || [] };
+              const params = { journals: visibleJournals, coa, invoices: appState?.db?.invoices || [], ap: appState?.db?.ap || {}, salesOrders: appState?.db?.salesOrders || [] };
               await downloadSageIntelligenceTemplate(params, `SLOT_Intelligence_${new Date().toISOString().slice(0,10)}`);
-              logActivity(dispatch, `Downloaded Sage Intelligence live-Excel template (${journals.length} journals, ${coa.length} accounts)`, currentUser, { module:'accounting', action:'edit' });
+              // 2026-08-20: this referenced a bare `currentUser`, which was
+              // never declared in this component's scope (only `appState`
+              // is — see the destructure a few lines up in Accounting()).
+              // The file itself already downloaded successfully by this
+              // point, but the ReferenceError thrown right here was caught
+              // by the surrounding try/catch and shown as "Download failed"
+              // on every single click — a real download silently reported
+              // as a failure. Found while touching this exact line for the
+              // Terminal-ledger-visibility change; fixed alongside it.
+              logActivity(dispatch, `Downloaded Sage Intelligence live-Excel template (${visibleJournals.length} journals, ${coa.length} accounts)`, appState?.currentUser, { module:'accounting', action:'edit' });
               showToast('📊 Sage Intelligence template downloaded — open in Excel and click Refresh All to re-pull live data');
             } catch (e) { showToast('Download failed: ' + e.message, 'error'); }
           }} style={{background:"#1A5C2A",color:"#FFFFFF",border:"none",borderRadius:8,padding:"5px 12px",fontSize:12,cursor:"pointer",fontWeight:600}}>📊 Sage Intelligence Template</button>
@@ -3091,17 +3130,21 @@ export default function Accounting({data,setData}){
 
       {/* Panels */}
       <div ref={printAreaRef}>
-      {tab==="overview"    && <OverviewTab journals={journals} coa={coa} bankStmt={bankStmt} setTab={setTab} isAdmin={isAdmin}/>}
-      {tab==="coa"         && <COATab coa={coa} setCoa={setCoa} journals={journals} isAdmin={isAdmin}/>}
+      {/* Terminal-tagged entries hidden here (visibleJournals) for anyone
+          without Terminal module access — see canSeeTerminalLedger() in
+          utils/auth.js. JournalTab and FXTab keep the real `journals` (they
+          write to it) and filter their own display internally instead. */}
+      {tab==="overview"    && <OverviewTab journals={visibleJournals} coa={coa} bankStmt={bankStmt} setTab={setTab} isAdmin={isAdmin}/>}
+      {tab==="coa"         && <COATab coa={coa} setCoa={setCoa} journals={visibleJournals} isAdmin={isAdmin}/>}
       {tab==="journal"     && <JournalTab journals={journals} setJournals={setJournals} coa={coa} filter={jFilter} setFilter={setJFilter} sourceFilter={jSource} setSourceFilter={setJSource}/>}
-      {tab==="ledger"      && <LedgerTab journals={journals} coa={coa} isAdmin={isAdmin}/>}
-      {tab==="trial"       && <TrialBalanceTab journals={journals} coa={coa} isAdmin={isAdmin}/>}
-      {tab==="pl"          && <PLTab journals={journals} coa={coa} isAdmin={isAdmin}/>}
-      {tab==="bs"          && <BalanceSheetTab journals={journals} coa={coa} isAdmin={isAdmin}/>}
-      {tab==="cashflow"    && <CashFlowTab journals={journals} coa={coa} isAdmin={isAdmin}/>}
-      {tab==="bank"        && <BankReconTab bankStmt={bankStmt} setBankStmt={setBankStmt} journals={journals} coa={coa}/>}
+      {tab==="ledger"      && <LedgerTab journals={visibleJournals} coa={coa} isAdmin={isAdmin}/>}
+      {tab==="trial"       && <TrialBalanceTab journals={visibleJournals} coa={coa} isAdmin={isAdmin}/>}
+      {tab==="pl"          && <PLTab journals={visibleJournals} coa={coa} isAdmin={isAdmin}/>}
+      {tab==="bs"          && <BalanceSheetTab journals={visibleJournals} coa={coa} isAdmin={isAdmin}/>}
+      {tab==="cashflow"    && <CashFlowTab journals={visibleJournals} coa={coa} isAdmin={isAdmin}/>}
+      {tab==="bank"        && <BankReconTab bankStmt={bankStmt} setBankStmt={setBankStmt} journals={visibleJournals} coa={coa}/>}
       {tab==="fx"          && <FXTab journals={journals} setJournals={setJournals} coa={coa} isAdmin={isAdmin}/>}
-      {tab==="vat"         && <VATTab journals={journals} coa={coa} vatAdj={vatAdj} setVatAdj={setVatAdj}/>}
+      {tab==="vat"         && <VATTab journals={visibleJournals} coa={coa} vatAdj={vatAdj} setVatAdj={setVatAdj}/>}
       {tab==="fixedassets" && <FixedAssetsTab assets={assets} setAssets={setAssets}/>}
       {tab==="wht"         && <WHTTab whtEntries={whtEntries} setWhtEntries={setWhtEntries}/>}
       {tab==="import"      && <ImportTab setCoa={setCoa} setJournals={setJournals}/>}

@@ -95,6 +95,36 @@ export function visibleModules(user, allModules) {
   return (user.modules || []).filter(m => allModules.includes(m));
 }
 
+// ── Multi-entity ledger visibility ──────────────────────────────────────────
+// Slot Engineering and Terminal Ops share this app and one company_id in the
+// database, but have the same owner and are meant to keep separate books —
+// Terminal Ops controls and audits its own account through its own
+// Standalone P&L/BS (see TerminalOps.jsx), and Slot's own accountant
+// shouldn't see Terminal's transactions mixed into Slot's GL / Journal
+// Entries / Trial Balance / P&L / Balance Sheet.
+//
+// Every journal a Terminal Ops action posts is already tagged
+// source:'terminal' or 'terminal-advance' (see utils/glPosting.js) —
+// deliberately, per that file's own comment, "so Terminal Ops' entries can
+// be identified and pulled out cleanly later if/when Terminal Operations
+// gets its own separate set of books." This is that filter.
+//
+// Whoever already has the Terminal module (or is admin) keeps seeing
+// everything in Accounting too — this only hides Terminal's entries from
+// someone who was never granted Terminal access in the first place, so the
+// owner (as admin) and anyone dual-assigned to both modules see the full
+// combined ledger exactly as before. 2026-08-20, per Yemi.
+//
+// This is an application-level filter, not a database-level one — Slot and
+// Terminal still share one company_id/database underneath. It fully hides
+// Terminal's entries from anyone using the app normally, but doesn't
+// survive someone with direct backend/API access.
+export function canSeeTerminalLedger(user) {
+  if (!user) return false;
+  if (user.role === 'admin') return true;
+  return (user.modules || []).includes('terminal');
+}
+
 // ── Dashboard visibility ────────────────────────────────────────────────────
 // The Dashboard aggregates data ACROSS every module — headcount from HR,
 // money in/out from Finance, everything. It was previously shown to every
