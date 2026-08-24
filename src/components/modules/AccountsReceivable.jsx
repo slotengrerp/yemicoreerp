@@ -20,7 +20,7 @@ import { diffAndPush } from '../../hooks/usePerRecordSync';
 import { getClients, getClientByCode, addClient } from '../../utils/clientMaster';
 import { getProjects } from '../../utils/projectMaster';
 import { BANK_ACCOUNTS, DEFAULT_FX } from '../../utils/financeConstants';
-import { AttachmentUploader } from '../ui';
+import { AttachmentUploader, TypeOrPick } from '../ui';
 
 const uid = () => generateId();
 const today = () => new Date().toISOString().split('T')[0];
@@ -883,10 +883,18 @@ export default function AccountsReceivable() {
             </div>
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
               <FG label="Client *" full>
-                <select style={sel} value={form.clientCode} onChange={e=>handleClientSelect(e.target.value)}>
-                  <option value="">— Select Client —</option>
-                  {clients.map(c=><option key={c.id} value={c.code}>{c.name} — {c.code} ({c.currency})</option>)}
-                </select>
+                {/* 2026-08-21, per Slot: was a locked <select>, matching AP's own
+                    supplier field before it, converted the same way and for the
+                    same reason. */}
+                <TypeOrPick
+                  style={sel}
+                  value={form.clientCode}
+                  onChange={e=>handleClientSelect(e.target.value)}
+                  options={clients}
+                  toValue={c=>c.code}
+                  toLabel={c=>`${c.name} — ${c.code} (${c.currency})`}
+                  placeholder="Type a client name, or pick from the list"
+                />
                 {selectedClient && (selectedClient.notes || Number(selectedClient.creditLimit) > 0) && (
                   <div style={{ fontSize:11, color:C.textMuted, marginTop:6, display:'flex', flexDirection:'column', gap:6 }}>
                     {Number(selectedClient.creditLimit) > 0 && (() => {

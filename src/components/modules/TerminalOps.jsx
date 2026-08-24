@@ -15,6 +15,7 @@ import { logActivity }  from '../../utils/audit';
 import { printHeader, openPrintWindow}  from '../../utils/logo';
 import { diffAndPush } from '../../hooks/usePerRecordSync';
 import { printBootstrap } from '../../utils/logo';
+import { TypeOrPick } from '../ui';
 
 // terminal sub-collection name → RECORD_TABLES key, used by persist() below.
 const TERMINAL_TABLE_BY_SECTION = {
@@ -1097,21 +1098,16 @@ function ContainerModal({data,readonly,containers,bols,consignees,shippingCompan
         </LBL>
         <LBL t="Bill of Lading No (free-text)"><input style={{...inp,fontFamily:'monospace'}} value={f.billOfLading||''} onChange={set('billOfLading')} readOnly={readonly}/></LBL>
         <LBL t="Status"><select style={inp} value={f.status||'Arrived'} onChange={set('status')} disabled={readonly}>{STATUS_ALL.map(s=><option key={s}>{s}</option>)}</select></LBL>
-        <LBL t="Shipping Company (from master)">
-          <select style={inp} value={f.shippingCompanyId||''} onChange={e=>{const shippingCompanyId=e.target.value;const sc=(shippingCompanies||[]).find(x=>x.id===shippingCompanyId);setF(p=>({...p,shippingCompanyId,shippingCompany:sc?.name||p.shippingCompany}));}} disabled={readonly}>
-            <option value="">— Not linked / type below —</option>
-            {(shippingCompanies||[]).map(sc=><option key={sc.id} value={sc.id}>{sc.name}</option>)}
-          </select>
-        </LBL>
-        <LBL t="Shipping Company (free-text)" ><input style={inp} value={f.shippingCompany||''} onChange={set('shippingCompany')} readOnly={readonly}/></LBL>
+        {/* 2026-08-21, per Slot: this used to be two separate fields, a locked
+            "from master" <select> and a second "free-text" <input>, both
+            silently writing to the same shippingCompany value depending on
+            which one was touched last. Merged into one type-or-pick field. */}
+        <LBL t="Shipping Company"><TypeOrPick style={inp} value={f.shippingCompany||''} onChange={set('shippingCompany')} disabled={readonly} options={shippingCompanies||[]} toValue={sc=>sc.name} toLabel={sc=>sc.name} placeholder="Type a shipping company, or pick from the list" /></LBL>
         <LBL t="Shipping Vessel"  ><input style={inp} value={f.shippingVessel||''} onChange={set('shippingVessel')} readOnly={readonly}/></LBL>
-        <LBL t="Consignee (from master)">
-          <select style={inp} value={f.consigneeId||''} onChange={e=>{const consigneeId=e.target.value;const cons=(consignees||[]).find(x=>x.id===consigneeId);setF(p=>({...p,consigneeId,consigneeName:cons?.name||p.consigneeName}));}} disabled={readonly}>
-            <option value="">— Not linked / type below —</option>
-            {(consignees||[]).map(cons=><option key={cons.id} value={cons.id}>{cons.name}</option>)}
-          </select>
+        <LBL t="Consignee">
+          {/* Same merge as Shipping Company above, was "from master" select + separate free-text field. */}
+          <TypeOrPick style={inp} value={f.consigneeName||''} onChange={set('consigneeName')} disabled={readonly} options={consignees||[]} toValue={cons=>cons.name} toLabel={cons=>cons.name} placeholder="Type a consignee name, or pick from the list" />
         </LBL>
-        <div style={{display:'flex',flexDirection:'column',gap:4}}><label style={{fontSize:11,fontWeight:600,color:C.textMid}}>Name of Consignee (free-text)</label><input style={inp} value={f.consigneeName||''} onChange={set('consigneeName')} readOnly={readonly}/></div>
         <div style={{display:'flex',flexDirection:'column',gap:4,gridColumn:'1/-1'}}><label style={{fontSize:11,fontWeight:600,color:C.textMid}}>Material Description / Packages</label><input style={inp} value={f.materialDescription||''} onChange={set('materialDescription')} readOnly={readonly}/></div>
         {readonly&&<div style={{gridColumn:'1/-1'}}><div style={{fontSize:11,fontWeight:600,color:C.textMid,marginBottom:6}}>Status Pipeline</div><div style={{padding:'10px 0'}}><Pipeline status={f.status}/></div></div>}
       </div>
@@ -1314,13 +1310,8 @@ function BoLModal({data,readonly,containers,consignees,shippingCompanies,charges
         <LBL t="Bill of Lading No *" full>
           <input style={{...inp,fontFamily:'monospace',fontWeight:700,color:C.green}} value={f.billOfLadingNo||''} onChange={set('billOfLadingNo')} placeholder="e.g. MSCUB123456" readOnly={readonly}/>
         </LBL>
-        <LBL t="Shipping Company (from master)">
-          <select style={inp} value={f.shippingCompanyId||''} onChange={e=>{const shippingCompanyId=e.target.value;const sc=(shippingCompanies||[]).find(x=>x.id===shippingCompanyId);setF(p=>({...p,shippingCompanyId,shippingCompany:sc?.name||p.shippingCompany}));}} disabled={readonly}>
-            <option value="">— Not linked / type below —</option>
-            {(shippingCompanies||[]).map(sc=><option key={sc.id} value={sc.id}>{sc.name}</option>)}
-          </select>
-        </LBL>
-        <LBL t="Shipping Company (free-text)"><input style={inp} value={f.shippingCompany||''} onChange={set('shippingCompany')} readOnly={readonly}/></LBL>
+        {/* 2026-08-21, per Slot: merged from-master + free-text pair, same fix as ContainerModal above. */}
+        <LBL t="Shipping Company"><TypeOrPick style={inp} value={f.shippingCompany||''} onChange={set('shippingCompany')} disabled={readonly} options={shippingCompanies||[]} toValue={sc=>sc.name} toLabel={sc=>sc.name} placeholder="Type a shipping company, or pick from the list" /></LBL>
         <LBL t="Shipping Vessel"><input style={inp} value={f.shippingVessel||''} onChange={set('shippingVessel')} readOnly={readonly}/></LBL>
         <LBL t="Voyage No"><input style={inp} value={f.voyageNo||''} onChange={set('voyageNo')} readOnly={readonly}/></LBL>
         <LBL t="Port of Loading"><input style={inp} value={f.portOfLoading||''} onChange={set('portOfLoading')} readOnly={readonly}/></LBL>
@@ -1366,11 +1357,11 @@ function BoLModal({data,readonly,containers,consignees,shippingCompanies,charges
                       :<select style={{...cellInp,width:80}} value={r.size} onChange={e=>setRow(i,'size',e.target.value)}>{CONT_SIZES.map(s=><option key={s}>{s}</option>)}</select>}
                   </td>
                   <td style={{padding:'4px 6px'}}>
+                    {/* 2026-08-21, per Slot: was a locked <select> with no free-text
+                        alternative at all, the clearest case of the blocking
+                        behavior this fix is for. */}
                     {readonly?r.consigneeName
-                      :<select style={{...cellInp,minWidth:130}} value={r.consigneeId||''} onChange={e=>{const id=e.target.value;const cons=(consignees||[]).find(x=>x.id===id);setRows(p=>p.map((x,j)=>j===i?{...x,consigneeId:id,consigneeName:cons?.name||x.consigneeName}:x));}}>
-                          <option value="">— select —</option>
-                          {(consignees||[]).map(cons=><option key={cons.id} value={cons.id}>{cons.name}</option>)}
-                        </select>}
+                      :<TypeOrPick style={{...cellInp,minWidth:130}} value={r.consigneeName||''} onChange={e=>setRow(i,'consigneeName',e.target.value)} options={consignees||[]} toValue={cons=>cons.name} toLabel={cons=>cons.name} placeholder="Type or pick a consignee" />}
                   </td>
                   <td style={{padding:'4px 6px'}}>
                     {readonly?r.materialDescription
@@ -1475,19 +1466,13 @@ function AdvanceModal({data,readonly,containers,onSave,onClose}) {
       <div style={{padding:20,display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
         <LBL t="Payer Name *"><input style={inp} value={f.payerName||''} onChange={set('payerName')} placeholder="e.g. Nigerian LNG Complex" readOnly={readonly}/></LBL>
         <LBL t="Payer Type">
-          <select style={inp} value={f.payerType||''} onChange={set('payerType')} disabled={readonly}>
-            <option value="">—</option>
-            <option>Consignee</option><option>Shipping Line</option><option>Clearing Agent</option><option>Importer</option><option>Other</option>
-          </select>
+          <TypeOrPick style={inp} value={f.payerType||''} onChange={set('payerType')} disabled={readonly} options={['Consignee','Shipping Line','Clearing Agent','Importer','Other']} placeholder="Type or pick a payer type" />
         </LBL>
         <LBL t="Payment Date *"><input style={inp} type="date" value={f.paymentDate||''} onChange={set('paymentDate')} readOnly={readonly}/></LBL>
         <LBL t="Amount (₦) *"><input style={inp} type="number" value={f.amount||''} onChange={set('amount')} placeholder="0" readOnly={readonly}/></LBL>
         <LBL t="Receipt No"><input style={{...inp,fontFamily:'monospace'}} value={f.receiptNo||''} onChange={set('receiptNo')} placeholder="e.g. ADV-2026-001" readOnly={readonly}/></LBL>
         <LBL t="Purpose">
-          <select style={inp} value={f.purpose||''} onChange={set('purpose')} disabled={readonly}>
-            <option value="">—</option>
-            <option>Clearing</option><option>Forwarding</option><option>Demurrage</option><option>Storage</option><option>Other</option>
-          </select>
+          <TypeOrPick style={inp} value={f.purpose||''} onChange={set('purpose')} disabled={readonly} options={['Clearing','Forwarding','Demurrage','Storage','Other']} placeholder="Type or pick a purpose" />
         </LBL>
         <LBL t="Bank Account">
           <select style={inp} value={f.bankCode||''} onChange={e=>setF(p=>({...p,bankCode:e.target.value,bankName:''}))} disabled={readonly}>

@@ -21,7 +21,7 @@ import { diffAndPush, pushOne } from '../../hooks/usePerRecordSync';
 // rates, instead of the fake "1" this form was defaulting to before —
 // see the fxRate fix in the Client/Currency selects below.
 import { DEFAULT_FX } from '../../utils/financeConstants';
-import { Btn, Tag, Card, FG, SearchBar, TabBar, EmptyState, Confirm, StatCard, AttachmentUploader } from '../ui';
+import { Btn, Tag, Card, FG, SearchBar, TabBar, EmptyState, Confirm, StatCard, AttachmentUploader, TypeOrPick } from '../ui';
 import { printHeader, PRINT_CSS } from '../../utils/logo';
 
 const STATUS = ['Draft', 'Confirmed', 'Partially Invoiced', 'Invoiced', 'Closed', 'Cancelled'];
@@ -437,10 +437,17 @@ function SOForm({ so: initial, setSo, onSave, onCancel, C, inp, currentUser }) {
           <FG label="Order Date"><input type="date" style={inp} value={f.date||''} onChange={e=>set('date', e.target.value)} /></FG>
           <FG label="Expected Delivery"><input type="date" style={inp} value={f.expectedDelivery||''} onChange={e=>set('expectedDelivery', e.target.value)} /></FG>
           <FG label="Client *">
-            <select style={inp} value={f.clientCode||''} onChange={e => { const c = clients.find(x => x.code === e.target.value); setF(p => ({ ...p, clientCode: e.target.value, client: c?.name || p.client, currency: c?.currency || p.currency, fxRate: c?.currency && c.currency !== 'NGN' ? (p.fxRate && p.fxRate !== 1 ? p.fxRate : (DEFAULT_FX[c.currency] || '')) : 1 })); }}>
-              <option value="">— Select client —</option>
-              {clients.map(c => <option key={c.id} value={c.code}>{c.name} — {c.code} ({c.currency})</option>)}
-            </select>
+            {/* 2026-08-21, per Slot: was a locked <select>, same conversion as AR's
+                own New Invoice Client field. */}
+            <TypeOrPick
+              style={inp}
+              value={f.clientCode||''}
+              onChange={e => { const c = clients.find(x => x.code === e.target.value); setF(p => ({ ...p, clientCode: e.target.value, client: c?.name || p.client, currency: c?.currency || p.currency, fxRate: c?.currency && c.currency !== 'NGN' ? (p.fxRate && p.fxRate !== 1 ? p.fxRate : (DEFAULT_FX[c.currency] || '')) : 1 })); }}
+              options={clients}
+              toValue={c=>c.code}
+              toLabel={c=>`${c.name} — ${c.code} (${c.currency})`}
+              placeholder="Type a client name, or pick from the list"
+            />
           </FG>
           <FG label="Project Ref">
             <select style={inp} value={f.projectRef||''} onChange={e => set('projectRef', e.target.value)}>

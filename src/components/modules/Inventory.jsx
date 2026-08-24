@@ -6,7 +6,7 @@ import { generateId, showToast } from '../../utils/helpers'; // auto-patched
 import { getDeepLinkTab } from '../../utils/helpers';
 import { saveDBLocal } from '../../utils/db';
 import { logActivity } from '../../utils/audit';
-import { Btn, Tag, StatCard, Modal, FG, FormGrid, SectionLabel, SearchBar, TabBar, EmptyState, Confirm } from '../ui';
+import { Btn, Tag, StatCard, Modal, FG, FormGrid, SectionLabel, SearchBar, TabBar, EmptyState, Confirm, TypeOrPick } from '../ui';
 import { printHeader, SLOT_BRAND, PRINT_CSS, printBootstrap, openPrintWindow} from '../../utils/logo';
 import { valueIssue, journalFromStockIssue, UOM } from '../../utils/inventoryModel';
 import { readTextSmart } from '../../utils/excelIO';
@@ -636,9 +636,11 @@ function StockCostingTab({ C, db, currentUser, dispatch, state }) {
             <FG label="Name *"><input style={{ padding:'7px 10px', borderRadius:7, border:'1px solid '+C.border, background:C.bgCard, color:C.text, fontSize:13, width:'100%' }} value={newItem.name} onChange={e=>setNewItem(p=>({...p,name:e.target.value}))} /></FG>
             <FG label="Category"><input style={{ padding:'7px 10px', borderRadius:7, border:'1px solid '+C.border, background:C.bgCard, color:C.text, fontSize:13, width:'100%' }} value={newItem.category} onChange={e=>setNewItem(p=>({...p,category:e.target.value}))} placeholder="e.g. Pipes / Electrical / Hardware" /></FG>
             <FG label="Unit of Measure">
-              <select style={{ padding:'7px 10px', borderRadius:7, border:'1px solid '+C.border, background:C.bgCard, color:C.text, fontSize:13, width:'100%' }} value={newItem.uom} onChange={e=>setNewItem(p=>({...p,uom:e.target.value}))}>
-                {['pcs','m','kg','litre','tonne','box','bundle','set','roll','sheet'].map(u=><option key={u}>{u}</option>)}
-              </select>
+              {/* 2026-08-21, per Slot: was a locked <select> with its own inline
+                  list, separate and inconsistent from the shared UOM list
+                  utils/inventoryModel.js already exports (and the Materials tab's
+                  own Unit field, below, already used). Unified to one source. */}
+              <TypeOrPick style={{ padding:'7px 10px', borderRadius:7, border:'1px solid '+C.border, background:C.bgCard, color:C.text, fontSize:13, width:'100%' }} value={newItem.uom} onChange={e=>setNewItem(p=>({...p,uom:e.target.value}))} options={UOM} placeholder="Type a unit, or pick from the list" />
             </FG>
             <FG label="Reorder Point" hint="Alert when on-hand drops to or below this"><input type="number" style={{ padding:'7px 10px', borderRadius:7, border:'1px solid '+C.border, background:C.bgCard, color:C.text, fontSize:13, width:'100%' }} value={newItem.reorderPoint||''} onChange={e=>setNewItem(p=>({...p,reorderPoint:e.target.value}))} /></FG>
             <FG label="Opening Quantity" hint="Initial stock on hand (optional)"><input type="number" style={{ padding:'7px 10px', borderRadius:7, border:'1px solid '+C.border, background:C.bgCard, color:C.text, fontSize:13, width:'100%' }} value={newItem.openingQty||''} onChange={e=>setNewItem(p=>({...p,openingQty:e.target.value}))} /></FG>
@@ -760,7 +762,7 @@ function InvModal({ tab, modal, onSave, onClose }) {
       {tab === 'materials' && <FormGrid>
         <FG label="Name of Material" full><input style={inp} value={f.name} onChange={set('name')} placeholder="e.g. Reinforcement Steel (16mm)" /></FG>
         <FG label="Quantity"><input style={inp} type="number" value={f.qty ?? ''} onChange={e=>setF(p=>({...p,qty:e.target.value===''?'':Number(e.target.value)}))} placeholder="e.g. 500" /></FG>
-        <FG label="Unit"><select style={inp} value={f.uom||'pcs'} onChange={set('uom')}>{UOM.map(u=><option key={u}>{u}</option>)}</select></FG>
+        <FG label="Unit"><TypeOrPick style={inp} value={f.uom||'pcs'} onChange={set('uom')} options={UOM} placeholder="Type a unit, or pick from the list" /></FG>
         <FG label="Position / Location"><input style={inp} value={f.position} onChange={set('position')} placeholder="e.g. Yard A – Bay 3" /></FG>
         <FG label="Status"><select style={inp} value={f.status} onChange={set('status')}>{MAT_STATUSES.map(s=><option key={s}>{s}</option>)}</select></FG>
       </FormGrid>}

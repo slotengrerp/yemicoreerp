@@ -12,6 +12,7 @@ import { getDeepLinkTab } from '../../utils/helpers';
 import { logActivity } from '../../utils/audit';
 import { printHeader, PRINT_CSS, printBootstrap, openPrintWindow} from '../../utils/logo';
 import { diffAndPush } from '../../hooks/usePerRecordSync';
+import { TypeOrPick } from '../ui';
 
 // ── Print helpers ─────────────────────────────────────────────────────────────
 function printFleetRegister(fleet) {
@@ -231,13 +232,13 @@ function FleetModal({ vehicle, onSave, onClose, canEdit }) {
               registered so renaming it here can't silently orphan those
               references, regardless of edit permission. */}
           <FG label="Vehicle Number *"><input style={inpS} value={f.vehicleNo} onChange={set('vehicleNo')} placeholder="e.g. PH-458-AHZ" readOnly={isExisting} /></FG>
-          <FG label="Vehicle Type"><select style={inpS} value={f.vehicleType} onChange={set('vehicleType')} disabled={isView}>{TYPES.map(t=><option key={t}>{t}</option>)}</select></FG>
+          <FG label="Vehicle Type"><TypeOrPick style={inpS} value={f.vehicleType} onChange={set('vehicleType')} disabled={isView} options={TYPES} placeholder="Type a vehicle type, or pick from the list" /></FG>
           <FG label="Make / Model"><input style={inpS} value={f.make} onChange={set('make')} placeholder="e.g. Toyota Hilux D4D" readOnly={isView} /></FG>
           <FG label="Year"><input style={inpS} value={f.year} onChange={set('year')} type="number" placeholder="e.g. 2022" readOnly={isView} /></FG>
           <FG label="Engine No."><input style={inpS} value={f.engineNo} onChange={set('engineNo')} placeholder="Engine number" readOnly={isView} /></FG>
           <FG label="Chassis No."><input style={inpS} value={f.chassisNo} onChange={set('chassisNo')} placeholder="Chassis/VIN number" readOnly={isView} /></FG>
           <FG label="Assigned Driver"><input style={inpS} value={f.assignedDriver} onChange={set('assignedDriver')} placeholder="Driver name" readOnly={isView} /></FG>
-          <FG label="Assigned Unit"><select style={inpS} value={f.assignedUnit} onChange={set('assignedUnit')} disabled={isView}>{UNITS.map(u=><option key={u}>{u}</option>)}</select></FG>
+          <FG label="Assigned Unit"><TypeOrPick style={inpS} value={f.assignedUnit} onChange={set('assignedUnit')} disabled={isView} options={UNITS} placeholder="Type a unit/department, or pick from the list" /></FG>
           <FG label="Current Location"><input style={inpS} value={f.currentLocation} onChange={set('currentLocation')} placeholder="Location" readOnly={isView} /></FG>
           <FG label="Current Km/Hr Reading"><input style={inpS} value={f.currentKm} onChange={set('currentKm')} placeholder="e.g. 45,230" readOnly={isView} /></FG>
           <FG label="Status"><select style={inpS} value={f.status} onChange={set('status')} disabled={isView}>{STATUSES.map(s=><option key={s}>{s}</option>)}</select></FG>
@@ -295,7 +296,7 @@ function ServiceModal({ rec, fleet, onSave, onClose }) {
 
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10, marginBottom:14 }}>
           <FG label="Operation / Service Type">
-            {isView ? <span style={{ fontSize:13, fontWeight:600, color:C.text }}>{f.operation}</span> : <select style={inpS} value={f.operation} onChange={set('operation')}>{OPERATIONS.map(o=><option key={o}>{o}</option>)}</select>}
+            {isView ? <span style={{ fontSize:13, fontWeight:600, color:C.text }}>{f.operation}</span> : <TypeOrPick style={inpS} value={f.operation} onChange={set('operation')} options={OPERATIONS} placeholder="Type an operation/service type, or pick from the list" />}
           </FG>
           <FG label="Service Date"><input style={inpS} type="date" value={f.serviceDate} onChange={set('serviceDate')} readOnly={isView} /></FG>
           <FG label="Service km/hr Reading"><input style={inpS} value={f.serviceKm} onChange={set('serviceKm')} placeholder="e.g. 45,000" readOnly={isView} /></FG>
@@ -643,16 +644,11 @@ function CalibrationModal({ rec, fleet, onSave, onClose }) {
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
             <div>
               <label style={lbl}>Certificate Type *</label>
-              <select style={inp} value={f.certType} onChange={set('certType')}>
-                {CAL_TYPES.map(t=><option key={t}>{t}</option>)}
-              </select>
+              <TypeOrPick style={inp} value={f.certType} onChange={set('certType')} options={CAL_TYPES} placeholder="Type a certificate type, or pick from the list" />
             </div>
             <div>
               <label style={lbl}>Certifying Authority</label>
-              <select style={inp} value={f.authority||''} onChange={set('authority')}>
-                <option value="">— Select —</option>
-                {CAL_AUTHORITIES.map(a=><option key={a}>{a}</option>)}
-              </select>
+              <TypeOrPick style={inp} value={f.authority||''} onChange={set('authority')} options={CAL_AUTHORITIES} placeholder="Type an authority, or pick from the list" />
             </div>
           </div>
 

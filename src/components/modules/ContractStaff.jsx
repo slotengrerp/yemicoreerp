@@ -15,6 +15,7 @@ import { SLOT_LOGO_B64, SLOT_BRAND, printHeader, PRINT_CSS, openPrintWindow, pri
 // calcPAYE_Nigeria import removed 2026-08-05 — PAYE is now entered per staff
 // member on the staff form rather than calculated.
 import { getProjects } from '../../utils/projectMaster';
+import { TypeOrPick } from '../ui';
 
 const DEPARTMENTS = ['Engineering','HSE','Operations','Admin','Procurement','Finance','Mechanical','Electrical','Civil','IT','Legal','Logistics'];
 const STATES = ['Abia','Adamawa','Akwa Ibom','Anambra','Bauchi','Bayelsa','Benue','Borno','Cross River','Delta','Ebonyi','Edo','Ekiti','Enugu','FCT','Gombe','Imo','Jigawa','Kaduna','Kano','Katsina','Kebbi','Kogi','Kwara','Lagos','Nasarawa','Niger','Ogun','Ondo','Osun','Oyo','Plateau','Rivers','Sokoto','Taraba','Yobe','Zamfara'];
@@ -358,7 +359,7 @@ function StaffModal({ modal, onSave, onClose, projects }) {
           </div>
           <SecLabel label="Payment Details" />
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
-            <FG label="Bank"><select style={inp} value={f.bank} onChange={set('bank')}><option value="">— Bank —</option>{BANKS.map(b=><option key={b}>{b}</option>)}</select></FG>
+            <FG label="Bank"><TypeOrPick style={inp} value={f.bank} onChange={set('bank')} options={BANKS} placeholder="Type a bank name, or pick from the list" /></FG>
             <FG label="Account Number"><input style={inp} value={f.accountNo} onChange={set('accountNo')} placeholder="10-digit account no." /></FG>
           </div>
 

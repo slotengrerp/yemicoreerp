@@ -153,6 +153,83 @@ export function Sel({ value, onChange, children }) {
   );
 }
 
+// ── TypeOrPick ────────────────────────────────────────────────────────────────
+//
+// 2026-08-21, per a request from Slot staff: every dropdown across the app
+// that represents a "pick a name from a growing list" field, a supplier,
+// bank, department, category, work location, etc., blocked staff from
+// entering something that wasn't already on the list. Procurement.jsx had
+// already solved this for its own Supplier/Client fields with a plain
+// <input list="..."> + <datalist> pair (native HTML, no extra library): you
+// can type a brand new name and save normally, or start typing and pick a
+// suggestion to keep spelling consistent with existing records. This
+// component is that same pattern, generalised so every other module can
+// reuse one implementation instead of hand-rolling its own datalist id and
+// option-mapping each time.
+//
+// This is NOT a blanket replacement for every <select> in the app. Fields
+// that drive real business logic via exact string matching, Status
+// dropdowns, approval/role fields, Currency, Type toggles, month/year
+// pickers, and foreign-key pickers that must reference a real existing
+// record by id, stay as locked <select> elements on purpose: a free-typed
+// value there wouldn't just be untidy, it would silently fall through GL
+// posting maps, approval chains, or record-locking logic that requires an
+// exact match. Only convert a field to this component if it is genuinely
+// open-ended, real-world, master-data-style, and grows over time.
+//
+// `options` accepts either a plain array of strings, e.g. BANKS, or an
+// array of objects, e.g. getVendors(), in which case pass `toValue`/
+// `toLabel` to say how to read each one (both default to sensible guesses:
+// obj.code ?? obj.name ?? obj.id for the value, "name (currency)" for the
+// label when both exist). `onChange` receives the native change event, same
+// as a plain <input onChange>, so an existing `set('field')`-style handler
+// used with a <select> keeps working unchanged when swapped to this.
+//
+//   <TypeOrPick
+//     value={form.supplier}
+//     onChange={set('supplier')}
+//     options={vendors}                 // from getVendors()
+//     placeholder="Type a supplier name, or pick from the list"
+//     style={S.inp}                     // reuse whatever style object the
+//   />                                  // surrounding form already uses
+//
+//   <TypeOrPick value={form.bank} onChange={set('bank')} options={BANKS} style={inp} />
+import { useId } from 'react';
+export function TypeOrPick({ value, onChange, options = [], toValue, toLabel, placeholder, style, disabled, readOnly, name }) {
+  const { C } = useTheme();
+  const listId = useId();
+  const getValue = toValue || (o => (typeof o === 'string' ? o : o.code ?? o.name ?? o.id ?? String(o)));
+  const getLabel = toLabel || (o => {
+    if (typeof o === 'string') return o;
+    const v = getValue(o);
+    if (o.name && o.currency) return `${o.name} (${o.currency})`;
+    if (o.name && o.name !== v) return o.name;
+    return v;
+  });
+  const defaultStyle = { padding: '7px 10px', borderRadius: 7, border: '1px solid ' + C.border, background: C.bgCard, color: C.text, fontSize: 13, width: '100%', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' };
+  return (
+    <>
+      <input
+        list={listId}
+        value={value ?? ''}
+        onChange={onChange}
+        placeholder={placeholder || 'Type to add new, or pick from the list'}
+        disabled={disabled}
+        readOnly={readOnly}
+        name={name}
+        style={style || defaultStyle}
+      />
+      <datalist id={listId}>
+        {options.map((o, i) => {
+          const v = getValue(o);
+          const l = getLabel(o);
+          return <option key={v + '-' + i} value={v}>{l !== v ? l : undefined}</option>;
+        })}
+      </datalist>
+    </>
+  );
+}
+
 // ── Search bar ────────────────────────────────────────────────────────────────
 export function SearchBar({ value, onChange, placeholder = 'Search…' }) {
   const { C } = useTheme();

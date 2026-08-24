@@ -12,6 +12,7 @@ import { saveDBLocal } from '../../utils/db';
 import { logActivity }  from '../../utils/audit';
 import { printHeader, PRINT_CSS, printBootstrap, openPrintWindow} from '../../utils/logo';
 import { diffAndPush } from '../../hooks/usePerRecordSync';
+import { TypeOrPick } from '../ui';
 
 const uid   = () => generateId();
 const today = () => new Date().toISOString().split('T')[0];
@@ -549,8 +550,8 @@ export default function FixedAssets() {
               <FG label="Residual / Scrap Value (₦)"><input type="number" style={inp} value={form.residualValue} onChange={e=>setForm(f=>({...f,residualValue:e.target.value}))} placeholder="Expected residual value" /></FG>
               <FG label="Useful Life (Years)"><input type="number" style={inp} value={form.usefulLifeYrs} onChange={e=>setForm(f=>({...f,usefulLifeYrs:e.target.value}))} min="1" max="50" /></FG>
               <FG label="Condition"><select style={inp} value={form.condition} onChange={e=>setForm(f=>({...f,condition:e.target.value}))}>{COND_LIST.map(c=><option key={c}>{c}</option>)}</select></FG>
-              <FG label="Location"><select style={inp} value={form.location} onChange={e=>setForm(f=>({...f,location:e.target.value}))}>{LOCATIONS.map(l=><option key={l}>{l}</option>)}</select></FG>
-              <FG label="Department"><select style={inp} value={form.department} onChange={e=>setForm(f=>({...f,department:e.target.value}))}>{DEPT_LIST.map(d=><option key={d}>{d}</option>)}</select></FG>
+              <FG label="Location"><TypeOrPick style={inp} value={form.location} onChange={e=>setForm(f=>({...f,location:e.target.value}))} options={LOCATIONS} placeholder="Type a location, or pick from the list" /></FG>
+              <FG label="Department"><TypeOrPick style={inp} value={form.department} onChange={e=>setForm(f=>({...f,department:e.target.value}))} options={DEPT_LIST} placeholder="Type a department, or pick from the list" /></FG>
               <FG label="Assigned To"><input style={inp} value={form.assignedTo} onChange={e=>setForm(f=>({...f,assignedTo:e.target.value}))} placeholder="Staff or unit" /></FG>
               <FG label="Notes"><input style={inp} value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} placeholder="Additional notes" /></FG>
             </div>
@@ -620,7 +621,7 @@ export default function FixedAssets() {
               </div>
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
                 <FG label="Disposal Date *"><input type="date" style={inp} value={disposeForm.disposalDate} min={a.purchaseDate} onChange={e=>setDisposeForm(f=>({...f,disposalDate:e.target.value}))} /></FG>
-                <FG label="Disposal Method"><select style={inp} value={disposeForm.disposalMethod} onChange={e=>setDisposeForm(f=>({...f,disposalMethod:e.target.value}))}>{DISPOSAL_METHODS.map(m=><option key={m}>{m}</option>)}</select></FG>
+                <FG label="Disposal Method"><TypeOrPick style={inp} value={disposeForm.disposalMethod} onChange={e=>setDisposeForm(f=>({...f,disposalMethod:e.target.value}))} options={DISPOSAL_METHODS} placeholder="Type a method, or pick from the list" /></FG>
                 <FG label="Disposal Proceeds (₦)"><input type="number" style={inp} value={disposeForm.disposalProceeds} onChange={e=>setDisposeForm(f=>({...f,disposalProceeds:e.target.value}))} placeholder="Sale price, if any — 0 for scrap/write-off" /></FG>
                 <FG label="Notes"><input style={inp} value={disposeForm.disposalNotes} onChange={e=>setDisposeForm(f=>({...f,disposalNotes:e.target.value}))} placeholder="Optional" /></FG>
               </div>

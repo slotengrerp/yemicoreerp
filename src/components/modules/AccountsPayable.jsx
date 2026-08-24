@@ -16,6 +16,7 @@ import { matchBill, decideOnVariance } from '../../utils/threeWayMatch';
 import { diffAndPush } from '../../hooks/usePerRecordSync';
 import { printHeader, printBootstrap, openPrintWindow} from '../../utils/logo';
 import { getApSource } from '../../utils/apBridge';
+import { TypeOrPick } from '../ui';
 
 const uid   = () => generateId();
 const today = () => new Date().toISOString().split('T')[0];
@@ -697,10 +698,20 @@ export default function AccountsPayable() {
             </div>
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
               <FG label="Supplier *" full>
-                <select style={{ ...inp }} value={form.vendor} onChange={e=>handleVendorChange(e.target.value)}>
-                  <option value="">— Select Supplier —</option>
-                  {vendors.map(v=><option key={v.id} value={v.code}>{v.name} — {v.code} ({v.currency})</option>)}
-                </select>
+                {/* 2026-08-21, per Slot: was a locked <select>, forcing a choice from
+                    the vendor master with no way to bill a supplier not yet on file.
+                    Type-or-pick, same pattern already used for Procurement's PO/RFQ
+                    supplier fields — type a new name and save normally, or pick a
+                    suggestion to keep spelling consistent with existing records. */}
+                <TypeOrPick
+                  style={{ ...inp }}
+                  value={form.vendor}
+                  onChange={e=>handleVendorChange(e.target.value)}
+                  options={vendors}
+                  toValue={v=>v.code}
+                  toLabel={v=>`${v.name} — ${v.code} (${v.currency})`}
+                  placeholder="Type a supplier name, or pick from the list"
+                />
               </FG>
               <FG label="Invoice / Bill Reference *"><input style={inp} value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))} placeholder="Supplier's invoice reference or description" /></FG>
               <FG label="Bill Date *"><input type="date" style={inp} value={form.date} onChange={e=>setForm(f=>({...f,date:e.target.value}))} /></FG>

@@ -14,6 +14,7 @@ import { logActivity }  from '../../utils/audit';
 import { printHeader, PRINT_CSS, printBootstrap, openPrintWindow} from '../../utils/logo';
 import { initApproval, applyDecision, canApproveAtCurrentLevel, approvalSummary } from '../../utils/approvalEngine';
 import { diffAndPush, pushOne } from '../../hooks/usePerRecordSync';
+import { TypeOrPick } from '../ui';
 
 const uid   = () => generateId();
 const today = () => new Date().toISOString().split('T')[0];
@@ -382,7 +383,7 @@ export default function Requests({ onNav }) {
             </div>
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:14 }}>
               <FG label="Request Type"><select style={inp} value={form.type} onChange={e=>setForm(f=>({...f,type:e.target.value}))}>{REQUEST_TYPES.map(t=><option key={t}>{t}</option>)}</select></FG>
-              <FG label="Department"><select style={inp} value={form.department} onChange={e=>setForm(f=>({...f,department:e.target.value}))}>{DEPARTMENTS.map(d=><option key={d}>{d}</option>)}</select></FG>
+              <FG label="Department"><TypeOrPick style={inp} value={form.department} onChange={e=>setForm(f=>({...f,department:e.target.value}))} options={DEPARTMENTS} placeholder="Type a department, or pick from the list" /></FG>
               <FG label="Priority"><select style={inp} value={form.priority} onChange={e=>setForm(f=>({...f,priority:e.target.value}))}>{PRIORITIES.map(p=><option key={p}>{p}</option>)}</select></FG>
               <FG label="Request Date"><input type="date" style={inp} value={form.date} onChange={e=>setForm(f=>({...f,date:e.target.value}))} /></FG>
               <FG label="Required By *"><input type="date" style={inp} value={form.requiredBy} onChange={e=>setForm(f=>({...f,requiredBy:e.target.value}))} /></FG>

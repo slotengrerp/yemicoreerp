@@ -16,6 +16,7 @@ import { USE_PER_RECORD } from '../../hooks/usePerRecordSync';
 import { supabaseReady } from '../../supabase/client';
 import { DEFAULT_APPROVAL_RULES, APPROVAL_WORKFLOWS, ROLE_LABELS } from '../../utils/approvalEngine';
 import { ROLE_PERMS, getAllRoles, slugifyRoleKey } from '../../utils/auth';
+import { TypeOrPick } from '../ui';
 
 function Btn({ children, onClick, variant='primary', sm, disabled, style={} }) {
   const { C } = useTheme();
@@ -211,7 +212,7 @@ export default function Settings() {
               <FG label="Legal Company Name *" full><input style={inp} value={s.brand.name} onChange={e=>setS(p=>({...p,brand:{...p.brand,name:e.target.value}}))} /></FG>
               <FG label="Short Name / Trading Name"><input style={inp} value={s.brand.short} onChange={e=>setS(p=>({...p,brand:{...p.brand,short:e.target.value}}))} /></FG>
               <FG label="Tagline" full><input style={inp} value={s.brand.tagline} onChange={e=>setS(p=>({...p,brand:{...p.brand,tagline:e.target.value}}))} /></FG>
-              <FG label="Industry"><select style={inp} value={s.brand.industry} onChange={e=>setS(p=>({...p,brand:{...p.brand,industry:e.target.value}}))}>{INDUSTRIES.map(i=><option key={i}>{i}</option>)}</select></FG>
+              <FG label="Industry"><TypeOrPick style={inp} value={s.brand.industry} onChange={e=>setS(p=>({...p,brand:{...p.brand,industry:e.target.value}}))} options={INDUSTRIES} placeholder="Type an industry, or pick from the list" /></FG>
               <FG label="RC Number"><input style={inp} value={s.brand.rc} onChange={e=>setS(p=>({...p,brand:{...p.brand,rc:e.target.value}}))} placeholder="CAC registration number" /></FG>
               <FG label="Tax ID Number (TIN)"><input style={inp} value={s.brand.tin} onChange={e=>setS(p=>({...p,brand:{...p.brand,tin:e.target.value}}))} /></FG>
               <FG label="Address" full><input style={inp} value={s.brand.address} onChange={e=>setS(p=>({...p,brand:{...p.brand,address:e.target.value}}))} /></FG>

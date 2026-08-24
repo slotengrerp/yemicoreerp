@@ -12,6 +12,7 @@ import { logActivity }  from '../../utils/audit';
 import { pushOne, pushDelete } from '../../hooks/usePerRecordSync';
 import { SLOT_LOGO_B64, SLOT_BRAND, printHeader, PRINT_CSS, openPrintWindow, printBootstrap} from '../../utils/logo';
 import { getProjects } from '../../utils/projectMaster';
+import { TypeOrPick } from '../ui';
 // calcPAYE_Nigeria import removed 2026-08-05 — PAYE is now entered per staff
 // member on the staff form rather than calculated.
 
@@ -466,7 +467,7 @@ function StaffModal({ modal, onSave, onClose, projects }) {
               <input style={inp} list="slotstaff-title-suggestions" value={f.serviceTitle} onChange={set('serviceTitle')} placeholder="Type a service title, or pick from the list" />
               <datalist id="slotstaff-title-suggestions">{SERVICE_TITLES.map(t=><option key={t} value={t} />)}</datalist>
             </FG>
-            <FG label="Work Location"><select style={inp} value={f.workLocation} onChange={set('workLocation')}>{WORK_LOCATIONS.map(l=><option key={l}>{l}</option>)}</select></FG>
+            <FG label="Work Location"><TypeOrPick style={inp} value={f.workLocation} onChange={set('workLocation')} options={WORK_LOCATIONS} placeholder="Type a work location, or pick from the list" /></FG>
             <FG label="Project / Cost Centre"><select style={inp} value={f.projectCode||''} onChange={set('projectCode')}><option value="">— Unallocated —</option>{projects.map(p=><option key={p.code} value={p.code}>{p.code}</option>)}</select></FG>
             <FG label="Status"><select style={inp} value={f.status} onChange={set('status')}>{STATUSES.map(s=><option key={s}>{s}</option>)}</select></FG>
             <FG label="Phone"><input style={inp} value={f.phone} onChange={set('phone')} placeholder="080…" /></FG>
@@ -474,7 +475,7 @@ function StaffModal({ modal, onSave, onClose, projects }) {
           </div>
           <SecLabel label="Payment Details" />
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
-            <FG label="Bank"><select style={inp} value={f.bank} onChange={set('bank')}><option value="">— Bank —</option>{BANKS.map(b=><option key={b}>{b}</option>)}</select></FG>
+            <FG label="Bank"><TypeOrPick style={inp} value={f.bank} onChange={set('bank')} options={BANKS} placeholder="Type a bank name, or pick from the list" /></FG>
             <FG label="Account Number"><input style={inp} value={f.accountNo} onChange={set('accountNo')} placeholder="10-digit account no." /></FG>
             <FG label="Pension PIN"><input style={inp} value={f.pensionPin} onChange={set('pensionPin')} placeholder="PEN..." /></FG>
             <FG label="Basic Salary (₦)"><input style={inp} type="number" value={f.basicSalary} onChange={set('basicSalary')} placeholder="0" /></FG>

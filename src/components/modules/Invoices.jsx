@@ -13,6 +13,7 @@ import { printHeader, PRINT_CSS, SLOT_BRAND, SLOT_LOGO_SRC, printBootstrap, open
 import { getClients, getClientByCode } from '../../utils/clientMaster';
 import { getProjects, getProjectByCode } from '../../utils/projectMaster';
 import { diffAndPush } from '../../hooks/usePerRecordSync';
+import { TypeOrPick } from '../ui';
 
 const uid = () => generateId();
 const today = () => new Date().toISOString().split('T')[0];
@@ -491,7 +492,7 @@ export default function Invoices({ onNav }) {
                   {projects.map(p=><option key={p.id} value={p.code}>{p.code}{p.name&&p.name!==p.code?` — ${p.name}`:''}</option>)}
                 </select>
               </FG>
-              <FG label="Category"><select style={sel} value={form.category} onChange={e=>setForm(f=>({...f,category:e.target.value}))}>{CATEGORIES.map(c=><option key={c}>{c}</option>)}</select></FG>
+              <FG label="Category"><TypeOrPick style={sel} value={form.category} onChange={e=>setForm(f=>({...f,category:e.target.value}))} options={CATEGORIES} placeholder="Type a category, or pick from the list" /></FG>
               <FG label="Invoice Date *"><input type="date" style={inp} value={form.date} onChange={e=>setForm(f=>({...f,date:e.target.value}))} /></FG>
               <FG label="Due Date *"><input type="date" style={inp} value={form.dueDate} onChange={e=>setForm(f=>({...f,dueDate:e.target.value}))} /></FG>
               <FG label="Payment Terms"><select style={sel} value={form.paymentTerms} onChange={e=>setForm(f=>({...f,paymentTerms:e.target.value}))}>{PAYMENT_TERMS.map(t=><option key={t}>{t}</option>)}</select></FG>
